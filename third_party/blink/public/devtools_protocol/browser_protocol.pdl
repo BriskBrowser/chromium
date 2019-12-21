@@ -3605,6 +3605,10 @@ experimental domain LayerTree
     parameters
       # Layer tree, absent if not in the comspositing mode.
       optional array of Layer layers
+      # cc property_tree encoded as JSON
+      optional string propertyTreesJSON
+      # dump of layer data (pointing into property tree)
+      optional string LayerImplsJSON
 
 # Provides access to log entries.
 domain Log

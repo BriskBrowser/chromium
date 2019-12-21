@@ -83,16 +83,6 @@ static std::unique_ptr<protocol::DOM::Rect> BuildObjectForRect(
       .build();
 }
 
-static std::unique_ptr<protocol::DOM::Rect> BuildObjectForRect(
-    const gfx::RectF& rect) {
-  return protocol::DOM::Rect::create()
-      .setX(rect.x())
-      .setY(rect.y())
-      .setHeight(rect.height())
-      .setWidth(rect.width())
-      .build();
-}
-
 static std::unique_ptr<protocol::LayerTree::ScrollRect> BuildScrollRect(
     const gfx::Rect& rect,
     const String& type) {
@@ -292,7 +282,10 @@ Response InspectorLayerTreeAgent::disable() {
 }
 
 void InspectorLayerTreeAgent::LayerTreeDidChange() {
-  GetFrontend()->layerTreeDidChange(BuildLayerTree());
+  GetFrontend()->layerTreeDidChange(
+      BuildLayerTree(),
+      GetPropertyTreesJSON(),
+      GetLayerImplJSON());
 }
 
 void InspectorLayerTreeAgent::LayerTreePainted() {
@@ -324,6 +317,23 @@ InspectorLayerTreeAgent::BuildLayerTree() {
                scrolling_layer_id);
   return layers;
 }
+
+std::unique_ptr<String> InspectorLayerTreeAgent::GetPropertyTreesJSON() {
+  const auto* root_layer = RootLayer();
+  if (!root_layer)
+    return nullptr;
+
+  return std::make_unique<String>(root_layer->layer_tree_host()->property_trees()->ToString());
+}
+
+std::unique_ptr<String> InspectorLayerTreeAgent::GetLayerImplJSON() {
+  const auto* root_layer = RootLayer();
+  if (!root_layer)
+    return nullptr;
+
+  return std::make_unique<String>(root_layer->layer_tree_host()->LayerListAsJson());
+}
+
 
 void InspectorLayerTreeAgent::GatherLayers(
     const cc::Layer* layer,
