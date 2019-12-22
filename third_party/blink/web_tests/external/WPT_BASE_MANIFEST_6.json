@@ -1669,6 +1669,18 @@
      {}
     ]
    ],
+   "css/css-pseudo/spelling-error-002-manual.html": [
+    [
+     "css/css-pseudo/spelling-error-002-manual.html",
+     {}
+    ]
+   ],
+   "css/css-pseudo/spelling-error-003-manual.html": [
+    [
+     "css/css-pseudo/spelling-error-003-manual.html",
+     {}
+    ]
+   ],
    "css/css-scroll-snap/snap-at-user-scroll-end-manual.html": [
     [
      "css/css-scroll-snap/snap-at-user-scroll-end-manual.html",
@@ -144711,6 +144723,9 @@
    "css/css-pseudo/spelling-error-001-ref.html": [
     []
    ],
+   "css/css-pseudo/textpath-selection-011-ref.html": [
+    []
+   ],
    "css/css-rhythm/META.yml": [
     []
    ],
@@ -155539,6 +155554,9 @@
     []
    ],
    "domxpath/README.md": [
+    []
+   ],
+   "domxpath/helpers.js": [
     []
    ],
    "domxpath/xml_xpath_tests.xml": [
@@ -232137,6 +232155,12 @@
      {}
     ]
    ],
+   "domxpath/booleans.html": [
+    [
+     "domxpath/booleans.html",
+     {}
+    ]
+   ],
    "domxpath/document.tentative.html": [
     [
      "domxpath/document.tentative.html",
@@ -232146,6 +232170,18 @@
    "domxpath/evaluator-constructor.html": [
     [
      "domxpath/evaluator-constructor.html",
+     {}
+    ]
+   ],
+   "domxpath/fn-concat.html": [
+    [
+     "domxpath/fn-concat.html",
+     {}
+    ]
+   ],
+   "domxpath/fn-contains.html": [
+    [
+     "domxpath/fn-contains.html",
      {}
     ]
    ],
@@ -232161,9 +232197,45 @@
      {}
     ]
    ],
+   "domxpath/fn-starts-with.html": [
+    [
+     "domxpath/fn-starts-with.html",
+     {}
+    ]
+   ],
+   "domxpath/fn-substring-after.html": [
+    [
+     "domxpath/fn-substring-after.html",
+     {}
+    ]
+   ],
+   "domxpath/fn-substring-before.html": [
+    [
+     "domxpath/fn-substring-before.html",
+     {}
+    ]
+   ],
+   "domxpath/fn-substring.html": [
+    [
+     "domxpath/fn-substring.html",
+     {}
+    ]
+   ],
+   "domxpath/fn-translate.html": [
+    [
+     "domxpath/fn-translate.html",
+     {}
+    ]
+   ],
    "domxpath/node-sets.html": [
     [
      "domxpath/node-sets.html",
+     {}
+    ]
+   ],
+   "domxpath/numbers.html": [
+    [
+     "domxpath/numbers.html",
      {}
     ]
    ],
@@ -336458,6 +336530,12 @@
      {}
     ]
    ],
+   "css/css-pseudo/textpath-selection-011.html": [
+    [
+     "css/css-pseudo/textpath-selection-011.html",
+     {}
+    ]
+   ],
    "css/css-sizing/intrinsic-percent-non-replaced-002.html": [
     [
      "css/css-sizing/intrinsic-percent-non-replaced-002.html",
@@ -400695,6 +400773,22 @@
    "a71d6f0155e42ad0ebe33f6ea11aa5755201beaa",
    "reftest"
   ],
+  "css/css-pseudo/spelling-error-002-manual.html": [
+   "88fa97038ce0a5791c733cbc50926e4447440259",
+   "manual"
+  ],
+  "css/css-pseudo/spelling-error-003-manual.html": [
+   "559a4fe092ebaa72e31e5a07c38abcc0e6ca6122",
+   "manual"
+  ],
+  "css/css-pseudo/textpath-selection-011-ref.html": [
+   "d9ba940518e121eeb0e9701ccd4e36772fdfa786",
+   "support"
+  ],
+  "css/css-pseudo/textpath-selection-011.html": [
+   "2e42c6be8fbcfc756c578986517efc0b1739d1f3",
+   "visual"
+  ],
   "css/css-rhythm/META.yml": [
    "9858c1c56efdadac206e7494fbf47d95ddb75b23",
    "support"
@@ -428420,7 +428514,7 @@
    "reftest"
   ],
   "css/css-writing-modes/sizing-orthog-htb-in-vrl-013-ref.xht": [
-   "3b1fef0f84e53ad72e61fc1b849ec6521b162968",
+   "dea13d4238dab838610355056ddaf105e947f3bf",
    "support"
   ],
   "css/css-writing-modes/sizing-orthog-htb-in-vrl-013.xht": [
@@ -443823,12 +443917,24 @@
    "918997b1646d73d71a79c302953ab9f0f8ed69cc",
    "support"
   ],
+  "domxpath/booleans.html": [
+   "41522edf05f8bc752408eb2cdde10a05bd211a7a",
+   "testharness"
+  ],
   "domxpath/document.tentative.html": [
    "b75c0f0d66dacb47a825ae2aa00bb63a19616433",
    "testharness"
   ],
   "domxpath/evaluator-constructor.html": [
    "8239d9c395e3c965c5ae2f23ed79156b7b85c01f",
+   "testharness"
+  ],
+  "domxpath/fn-concat.html": [
+   "fe160966aa7983191e81ffa65f5955c86afe7bb9",
+   "testharness"
+  ],
+  "domxpath/fn-contains.html": [
+   "a4d8bbfa7b3ce35b574bdcb902c4a0caa9ad39c3",
    "testharness"
   ],
   "domxpath/fn-lang.html": [
@@ -443839,8 +443945,36 @@
    "a9f33a0ee3d153abd6fe05415c6ce6699ce8525c",
    "testharness"
   ],
+  "domxpath/fn-starts-with.html": [
+   "99d2df7db6b67c9e186ade1160da6932f8dc90bd",
+   "testharness"
+  ],
+  "domxpath/fn-substring-after.html": [
+   "c290914d24b0463d42959ff675f1498a7898806d",
+   "testharness"
+  ],
+  "domxpath/fn-substring-before.html": [
+   "69b3f1ef6e45e948a55d49b409c5a58a9cf83381",
+   "testharness"
+  ],
+  "domxpath/fn-substring.html": [
+   "3311a15061de49c5337b938d732946358f2245f3",
+   "testharness"
+  ],
+  "domxpath/fn-translate.html": [
+   "ee1700d1b427ea80fc5076a22a00f2dd62f4937b",
+   "testharness"
+  ],
+  "domxpath/helpers.js": [
+   "0805bd682b48461588250a22018a6bd90990d002",
+   "support"
+  ],
   "domxpath/node-sets.html": [
    "a47314fb0869885db01fd13bd8aa35687e283d0d",
+   "testharness"
+  ],
+  "domxpath/numbers.html": [
+   "e847d6cd2e53839914a649ca1cb61953c659e2ed",
    "testharness"
   ],
   "domxpath/predicates.html": [
