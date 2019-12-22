@@ -34,6 +34,7 @@
 #include <memory>
 
 #include "base/stl_util.h"
+#include "base/json/json_writer.h"
 #include "cc/base/region.h"
 #include "cc/layers/picture_layer.h"
 #include "cc/trees/transform_node.h"
@@ -75,6 +76,16 @@ inline String IdForLayer(const cc::Layer* layer) {
 
 static std::unique_ptr<protocol::DOM::Rect> BuildObjectForRect(
     const gfx::Rect& rect) {
+  return protocol::DOM::Rect::create()
+      .setX(rect.x())
+      .setY(rect.y())
+      .setHeight(rect.height())
+      .setWidth(rect.width())
+      .build();
+}
+
+static std::unique_ptr<protocol::DOM::Rect> BuildObjectForRect(
+    const gfx::RectF& rect) {
   return protocol::DOM::Rect::create()
       .setX(rect.x())
       .setY(rect.y())
@@ -318,20 +329,31 @@ InspectorLayerTreeAgent::BuildLayerTree() {
   return layers;
 }
 
-std::unique_ptr<String> InspectorLayerTreeAgent::GetPropertyTreesJSON() {
+protocol::String InspectorLayerTreeAgent::GetPropertyTreesJSON() {
   const auto* root_layer = RootLayer();
   if (!root_layer)
-    return nullptr;
+    return "";
 
-  return std::make_unique<String>(root_layer->layer_tree_host()->property_trees()->ToString());
+  return std::move(root_layer->layer_tree_host()->property_trees()->ToString().c_str());
 }
 
-std::unique_ptr<String> InspectorLayerTreeAgent::GetLayerImplJSON() {
+protocol::String InspectorLayerTreeAgent::GetLayerImplJSON() {
   const auto* root_layer = RootLayer();
   if (!root_layer)
-    return nullptr;
-
-  return std::make_unique<String>(root_layer->layer_tree_host()->LayerListAsJson());
+    return "";
+  
+  auto list = std::make_unique<base::ListValue>();
+  for (auto* layer : *root_layer->layer_tree_host())
+    list->Append(layer->ToString());
+  
+  std::string str;
+  base::JSONWriter::WriteWithOptions(
+      *list,
+      base::JSONWriter::OPTIONS_OMIT_DOUBLE_TYPE_PRESERVATION |
+      base::JSONWriter::OPTIONS_PRETTY_PRINT,
+      &str);
+  
+  return std::move(str.c_str());
 }
 
 
