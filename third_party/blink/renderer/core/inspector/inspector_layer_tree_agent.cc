@@ -381,7 +381,7 @@ const cc::Layer* InspectorLayerTreeAgent::RootLayer() {
 }
 
 static const cc::Layer* FindLayerById(const cc::Layer* root, int layer_id) {
-  if (root->id() == layer_id)
+  if (!root || root->id() == layer_id)
     return root;
   for (auto child : root->children()) {
     if (const auto* layer = FindLayerById(child.get(), layer_id))
