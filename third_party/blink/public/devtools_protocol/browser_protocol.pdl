@@ -3514,6 +3514,22 @@ experimental domain LayerTree
       # Sticky position constraint information
       optional StickyPositionConstraint stickyPositionConstraint
 
+  # Information about a clickable thing.
+  type ClickTarget extends object
+    properties
+      # The backend id for the node associated with the clickable thing.
+      optional DOM.BackendNodeId backendNodeId
+      # The unique id of a layer containing the this ClickTarget.
+      LayerId layerId
+      # Layout rectangles
+      array of Quad containingQuads
+
+  # Provides all visible clickable things, together with bounding rectangles and associated layers.
+  command getClickTargets
+    returns
+      # A list of strings specifying reasons for the given layer to become composited.
+      array of ClickTarget targets
+
   # Array of timings, one per paint step.
   type PaintProfile extends array of number
 

@@ -570,4 +570,42 @@ Response InspectorLayerTreeAgent::snapshotCommandLog(
   return Response::OK();
 }
 
+Response InspectorLayerTreeAgent::getClickTargets(std::unique_ptr<Array<protocol::LayerTree::ClickTarget>>* targets) {
+  HitTestRequest request(HitTestRequest::kReadOnly | HitTestRequest::kActive |
+                         HitTestRequest::kListBased |
+                         HitTestRequest::kPenetratingList);
+
+  auto* root_frame = inspected_frames_->Root();
+  PhysicalRect viewport_rect(
+      root_frame->View()->GetRootFrameViewport()->VisibleContentRect());
+
+  HitTestLocation location(viewport_rect);
+  HitTestResult result(request, location);
+  root_frame->ContentLayoutObject()->HitTest(location, result);
+  *targets = std::make_unique<Array<protocol::LayerTree::ClickTarget>>();
+  Node* previous_node = nullptr;
+  for (const auto hit_test_result_node : result.ListBasedTestResult()) {
+    Node* node = hit_test_result_node.Get();
+    if (!node || node->IsDocumentNode())
+      continue;
+    if (node->IsPseudoElement() || node->IsTextNode())
+      node = node->ParentOrShadowHostNode();
+    auto* element = DynamicTo<Element>(node);
+    if (!node || node == previous_node || !element)
+      continue;
+    if (!node->HasEventListeners(event_type_names::kClick))
+      continue;
+    targets.emplace_back(
+      protocol::LayerTree::ClickTarget::create()
+          .setBackendNodeId(IdentifiersFactory::IntIdForNode(node))
+          .setLayerId()
+          .setContainingQuads()
+          .build());
+    previous_node = node;
+  }
+  return elements;
+  return Response::OK();
+}
+
+
 }  // namespace blink
