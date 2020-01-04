@@ -3517,12 +3517,12 @@ experimental domain LayerTree
   # Information about a clickable thing.
   type ClickTarget extends object
     properties
-      # The backend id for the node associated with the clickable thing.
+      # Backend id for the node associated with the clickable thing.
       optional DOM.BackendNodeId backendNodeId
-      # The unique id of a layer containing the this ClickTarget.
+      # Unique id of a layer containing the this ClickTarget.
       LayerId layerId
       # Layout rectangles
-      array of Quad containingQuads
+      array of DOM.Quad containingQuads
 
   # Provides all visible clickable things, together with bounding rectangles and associated layers.
   command getClickTargets

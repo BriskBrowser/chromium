@@ -42,12 +42,14 @@
 #include "third_party/blink/renderer/core/dom/dom_node_ids.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
+#include "third_party/blink/renderer/core/frame/root_frame_viewport.h"
 #include "third_party/blink/renderer/core/frame/visual_viewport.h"
 #include "third_party/blink/renderer/core/inspector/identifiers_factory.h"
 #include "third_party/blink/renderer/core/inspector/inspected_frames.h"
 #include "third_party/blink/renderer/core/layout/layout_embedded_content.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
+#include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
@@ -72,6 +74,13 @@ unsigned InspectorLayerTreeAgent::last_snapshot_id_;
 
 inline String IdForLayer(const cc::Layer* layer) {
   return String::Number(layer->id());
+}
+
+std::unique_ptr<protocol::Array<double>> BuildArrayForQuad(
+    const FloatQuad& quad) {
+  return std::make_unique<std::vector<double>, std::initializer_list<double>>(
+      {quad.P1().X(), quad.P1().Y(), quad.P2().X(), quad.P2().Y(),
+       quad.P3().X(), quad.P3().Y(), quad.P4().X(), quad.P4().Y()});
 }
 
 static std::unique_ptr<protocol::DOM::Rect> BuildObjectForRect(
@@ -570,7 +579,37 @@ Response InspectorLayerTreeAgent::snapshotCommandLog(
   return Response::OK();
 }
 
-Response InspectorLayerTreeAgent::getClickTargets(std::unique_ptr<Array<protocol::LayerTree::ClickTarget>>* targets) {
+
+static std::unique_ptr<protocol::LayerTree::ClickTarget> BuildClickTarget(Node* node) {
+  LayoutObject* layout_object = node->GetLayoutObject();
+  if (!layout_object) return nullptr;
+
+  const LayoutBoxModelObject& paint_invalidation_container = layout_object->ContainerForPaintInvalidation();
+  if (!paint_invalidation_container.Layer())
+    return nullptr;
+  const PaintLayer& paint_layer = *paint_invalidation_container.Layer();
+  GraphicsLayer* gfx_layer = paint_layer.GraphicsLayerBacking(layout_object);
+  if (!gfx_layer)
+    return nullptr;
+  cc::Layer* layer = gfx_layer->ContentsLayer();
+  if (!layer)
+    return nullptr;
+
+  Vector<FloatQuad> abs_quads;
+  auto layer_quads = std::make_unique<protocol::Array<protocol::Array<double>>>();
+  layout_object->AbsoluteQuads(abs_quads, kTraverseDocumentBoundaries);
+  for (FloatQuad& quad : abs_quads) {
+    const FloatQuad local_quad = paint_invalidation_container.AbsoluteToLocalQuad(quad, kTraverseDocumentBoundaries);
+    layer_quads->emplace_back(BuildArrayForQuad(local_quad));
+  }
+  return protocol::LayerTree::ClickTarget::create()
+          .setBackendNodeId(IdentifiersFactory::IntIdForNode(node))
+          .setLayerId(IdForLayer(layer))
+          .setContainingQuads(std::move(layer_quads))
+          .build();
+}
+
+Response InspectorLayerTreeAgent::getClickTargets(std::unique_ptr<protocol::Array<protocol::LayerTree::ClickTarget>>* targets) {
   HitTestRequest request(HitTestRequest::kReadOnly | HitTestRequest::kActive |
                          HitTestRequest::kListBased |
                          HitTestRequest::kPenetratingList);
@@ -582,7 +621,7 @@ Response InspectorLayerTreeAgent::getClickTargets(std::unique_ptr<Array<protocol
   HitTestLocation location(viewport_rect);
   HitTestResult result(request, location);
   root_frame->ContentLayoutObject()->HitTest(location, result);
-  *targets = std::make_unique<Array<protocol::LayerTree::ClickTarget>>();
+  *targets = std::make_unique<protocol::Array<protocol::LayerTree::ClickTarget>>();
   Node* previous_node = nullptr;
   for (const auto hit_test_result_node : result.ListBasedTestResult()) {
     Node* node = hit_test_result_node.Get();
@@ -595,15 +634,11 @@ Response InspectorLayerTreeAgent::getClickTargets(std::unique_ptr<Array<protocol
       continue;
     if (!node->HasEventListeners(event_type_names::kClick))
       continue;
-    targets.emplace_back(
-      protocol::LayerTree::ClickTarget::create()
-          .setBackendNodeId(IdentifiersFactory::IntIdForNode(node))
-          .setLayerId()
-          .setContainingQuads()
-          .build());
+    auto target = BuildClickTarget(node);
+    if (target)
+      (*targets)->emplace_back(std::move(target));
     previous_node = node;
   }
-  return elements;
   return Response::OK();
 }
 

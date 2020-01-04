@@ -95,6 +95,10 @@ class CORE_EXPORT InspectorLayerTreeAgent final
       std::unique_ptr<protocol::Array<protocol::DictionaryValue>>* command_log)
       override;
 
+  protocol::Response getClickTargets(
+      std::unique_ptr<protocol::Array<protocol::LayerTree::ClickTarget>>* targets)
+      override;
+
   // Called by other agents.
   std::unique_ptr<protocol::Array<protocol::LayerTree::Layer>> BuildLayerTree();
 
