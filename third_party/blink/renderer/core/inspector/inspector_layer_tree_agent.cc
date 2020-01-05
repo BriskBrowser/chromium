@@ -591,7 +591,7 @@ static std::unique_ptr<protocol::LayerTree::ClickTarget> BuildClickTarget(Node* 
   GraphicsLayer* gfx_layer = paint_layer.GraphicsLayerBacking(layout_object);
   if (!gfx_layer)
     return nullptr;
-  cc::Layer* layer = gfx_layer->ContentsLayer();
+  cc::Layer* layer = gfx_layer->CcLayer();
   if (!layer)
     return nullptr;
 
@@ -632,7 +632,7 @@ Response InspectorLayerTreeAgent::getClickTargets(std::unique_ptr<protocol::Arra
     auto* element = DynamicTo<Element>(node);
     if (!node || node == previous_node || !element)
       continue;
-    if (!node->HasEventListeners(event_type_names::kClick))
+    if (!node->HasEventListeners(event_type_names::kClick) && !node->IsLink())
       continue;
     auto target = BuildClickTarget(node);
     if (target)
