@@ -587,6 +587,7 @@ static std::unique_ptr<protocol::LayerTree::ClickTarget> BuildClickTarget(Node* 
   const LayoutBoxModelObject& paint_invalidation_container = layout_object->ContainerForPaintInvalidation();
   if (!paint_invalidation_container.Layer())
     return nullptr;
+
   const PaintLayer& paint_layer = *paint_invalidation_container.Layer();
   GraphicsLayer* gfx_layer = paint_layer.GraphicsLayerBacking(layout_object);
   if (!gfx_layer)
@@ -599,7 +600,12 @@ static std::unique_ptr<protocol::LayerTree::ClickTarget> BuildClickTarget(Node* 
   auto layer_quads = std::make_unique<protocol::Array<protocol::Array<double>>>();
   layout_object->AbsoluteQuads(abs_quads, kTraverseDocumentBoundaries);
   for (FloatQuad& quad : abs_quads) {
-    const FloatQuad local_quad = paint_invalidation_container.AbsoluteToLocalQuad(quad, kTraverseDocumentBoundaries);
+    FloatQuad local_quad = paint_invalidation_container.AbsoluteToLocalQuad(quad, kTraverseDocumentBoundaries);
+    // The layer might represent a scrollable thing, in which case we want the inner part for coordinates
+    if (paint_invalidation_container.GetScrollableArea()) {
+      const FloatPoint scroll_position = paint_invalidation_container.GetScrollableArea()->ScrollPosition();
+      local_quad.Move(scroll_position.X(), scroll_position.Y());
+    }
     layer_quads->emplace_back(BuildArrayForQuad(local_quad));
   }
   return protocol::LayerTree::ClickTarget::create()
@@ -615,8 +621,9 @@ Response InspectorLayerTreeAgent::getClickTargets(std::unique_ptr<protocol::Arra
                          HitTestRequest::kPenetratingList);
 
   auto* root_frame = inspected_frames_->Root();
-  PhysicalRect viewport_rect(
-      root_frame->View()->GetRootFrameViewport()->VisibleContentRect());
+  auto* root_viewport = root_frame->View()->GetRootFrameViewport();
+
+  PhysicalRect viewport_rect(root_frame->View()->DocumentToFrame(root_viewport->VisibleContentRect()));
 
   HitTestLocation location(viewport_rect);
   HitTestResult result(request, location);
