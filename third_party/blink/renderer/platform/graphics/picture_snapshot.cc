@@ -87,7 +87,8 @@ bool PictureSnapshot::IsEmpty() const {
 
 Vector<uint8_t> PictureSnapshot::Replay(unsigned from_step,
                                         unsigned to_step,
-                                        double scale) const {
+                                        double scale,
+                                        bool use_webp) const {
   const SkIRect bounds = picture_->cullRect().roundOut();
   int width = ceil(scale * bounds.width());
   int height = ceil(scale * bounds.height());
@@ -116,12 +117,19 @@ Vector<uint8_t> PictureSnapshot::Replay(unsigned from_step,
   bool peekResult = bitmap.peekPixels(&src);
   DCHECK(peekResult);
 
-  SkPngEncoder::Options options;
-  options.fFilterFlags = SkPngEncoder::FilterFlag::kSub;
-  options.fZLibLevel = 3;
-  if (!ImageEncoder::Encode(&encoded_image, src, options))
-    return Vector<uint8_t>();
-
+  if (use_webp) {
+    SkWebpEncoder::Options options;
+    options.fQuality = 10.0f;
+    if (!ImageEncoder::Encode(&encoded_image, src, options))
+      return Vector<uint8_t>();
+  } else {
+    SkPngEncoder::Options options;
+    options.fFilterFlags = SkPngEncoder::FilterFlag::kSub;
+    options.fZLibLevel = 3;
+    if (!ImageEncoder::Encode(&encoded_image, src, options))
+      return Vector<uint8_t>();
+  }
+  
   return encoded_image;
 }
 

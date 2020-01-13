@@ -64,7 +64,8 @@ class PLATFORM_EXPORT PictureSnapshot : public RefCounted<PictureSnapshot> {
 
   Vector<uint8_t> Replay(unsigned from_step = 0,
                          unsigned to_step = 0,
-                         double scale = 1.0) const;
+                         double scale = 1.0,
+                         bool use_webp = false) const;
   Vector<Vector<base::TimeDelta>> Profile(unsigned min_iterations,
                                           base::TimeDelta min_duration,
                                           const FloatRect* clip_rect) const;

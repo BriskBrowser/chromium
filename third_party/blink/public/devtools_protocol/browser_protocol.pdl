@@ -3530,6 +3530,13 @@ experimental domain LayerTree
       # A list of strings specifying reasons for the given layer to become composited.
       array of ClickTarget targets
 
+  # Sets the scroll position of a specific element.
+  command setScroll
+    parameters
+      DOM.BackendNodeId backendNodeId
+      integer x
+      integer y
+
   # Array of timings, one per paint step.
   type PaintProfile extends array of number
 
@@ -3597,6 +3604,8 @@ experimental domain LayerTree
       optional integer toStep
       # The scale to apply while replaying (defaults to 1).
       optional number scale
+      # If true, encode data as lossy webp
+      optional boolean useWebp
     returns
       # A data: URL for resulting image.
       string dataURL

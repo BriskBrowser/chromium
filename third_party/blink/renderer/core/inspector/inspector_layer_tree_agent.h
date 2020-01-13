@@ -89,6 +89,7 @@ class CORE_EXPORT InspectorLayerTreeAgent final
                                     protocol::Maybe<int> from_step,
                                     protocol::Maybe<int> to_step,
                                     protocol::Maybe<double> scale,
+                                    protocol::Maybe<bool> use_webp,
                                     String* data_url) override;
   protocol::Response snapshotCommandLog(
       const String& snapshot_id,
@@ -97,6 +98,9 @@ class CORE_EXPORT InspectorLayerTreeAgent final
 
   protocol::Response getClickTargets(
       std::unique_ptr<protocol::Array<protocol::LayerTree::ClickTarget>>* targets)
+      override;
+
+  protocol::Response setScroll(int backend_node_id, int x, int y)
       override;
 
   // Called by other agents.

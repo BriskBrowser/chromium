@@ -516,16 +516,21 @@ Response InspectorLayerTreeAgent::replaySnapshot(const String& snapshot_id,
                                                  Maybe<int> from_step,
                                                  Maybe<int> to_step,
                                                  Maybe<double> scale,
+                                                 Maybe<bool> use_webp,
                                                  String* data_url) {
   const PictureSnapshot* snapshot = nullptr;
   Response response = GetSnapshotById(snapshot_id, snapshot);
   if (!response.isSuccess())
     return response;
-  auto png_data = snapshot->Replay(from_step.fromMaybe(0), to_step.fromMaybe(0),
-                                   scale.fromMaybe(1.0));
-  if (png_data.IsEmpty())
+  auto image_data = snapshot->Replay(from_step.fromMaybe(0), to_step.fromMaybe(0),
+                                     scale.fromMaybe(1.0), use_webp.fromMaybe(false));
+  if (image_data.IsEmpty())
     return Response::Error("Image encoding failed");
-  *data_url = "data:image/png;base64," + Base64Encode(png_data);
+
+  *data_url = (use_webp.fromMaybe(false)?
+               "data:image/webp;base64,":"data:image/png;base64,")
+              + Base64Encode(image_data);
+
   return Response::OK();
 }
 
@@ -649,5 +654,14 @@ Response InspectorLayerTreeAgent::getClickTargets(std::unique_ptr<protocol::Arra
   return Response::OK();
 }
 
+Response InspectorLayerTreeAgent::setScroll(int cc_element_id, int x, int y) {
+  const auto* root_layer = RootLayer();
+  if (!root_layer)
+    return Response::Error("No root layer");
+
+  root_layer->layer_tree_host()->property_trees()->scroll_tree.NotifyDidScroll(cc::ElementId(cc_element_id), gfx::ScrollOffset(x, y), base::nullopt);
+
+  return Response::OK();
+}
 
 }  // namespace blink
