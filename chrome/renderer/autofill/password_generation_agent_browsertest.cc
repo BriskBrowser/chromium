@@ -12,6 +12,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "build/build_config.h"
 #include "chrome/renderer/autofill/fake_mojo_password_manager_driver.h"
 #include "chrome/renderer/autofill/fake_password_generation_driver.h"
 #include "chrome/renderer/autofill/password_generation_test_utils.h"
@@ -661,6 +662,7 @@ TEST_F(PasswordGenerationAgentTest, MaximumCharsForGenerationOffer) {
   // display event is sent.
   EXPECT_CALL(fake_pw_client_, GenerationElementLostFocus());
   LoadHTMLWithUserGesture(kSigninFormHTML);
+  fake_pw_client_.Flush();
 
   histogram_tester.ExpectBucketCount(
       "PasswordGeneration.Event",

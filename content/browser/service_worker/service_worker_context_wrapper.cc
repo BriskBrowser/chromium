@@ -29,6 +29,7 @@
 #include "content/browser/service_worker/service_worker_context_watcher.h"
 #include "content/browser/service_worker/service_worker_object_host.h"
 #include "content/browser/service_worker/service_worker_process_manager.h"
+#include "content/browser/service_worker/service_worker_provider_host.h"
 #include "content/browser/service_worker/service_worker_quota_client.h"
 #include "content/browser/service_worker/service_worker_version.h"
 #include "content/browser/storage_partition_impl.h"
@@ -634,6 +635,28 @@ void ServiceWorkerContextWrapper::CheckHasServiceWorker(
   context()->CheckHasServiceWorker(
       net::SimplifyUrlForRequest(url),
       base::BindOnce(&ServiceWorkerContextWrapper::DidCheckHasServiceWorker,
+                     this, std::move(callback)));
+}
+
+void ServiceWorkerContextWrapper::CheckOfflineCapability(
+    const GURL& url,
+    CheckOfflineCapabilityCallback callback) {
+  if (!BrowserThread::CurrentlyOn(GetCoreThreadId())) {
+    base::PostTask(
+        FROM_HERE, {GetCoreThreadId()},
+        base::BindOnce(&ServiceWorkerContextWrapper::CheckOfflineCapability,
+                       this, url, std::move(callback)));
+    return;
+  }
+  if (!context_core_) {
+    base::PostTask(
+        FROM_HERE, {BrowserThread::UI},
+        base::BindOnce(std::move(callback), OfflineCapability::kUnsupported));
+    return;
+  }
+  context()->CheckOfflineCapability(
+      net::SimplifyUrlForRequest(url),
+      base::BindOnce(&ServiceWorkerContextWrapper::DidCheckOfflineCapability,
                      this, std::move(callback)));
 }
 
@@ -1650,6 +1673,14 @@ void ServiceWorkerContextWrapper::DidCheckHasServiceWorker(
                  base::BindOnce(std::move(callback), capability));
 }
 
+void ServiceWorkerContextWrapper::DidCheckOfflineCapability(
+    CheckOfflineCapabilityCallback callback,
+    OfflineCapability capability) {
+  DCHECK_CURRENTLY_ON(GetCoreThreadId());
+  base::PostTask(FROM_HERE, {BrowserThread::UI},
+                 base::BindOnce(std::move(callback), capability));
+}
+
 void ServiceWorkerContextWrapper::DidFindRegistrationForUpdate(
     blink::ServiceWorkerStatusCode status,
     scoped_refptr<ServiceWorkerRegistration> registration) {
@@ -1870,6 +1901,7 @@ void ServiceWorkerContextWrapper::SetUpLoaderFactoryForUpdateCheckOnUI(
       ContentBrowserClient::URLLoaderFactoryType::kServiceWorkerScript,
       url::Origin::Create(scope), /*navigation_id=*/base::nullopt,
       &pending_receiver, &header_client, &bypass_redirect_checks,
+      /*disable_secure_dns=*/nullptr,
       /*factory_override=*/nullptr);
   if (header_client) {
     NavigationURLLoaderImpl::CreateURLLoaderFactoryWithHeaderClient(

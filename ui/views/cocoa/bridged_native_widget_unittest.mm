@@ -318,14 +318,15 @@ class MockNativeWidgetMac : public NativeWidgetMac {
             NativeWidgetMacNSWindowHost::GetFromNativeView(params.parent)) {
       GetNSWindowHost()->SetParent(parent);
     }
-    GetNSWindowHost()->InitWindow(params);
+    GetNSWindowHost()->InitWindow(params,
+                                  ConvertBoundsToScreenIfNeeded(params.bounds));
 
     // Usually the bridge gets initialized here. It is skipped to run extra
     // checks in tests, and so that a second window isn't created.
     delegate()->OnNativeWidgetCreated();
 
     // To allow events to dispatch to a view, it needs a way to get focus.
-    GetNSWindowHost()->SetFocusManager(GetWidget()->GetFocusManager());
+    SetFocusManager(GetWidget()->GetFocusManager());
   }
 
   void ReorderNativeViews() override {
@@ -854,7 +855,7 @@ TEST_F(BridgedNativeWidgetTest, ViewSizeTracksWindow) {
 }
 
 TEST_F(BridgedNativeWidgetTest, GetInputMethodShouldNotReturnNull) {
-  EXPECT_TRUE(GetNSWindowHost()->GetInputMethod());
+  EXPECT_TRUE(native_widget_mac_->GetInputMethod());
 }
 
 // A simpler test harness for testing initialization flows.
@@ -898,7 +899,9 @@ TEST_F(BridgedNativeWidgetInitTest, InitNotCalled) {
 }
 
 // Tests the shadow type given in InitParams.
-TEST_F(BridgedNativeWidgetInitTest, ShadowType) {
+// Disabled because shadows are disabled on the bots - see
+// https://crbug.com/899286.
+TEST_F(BridgedNativeWidgetInitTest, DISABLED_ShadowType) {
   // Verify Widget::InitParam defaults and arguments added from SetUp().
   EXPECT_EQ(Widget::InitParams::TYPE_WINDOW_FRAMELESS, type_);
   EXPECT_EQ(Widget::InitParams::WindowOpacity::kOpaque, opacity_);

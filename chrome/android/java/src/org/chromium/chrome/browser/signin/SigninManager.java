@@ -22,7 +22,6 @@ import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.task.PostTask;
 import org.chromium.chrome.browser.externalauth.ExternalAuthUtils;
-import org.chromium.components.signin.AccountIdProvider;
 import org.chromium.components.signin.AccountTrackerService;
 import org.chromium.components.signin.ChromeSigninController;
 import org.chromium.components.signin.base.CoreAccountInfo;
@@ -172,6 +171,7 @@ public class SigninManager
     private final IdentityManager mIdentityManager;
     private final IdentityMutator mIdentityMutator;
     private final AndroidSyncSettings mAndroidSyncSettings;
+    private final ExternalAuthUtils mExternalAuthUtils;
     private final ObserverList<SignInStateObserver> mSignInStateObservers = new ObserverList<>();
     private final ObserverList<SignInAllowedObserver> mSignInAllowedObservers =
             new ObserverList<>();
@@ -212,13 +212,13 @@ public class SigninManager
         assert identityManager != null;
         assert identityMutator != null;
         return new SigninManager(nativeSigninManagerAndroid, accountTrackerService, identityManager,
-                identityMutator, AndroidSyncSettings.get());
+                identityMutator, AndroidSyncSettings.get(), ExternalAuthUtils.getInstance());
     }
 
     @VisibleForTesting
     SigninManager(long nativeSigninManagerAndroid, AccountTrackerService accountTrackerService,
             IdentityManager identityManager, IdentityMutator identityMutator,
-            AndroidSyncSettings androidSyncSettings) {
+            AndroidSyncSettings androidSyncSettings, ExternalAuthUtils externalAuthUtils) {
         ThreadUtils.assertOnUiThread();
         assert androidSyncSettings != null;
         mNativeSigninManagerAndroid = nativeSigninManagerAndroid;
@@ -226,6 +226,7 @@ public class SigninManager
         mIdentityManager = identityManager;
         mIdentityMutator = identityMutator;
         mAndroidSyncSettings = androidSyncSettings;
+        mExternalAuthUtils = externalAuthUtils;
 
         mSigninAllowedByPolicy =
                 SigninManagerJni.get().isSigninAllowedByPolicy(mNativeSigninManagerAndroid);
@@ -298,8 +299,7 @@ public class SigninManager
      *         Google Play Services installed.
      */
     public boolean isSigninSupported() {
-        return !ApiCompatibilityUtils.isDemoUser() && isGooglePlayServicesPresent()
-                && !SigninManagerJni.get().isMobileIdentityConsistencyEnabled();
+        return !ApiCompatibilityUtils.isDemoUser() && isGooglePlayServicesPresent();
     }
 
     /**
@@ -382,6 +382,7 @@ public class SigninManager
     // TODO(crbug.com/1002056) SigninManager.Signin should use CoreAccountInfo as a parameter.
     public void signIn(@SigninAccessPoint int accessPoint, Account account,
             @Nullable SignInCallback callback) {
+        assert isSignInAllowed() : "Sign-in isn't allowed!";
         if (account == null) {
             Log.w(TAG, "Ignoring sign-in request due to null account.");
             if (callback != null) callback.onSignInAborted();
@@ -409,11 +410,8 @@ public class SigninManager
     private void progressSignInFlowSeedSystemAccounts() {
         if (mAccountTrackerService.checkAndSeedSystemAccounts()) {
             progressSignInFlowCheckPolicy();
-        } else if (AccountIdProvider.getInstance().canBeUsed()) {
-            mSignInState.mBlockedOnAccountSeeding = true;
         } else {
-            Log.w(TAG, "Cancelling the sign-in process as Google Play services is unavailable");
-            abortSignIn();
+            mSignInState.mBlockedOnAccountSeeding = true;
         }
     }
 
@@ -670,7 +668,7 @@ public class SigninManager
     }
 
     private boolean isGooglePlayServicesPresent() {
-        return !ExternalAuthUtils.getInstance().isGooglePlayServicesMissing(
+        return !mExternalAuthUtils.isGooglePlayServicesMissing(
                 ContextUtils.getApplicationContext());
     }
 
@@ -714,8 +712,6 @@ public class SigninManager
         boolean isForceSigninEnabled(long nativeSigninManagerAndroid);
 
         String extractDomainName(String email);
-
-        boolean isMobileIdentityConsistencyEnabled();
 
         void fetchAndApplyCloudPolicy(
                 long nativeSigninManagerAndroid, CoreAccountInfo account, Runnable callback);

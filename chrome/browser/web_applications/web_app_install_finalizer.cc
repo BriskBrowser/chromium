@@ -95,6 +95,29 @@ std::vector<SquareSizePx> GetSquareSizePxs(
   return sizes;
 }
 
+void SetWebAppFileHandlers(
+    const std::vector<blink::Manifest::FileHandler>& file_handlers,
+    WebApp* web_app) {
+  WebApp::FileHandlers web_app_file_handlers;
+  for (const auto& file_handler : file_handlers) {
+    WebApp::FileHandler web_app_file_handler;
+    web_app_file_handler.action = file_handler.action;
+
+    // Convert from string16 to string in the accept map.
+    for (const auto& pair : file_handler.accept) {
+      WebApp::FileHandlerAccept accept_entry;
+      accept_entry.mimetype = base::UTF16ToUTF8(pair.first);
+      for (const auto& file_extension : pair.second)
+        accept_entry.file_extensions.insert(base::UTF16ToUTF8(file_extension));
+      web_app_file_handler.accept.push_back(std::move(accept_entry));
+    }
+
+    web_app_file_handlers.push_back(std::move(web_app_file_handler));
+  }
+
+  web_app->SetFileHandlers(std::move(web_app_file_handlers));
+}
+
 }  // namespace
 
 WebAppInstallFinalizer::WebAppInstallFinalizer(Profile* profile,
@@ -117,7 +140,7 @@ void WebAppInstallFinalizer::FinalizeInstall(
       InferSourceFromMetricsInstallSource(options.install_source);
 
   const AppId app_id = GenerateAppIdFromURL(web_app_info.app_url);
-  const WebApp* existing_web_app = sync_bridge_->registrar().GetAppById(app_id);
+  const WebApp* existing_web_app = GetWebAppRegistrar().GetAppById(app_id);
 
   if (existing_web_app && !existing_web_app->is_in_sync_install()) {
     // There is an existing app from other source(s). Preserve
@@ -154,35 +177,14 @@ void WebAppInstallFinalizer::FinalizeInstall(
   web_app->AddSource(source);
   web_app->SetIsInSyncInstall(false);
 
-  web_app->SetName(base::UTF16ToUTF8(web_app_info.title));
-  web_app->SetDisplayMode(web_app_info.display_mode);
-  web_app->SetDescription(base::UTF16ToUTF8(web_app_info.description));
-  web_app->SetScope(web_app_info.scope);
-  if (web_app_info.theme_color) {
-    web_app->SetThemeColor(
-        SkColorSetA(*web_app_info.theme_color, SK_AlphaOPAQUE));
-  }
-
-  WebApp::SyncData sync_data;
-  sync_data.name = base::UTF16ToUTF8(web_app_info.title);
-  sync_data.theme_color = web_app_info.theme_color;
-  web_app->SetSyncData(std::move(sync_data));
-
-  web_app->SetIconInfos(web_app_info.icon_infos);
-  web_app->SetDownloadedIconSizes(GetSquareSizePxs(web_app_info.icon_bitmaps));
-
-  icon_manager_->WriteData(
-      std::move(app_id), web_app_info.icon_bitmaps,
-      base::BindOnce(&WebAppInstallFinalizer::OnIconsDataWritten,
-                     weak_ptr_factory_.GetWeakPtr(), std::move(callback),
-                     std::move(web_app)));
+  SetWebAppManifestFieldsAndWriteData(web_app_info, std::move(web_app),
+                                      std::move(callback));
 }
 
 void WebAppInstallFinalizer::FinalizeFallbackInstallAfterSync(
     const AppId& app_id,
     InstallFinalizedCallback callback) {
-  const WebApp* app_in_sync_install =
-      sync_bridge_->registrar().GetAppById(app_id);
+  const WebApp* app_in_sync_install = GetWebAppRegistrar().GetAppById(app_id);
   DCHECK(app_in_sync_install);
   DCHECK(app_in_sync_install->is_in_sync_install());
 
@@ -221,20 +223,12 @@ void WebAppInstallFinalizer::FinalizeUninstallAfterSync(
     UninstallWebAppCallback callback) {
   // WebAppSyncBridge::ApplySyncChangesToRegistrar does the actual
   // unregistration of the app from the registry.
-  DCHECK(!sync_bridge_->registrar().GetAppById(app_id));
+  DCHECK(!GetWebAppRegistrar().GetAppById(app_id));
 
   icon_manager_->DeleteData(
       app_id, base::BindOnce(&WebAppInstallFinalizer::OnIconsDataDeleted,
                              weak_ptr_factory_.GetWeakPtr(), app_id,
                              std::move(callback)));
-}
-
-void WebAppInstallFinalizer::OnIconsDataDeleted(
-    const AppId& app_id,
-    UninstallWebAppCallback callback,
-    bool success) {
-  registrar().NotifyWebAppUninstalled(app_id);
-  std::move(callback).Run(success);
 }
 
 void WebAppInstallFinalizer::UninstallExternalWebApp(
@@ -258,7 +252,7 @@ void WebAppInstallFinalizer::UninstallExternalWebApp(
 
 bool WebAppInstallFinalizer::CanUserUninstallFromSync(
     const AppId& app_id) const {
-  const WebApp* app = sync_bridge_->registrar().GetAppById(app_id);
+  const WebApp* app = GetWebAppRegistrar().GetAppById(app_id);
   return app ? app->IsSynced() : false;
 }
 
@@ -273,14 +267,14 @@ bool WebAppInstallFinalizer::CanUserUninstallExternalApp(
     const AppId& app_id) const {
   // TODO(loyso): Policy Apps: Implement web_app::ManagementPolicy taking
   // extensions::ManagementPolicy::UserMayModifySettings as inspiration.
-  const WebApp* app = sync_bridge_->registrar().GetAppById(app_id);
+  const WebApp* app = GetWebAppRegistrar().GetAppById(app_id);
   return app ? app->CanUserUninstallExternalApp() : false;
 }
 
 void WebAppInstallFinalizer::UninstallExternalAppByUser(
     const AppId& app_id,
     UninstallWebAppCallback callback) {
-  const WebApp* app = sync_bridge_->registrar().GetAppById(app_id);
+  const WebApp* app = GetWebAppRegistrar().GetAppById(app_id);
   DCHECK(app);
   DCHECK(app->CanUserUninstallExternalApp());
 
@@ -308,9 +302,22 @@ bool WebAppInstallFinalizer::WasExternalAppUninstalledByUser(
 void WebAppInstallFinalizer::FinalizeUpdate(
     const WebApplicationInfo& web_app_info,
     InstallFinalizedCallback callback) {
-  // TODO(crbug.com/926083): Implement update logic, this requires updating
-  // WebAppIconManager to clean out the existing icons and write new ones.
-  NOTIMPLEMENTED();
+  const AppId app_id = GenerateAppIdFromURL(web_app_info.app_url);
+  const WebApp* existing_web_app = GetWebAppRegistrar().GetAppById(app_id);
+
+  if (!existing_web_app || existing_web_app->is_in_sync_install() ||
+      web_app_info.app_url != existing_web_app->launch_url()) {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(callback), AppId(),
+                                  InstallResultCode::kWebAppDisabled));
+    return;
+  }
+
+  // Prepare copy-on-write to update existing app.
+  auto web_app = std::make_unique<WebApp>(*existing_web_app);
+
+  SetWebAppManifestFieldsAndWriteData(web_app_info, std::move(web_app),
+                                      std::move(callback));
 }
 
 void WebAppInstallFinalizer::UninstallWebApp(const AppId& app_id,
@@ -330,7 +337,7 @@ void WebAppInstallFinalizer::UninstallWebAppOrRemoveSource(
     const AppId& app_id,
     Source::Type source,
     UninstallWebAppCallback callback) {
-  const WebApp* app = sync_bridge_->registrar().GetAppById(app_id);
+  const WebApp* app = GetWebAppRegistrar().GetAppById(app_id);
   if (!app) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback),
@@ -348,6 +355,38 @@ void WebAppInstallFinalizer::UninstallWebAppOrRemoveSource(
         FROM_HERE, base::BindOnce(std::move(callback),
                                   /*uninstalled=*/true));
   }
+}
+
+void WebAppInstallFinalizer::SetWebAppManifestFieldsAndWriteData(
+    const WebApplicationInfo& web_app_info,
+    std::unique_ptr<WebApp> web_app,
+    InstallFinalizedCallback callback) {
+  web_app->SetName(base::UTF16ToUTF8(web_app_info.title));
+  web_app->SetDisplayMode(web_app_info.display_mode);
+  web_app->SetDescription(base::UTF16ToUTF8(web_app_info.description));
+  web_app->SetScope(web_app_info.scope);
+  if (web_app_info.theme_color) {
+    web_app->SetThemeColor(
+        SkColorSetA(*web_app_info.theme_color, SK_AlphaOPAQUE));
+  }
+
+  WebApp::SyncData sync_data;
+  sync_data.name = base::UTF16ToUTF8(web_app_info.title);
+  sync_data.theme_color = web_app_info.theme_color;
+  web_app->SetSyncData(std::move(sync_data));
+
+  web_app->SetIconInfos(web_app_info.icon_infos);
+  web_app->SetDownloadedIconSizes(GetSquareSizePxs(web_app_info.icon_bitmaps));
+
+  SetWebAppFileHandlers(web_app_info.file_handlers, web_app.get());
+
+  AppId app_id = web_app->app_id();
+
+  icon_manager_->WriteData(
+      std::move(app_id), web_app_info.icon_bitmaps,
+      base::BindOnce(&WebAppInstallFinalizer::OnIconsDataWritten,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback),
+                     std::move(web_app)));
 }
 
 void WebAppInstallFinalizer::OnIconsDataWritten(
@@ -374,12 +413,21 @@ void WebAppInstallFinalizer::OnIconsDataWritten(
       std::move(update),
       base::BindOnce(&WebAppInstallFinalizer::OnDatabaseCommitCompleted,
                      weak_ptr_factory_.GetWeakPtr(), std::move(callback),
-                     std::move(app_id)));
+                     std::move(app_id), /*new_app_created=*/!app_to_override));
+}
+
+void WebAppInstallFinalizer::OnIconsDataDeleted(
+    const AppId& app_id,
+    UninstallWebAppCallback callback,
+    bool success) {
+  registrar().NotifyWebAppUninstalled(app_id);
+  std::move(callback).Run(success);
 }
 
 void WebAppInstallFinalizer::OnDatabaseCommitCompleted(
     InstallFinalizedCallback callback,
     const AppId& app_id,
+    bool new_app_created,
     bool success) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (!success) {
@@ -388,7 +436,9 @@ void WebAppInstallFinalizer::OnDatabaseCommitCompleted(
   }
 
   registrar().NotifyWebAppInstalled(app_id);
-  std::move(callback).Run(app_id, InstallResultCode::kSuccessNewInstall);
+  std::move(callback).Run(
+      app_id, new_app_created ? InstallResultCode::kSuccessNewInstall
+                              : InstallResultCode::kSuccessAlreadyInstalled);
 }
 
 void WebAppInstallFinalizer::OnFallbackInstallFinalized(
@@ -415,6 +465,12 @@ bool WebAppInstallFinalizer::CanRevealAppShim() const {
 void WebAppInstallFinalizer::RevealAppShim(const AppId& app_id) {
   // TODO(loyso): Implement it.
   NOTIMPLEMENTED();
+}
+
+WebAppRegistrar& WebAppInstallFinalizer::GetWebAppRegistrar() const {
+  WebAppRegistrar* web_app_registrar = registrar().AsWebAppRegistrar();
+  DCHECK(web_app_registrar);
+  return *web_app_registrar;
 }
 
 }  // namespace web_app

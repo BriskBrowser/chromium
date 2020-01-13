@@ -74,6 +74,8 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv) {
     return E_NOTIMPL;
   }
 
+  _AtlModule.InitializeCrashReporting();
+
   HRESULT hr = _AtlModule.DllGetClassObject(rclsid, riid, ppv);
 
   // Start refreshing token handle validity as soon as possible so that when
@@ -154,6 +156,9 @@ void CALLBACK SaveAccountInfoW(HWND /*hwnd*/,
                                wchar_t* /*pszCmdLine*/,
                                int /*show*/) {
   LOGFN(INFO);
+
+  _AtlModule.InitializeCrashReporting();
+
   HANDLE hStdin = ::GetStdHandle(STD_INPUT_HANDLE);  // No need to close.
   if (hStdin == INVALID_HANDLE_VALUE) {
     LOGFN(INFO) << "No stdin";
@@ -197,10 +202,6 @@ void CALLBACK SaveAccountInfoW(HWND /*hwnd*/,
     return;
   }
 
-  hr = credential_provider::CGaiaCredentialBase::SaveAccountInfo(*properties);
-  if (FAILED(hr))
-    LOGFN(ERROR) << "SaveAccountInfoW hr=" << putHR(hr);
-
   // Make sure COM is initialized in this thread. This thread must be
   // initialized as an MTA or the call to enroll with MDM causes a crash in COM.
   base::win::ScopedCOMInitializer com_initializer(
@@ -209,6 +210,10 @@ void CALLBACK SaveAccountInfoW(HWND /*hwnd*/,
     HRESULT hr = HRESULT_FROM_WIN32(::GetLastError());
     LOGFN(ERROR) << "ScopedCOMInitializer failed hr=" << putHR(hr);
   } else {
+    hr = credential_provider::CGaiaCredentialBase::SaveAccountInfo(*properties);
+    if (FAILED(hr))
+      LOGFN(ERROR) << "SaveAccountInfoW hr=" << putHR(hr);
+
     // Try to enroll the machine to MDM here. MDM requires a user to be signed
     // on to an interactive session to succeed and when we call this function
     // the user should have been successfully signed on at that point and able

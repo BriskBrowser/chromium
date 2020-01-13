@@ -68,7 +68,22 @@ class MockQuicTransport final : public network::mojom::blink::QuicTransport {
                         pending_receiver)
       : receiver_(this, std::move(pending_receiver)) {}
 
-  // TODO(ricea): Add methods when there are some.
+  void SendDatagram(base::span<const uint8_t> data,
+                    base::OnceCallback<void(bool)> callback) override {}
+
+  void CreateStream(
+      mojo::ScopedDataPipeConsumerHandle readable,
+      mojo::ScopedDataPipeProducerHandle writable,
+      base::OnceCallback<void(bool, uint32_t)> callback) override {}
+
+  void AcceptBidirectionalStream(
+      base::OnceCallback<void(uint32_t,
+                              mojo::ScopedDataPipeConsumerHandle,
+                              mojo::ScopedDataPipeProducerHandle)>) override {}
+
+  void AcceptUnidirectionalStream(
+      base::OnceCallback<void(uint32_t, mojo::ScopedDataPipeConsumerHandle)>)
+      override {}
 
  private:
   mojo::Receiver<network::mojom::blink::QuicTransport> receiver_;

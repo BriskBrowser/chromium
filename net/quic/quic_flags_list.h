@@ -121,19 +121,9 @@ QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_enable_pcc3, false)
 // ACK in packet conservation.
 QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_bbr_one_mss_conservation, false)
 
-// Enables the BBQ5 connection option, which forces saved aggregation values to
-// expire when the bandwidth increases more than 25% in QUIC BBR STARTUP.
-QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_bbr_slower_startup4, true)
-
 // When true and the BBR9 connection option is present, BBR only considers
 // bandwidth samples app-limited if they're not filling the pipe.
 QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_bbr_flexible_app_limited, false)
-
-// If true, calling StopReading() on a level-triggered QUIC stream sequencer
-// will cause the sequencer to discard future data.
-QUIC_FLAG(bool,
-          FLAGS_quic_reloadable_flag_quic_stop_reading_when_level_triggered,
-          true)
 
 // When the STMP connection option is sent by the client, timestamps in the QUIC
 // ACK frame are sent and processed.
@@ -270,21 +260,11 @@ QUIC_FLAG(int32_t,
           FLAGS_quic_max_aggressive_retransmittable_on_wire_ping_count,
           0)
 
-// If true, Adjacent stream frames will be combined into one stream frame before
-// the packet is serialized.
-QUIC_FLAG(bool, FLAGS_quic_restart_flag_quic_coalesce_stream_frames_2, true)
-
 // If true, re-calculate pacing rate when cwnd gets bootstrapped.
 QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_bbr_fix_pacing_rate, true)
 
 // The maximum congestion window in packets.
 QUIC_FLAG(int32_t, FLAGS_quic_max_congestion_window, 2000)
-
-// If true, QuicCryptoStream::OnCryptoFrame() will never use the frame's
-// encryption level.
-QUIC_FLAG(bool,
-          FLAGS_quic_reloadable_flag_quic_use_connection_encryption_level,
-          true)
 
 // If true, do not inject bandwidth in BbrSender::AdjustNetworkParameters.
 QUIC_FLAG(bool,
@@ -389,14 +369,6 @@ QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_enable_version_t099, true)
 // A testonly reloadable flag that will always default to false.
 QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_testonly_default_false, false)
 
-// If true, quic::BandwidthSampler will solely rely on RemoveObsoletePackets,
-// which is called once per congestion event, to remove packets from its
-// connection_state_map_.
-QUIC_FLAG(
-    bool,
-    FLAGS_quic_reloadable_flag_quic_bw_sampler_remove_packets_once_per_congestion_event,
-    false)
-
 // If true, QuicSentPacketManager will cap ack_delay to
 // peer_advertized_ack_delay before using it.
 QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_sanitize_ack_delay, false)
@@ -405,4 +377,43 @@ QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_sanitize_ack_delay, false)
 // negotiation packets.
 QUIC_FLAG(bool,
           FLAGS_quic_restart_flag_quic_allow_very_long_connection_ids,
+          true)
+
+// If true, frames will be hold in an optimized wrapper data structure.
+QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_interval_deque, false)
+
+// If true, QUIC BBRv2 will cut inflight_hi gradually upon loss from PROBE_UP.
+QUIC_FLAG(bool,
+          FLAGS_quic_reloadable_flag_quic_bbr2_cut_inflight_hi_gradually,
           false)
+
+// If true, the QUIC dispatcher will drop INITIAL packets that are too small.
+QUIC_FLAG(bool,
+          FLAGS_quic_reloadable_flag_quic_drop_small_initial_packets,
+          false)
+
+// If true, QUIC will call bandwidth sampler once per ack event, instead of once
+// per acked packet.
+QUIC_FLAG(bool,
+          FLAGS_quic_reloadable_flag_quic_one_bw_sample_per_ack_event,
+          false)
+
+// If true, QUIC will call bandwidth sampler once per ack event, instead of once
+// per acked packet.
+QUIC_FLAG(
+    bool,
+    FLAGS_quic_reloadable_flag_quic_bw_sampler_remove_packets_once_per_congestion_event2,
+    false)
+
+// If true, QuicCryptoServerStream creates its HandshakerDelegate in its
+// constructor instead of in OnSuccessfulVersionNegotiation.
+QUIC_FLAG(
+    bool,
+    FLAGS_quic_reloadable_flag_quic_create_server_handshaker_in_constructor,
+    false)
+
+// If true, the frequency of stream frame coalescing will be logged as
+// QuicSession.CoalesceStreamFrameStatus.
+QUIC_FLAG(bool,
+          FLAGS_quic_reloadable_flag_quic_log_coalesce_stream_frame_frequency,
+          true)

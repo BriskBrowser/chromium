@@ -13,8 +13,13 @@
 
   test(() => {
     assert_throws(new TypeError, () => new NDEFRecord(null),
-        'The record has neither type nor data.');
+        'NDEFRecordInit#recordType is a required field.');
   }, 'NDEFRecord constructor with null init dict');
+
+  test(() => {
+    assert_throws(new TypeError, () => new NDEFRecord({id: test_record_id, data: test_text_data}),
+        'NDEFRecordInit#recordType is a required field.');
+  }, 'NDEFRecord constructor without NDEFRecordInit#recordType field');
 
   test(() => {
     assert_throws(new TypeError, () => new NDEFRecord(
@@ -260,15 +265,15 @@
 
   test(() => {
     assert_throws(new TypeError, () => new NDEFRecord(
-        createRecord('foo.eXamPle.coM:bAr*-', "A string is not a BufferSource or NDEFMessage")),
-        'Only BufferSource and NDEFMessage are allowed to be the record data.');
+        createRecord('foo.eXamPle.com:bAr*-', "A string is not a BufferSource or NDEFMessageInit")),
+        'Only BufferSource and NDEFMessageInit are allowed to be the record data.');
 
     let buffer = new ArrayBuffer(4);
     new Uint8Array(buffer).set([1, 2, 3, 4]);
     // Feed ArrayBuffer.
     {
-      const record = new NDEFRecord(createRecord('foo.eXamPle.coM:bAr*-', buffer, test_record_id));
-      assert_equals(record.recordType, 'foo.example.com:bAr*-', 'recordType');
+      const record = new NDEFRecord(createRecord('foo.eXamPle.com:bAr*-', buffer, test_record_id));
+      assert_equals(record.recordType, 'foo.eXamPle.com:bAr*-', 'recordType');
       assert_equals(record.mediaType, null, 'mediaType');
       assert_equals(record.id, test_record_id, 'id');
       assert_array_equals(new Uint8Array(record.data.buffer), [1, 2, 3, 4],
@@ -280,14 +285,32 @@
     {
       let buffer_view = new Uint8Array(buffer, 1);
       const record = new NDEFRecord(createRecord(
-            'foo.eXamPle.coM:bAr*-', buffer_view, test_record_id));
-      assert_equals(record.recordType, 'foo.example.com:bAr*-', 'recordType');
+            'foo.eXamPle.com:bAr*-', buffer_view, test_record_id));
+      assert_equals(record.recordType, 'foo.eXamPle.com:bAr*-', 'recordType');
       assert_equals(record.mediaType, null, 'mediaType');
       assert_equals(record.id, test_record_id, 'id');
       assert_array_equals(new Uint8Array(record.data.buffer), [2, 3, 4],
           'data has the same content with the original buffer view');
       assert_equals(record.toRecords(), null,
           'toRecords() returns null if the payload is not an NDEF message.');
+    }
+    // Feed NDEFMessageInit.
+    {
+      const payload_message = createMessage([createTextRecord(test_text_data)]);
+      const record = new NDEFRecord(createRecord(
+            'foo.eXamPle.com:bAr*-', payload_message, "dummy_record_id"));
+      assert_equals(record.recordType, 'foo.eXamPle.com:bAr*-', 'recordType');
+      assert_equals(record.mediaType, null, 'mediaType');
+      assert_equals(record.id, "dummy_record_id", 'id');
+      const embedded_records = record.toRecords();
+      assert_equals(embedded_records.length, 1, 'Only one embedded record.');
+      // The only one embedded record has correct content.
+      assert_equals(embedded_records[0].recordType, 'text', 'recordType');
+      assert_equals(embedded_records[0].mediaType, null, 'mediaType');
+      assert_equals(embedded_records[0].id, test_record_id, 'id');
+      const decoder = new TextDecoder();
+      assert_equals(decoder.decode(embedded_records[0].data), test_text_data,
+          'data has the same content with the original dictionary');
     }
   }, 'NDEFRecord constructor with external record type');
 
@@ -305,12 +328,22 @@
   }, 'NDEFRecord constructor with record type string being treated as case sensitive');
 
   test(() => {
+    // Length of the external type is 255, OK.
+    const record = new NDEFRecord(createRecord(
+        [...Array(251)].map(_ => 'a').join('') + ':xyz', test_buffer_data));
+    // Exceeding 255, Throws.
+    assert_throws(new TypeError, () => new NDEFRecord(createRecord(
+        [...Array(252)].map(_ => 'a').join('') + ':xyz', test_buffer_data)),
+        'The external type should not be longer than 255.');
+
+    assert_throws(new TypeError, () => new NDEFRecord(createRecord(
+        'xyz', test_buffer_data)), 'The external type must have a \':\'.');
     assert_throws(new TypeError, () => new NDEFRecord(createRecord(
         ':xyz', test_buffer_data)), 'The domain should not be empty.');
     assert_throws(new TypeError, () => new NDEFRecord(createRecord(
-        '[:xyz', test_buffer_data)), '"[" is not a valid FQDN.');
-    assert_throws(new TypeError, () => new NDEFRecord(createRecord(
         'example.com:', test_buffer_data)), 'The type should not be empty.');
+    assert_throws(new TypeError, () => new NDEFRecord(createRecord(
+        'example.com:xyz[', test_buffer_data)), 'The type should not contain \'[\'.');
     assert_throws(new TypeError, () => new NDEFRecord(createRecord(
         'example.com:xyz~', test_buffer_data)), 'The type should not contain \'~\'.');
     assert_throws(new TypeError, () => new NDEFRecord(createRecord(

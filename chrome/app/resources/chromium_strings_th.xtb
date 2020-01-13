@@ -19,7 +19,6 @@
 <translation id="1929939181775079593">Chromium ไม่ตอบสนอง เปิดใหม่เลยหรือไม่</translation>
 <translation id="1966382378801805537">Chromium ไม่สามารถกำหนดหรือตั้งค่าเบราว์เซอร์เริ่มต้น</translation>
 <translation id="2008474315282236005">การดำเนินการนี้จะลบ 1 รายการออกจากอุปกรณ์นี้ หากต้องการดึงข้อมูลภายหลัง ให้ลงชื่อเข้าใช้ Chromium ด้วย <ph name="USER_EMAIL" /></translation>
-<translation id="2119636228670142020">เกี่ยวกับ &amp;Chromium OS</translation>
 <translation id="2147976119693222405">Chromium OS ซิงค์ข้อมูลของคุณไม่ได้ แก้ไขเลย</translation>
 <translation id="2241627712206172106">ถ้าคุณให้ผู้อื่นใช้คอมพิวเตอร์ร่วมด้วย เพื่อนๆ และครอบครัวของคุณสามารถท่องเว็บแยกกันได้และตั้งค่า Chromium ได้ตามที่พวกเขาต้องการ</translation>
 <translation id="2347108572062610441">ส่วนขยายนี้ได้เปลี่ยนหน้าที่จะแสดงเมื่อคุณเริ่มต้น Chromium</translation>
@@ -37,7 +36,6 @@
 <translation id="2770231113462710648">เปลี่ยนเบราว์เซอร์ที่เป็นค่าเริ่มต้นเป็น:</translation>
 <translation id="2799223571221894425">เปิดใหม่</translation>
 <translation id="2805036593126168338">Chromium OS ซิงค์รหัสผ่านของคุณไม่ได้ แก้ไขเลย</translation>
-<translation id="2838154144102149890">Chromium ต้องหยุดทำงานในคอมพิวเตอร์เครื่องนี้ก่อนจึงจะอัปเดตได้ การดำเนินการนี้อาจทำให้ผู้ใช้ที่อยู่ในระบบของคอมพิวเตอร์เครื่องนี้สูญเสียการเปลี่ยนแปลงที่ยังไม่ได้บันทึก</translation>
 <translation id="2847479871509788944">นำออกจาก Chromium...</translation>
 <translation id="2886012850691518054">ตัวเลือก: ช่วยปรับปรุง Chromium ให้ดีขึ้นโดยการส่งสถิติการใช้งานและรายงานข้อขัดข้องไปยัง Google โดยอัตโนมัติ</translation>
 <translation id="2910007522516064972">เกี่ยวกับ &amp;Chromium</translation>
@@ -147,7 +145,6 @@
 <translation id="6847869444787758381">Chromium จะแจ้งให้ทราบหากมีคนล่วงรู้รหัสผ่านของคุณ</translation>
 <translation id="6857782730669500492">Chromium - <ph name="PAGE_TITLE" /></translation>
 <translation id="6863361426438995919">Google Pay (คัดลอกไปยัง Chromium)</translation>
-<translation id="6868056391275687737">ใช้งาน Chromium สำเนาอื่นอยู่ ปิดสำเนานั้นก่อนแล้วค่อยอัปเดต</translation>
 <translation id="6893813176749746474">Chromium ได้รับการอัปเดตแล้ว แต่คุณไม่ได้ใช้งานมาไม่ต่ำกว่า 30 วันแล้ว</translation>
 <translation id="6964305034639999644">เปิดลิงก์ในหน้าต่างที่ไม่ระบุตัวตนของ Chromium</translation>
 <translation id="6990124437352146030">Chromium ต้องการสิทธิ์เข้าถึงไมโครโฟนของคุณสำหรับเว็บไซต์นี้</translation>
@@ -205,7 +202,6 @@ Chromium ไม่สามารถกู้คืนการตั้งค�
 <translation id="8697124171261953979">อีกทั้งยังควบคุมหน้าที่จะแสดงเมื่อคุณเปิด Chromium หรือทำการค้นหาจากแถบอเนกประสงค์ด้วย</translation>
 <translation id="8704119203788522458">นี่คือ Chromium ของคุณ</translation>
 <translation id="8739167630197873875">คุณจะล้างคุ้กกี้เมื่อปิด Chromium หากต้องการซิงค์ต่อไป ให้เปลี่ยน<ph name="COOKIE_SETTINGS_LINK" />นี้</translation>
-<translation id="8748383401829947534">ปิด Chromium ทุกสำเนา</translation>
 <translation id="8796602469536043152">Chromium ต้องการสิทธิ์เข้าถึงไมโครโฟนและกล้องถ่ายรูปของคุณสำหรับเว็บไซต์นี้</translation>
 <translation id="8803635938069941624">ข้อกำหนดของ Chromium OS</translation>
 <translation id="8821041990367117597">Chromium ไม่สามารถซิงค์ข้อมูลของคุณเนื่องจากรายละเอียดการลงชื่อเข้าใช้บัญชีของคุณล้าสมัย</translation>

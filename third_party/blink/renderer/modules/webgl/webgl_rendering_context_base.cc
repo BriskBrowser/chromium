@@ -735,7 +735,7 @@ ImageBitmap* WebGLRenderingContextBase::TransferToImageBitmapBase(
     ScriptState* script_state) {
   WebFeature feature = WebFeature::kOffscreenCanvasTransferToImageBitmapWebGL;
   UseCounter::Count(ExecutionContext::From(script_state), feature);
-  return ImageBitmap::Create(
+  return MakeGarbageCollected<ImageBitmap>(
       GetDrawingBuffer()->TransferToStaticBitmapImage(nullptr));
 }
 
@@ -792,12 +792,12 @@ scoped_refptr<StaticBitmapImage> WebGLRenderingContextBase::GetImage(
 }
 
 ScriptPromise WebGLRenderingContextBase::makeXRCompatible(
-    ScriptState* script_state) {
+    ScriptState* script_state,
+    ExceptionState& exception_state) {
   if (isContextLost()) {
-    return ScriptPromise::RejectWithDOMException(
-        script_state,
-        MakeGarbageCollected<DOMException>(DOMExceptionCode::kInvalidStateError,
-                                           "Context lost."));
+    exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
+                                      "Context lost.");
+    return ScriptPromise();
   }
 
   if (xr_compatible_) {
@@ -812,11 +812,10 @@ ScriptPromise WebGLRenderingContextBase::makeXRCompatible(
 
   // TODO(http://crbug.com/876140) Trigger context loss and recreate on
   // compatible GPU.
-  return ScriptPromise::RejectWithDOMException(
-      script_state,
-      MakeGarbageCollected<DOMException>(
-          DOMExceptionCode::kNotSupportedError,
-          "Context is not compatible. Switching not yet implemented."));
+  exception_state.ThrowDOMException(
+      DOMExceptionCode::kNotSupportedError,
+      "Context is not compatible. Switching not yet implemented.");
+  return ScriptPromise();
 }
 
 bool WebGLRenderingContextBase::IsXRCompatible() {
@@ -1868,8 +1867,11 @@ void WebGLRenderingContextBase::bindTexture(GLenum target,
   // We use TEXTURE_EXTERNAL_OES to implement video texture on Android platform
   if (target == GL_TEXTURE_VIDEO_IMAGE_WEBGL) {
 #if defined(OS_ANDROID)
-    ContextGL()->BindTexture(GL_TEXTURE_EXTERNAL_OES, ObjectOrZero(texture));
+    // TODO(crbug.com/776222): Support extension on Android
+    NOTIMPLEMENTED();
+    return;
 #else
+    // TODO(crbug.com/776222): Using GL_TEXTURE_VIDEO_IMAGE_WEBGL in blink
     ContextGL()->BindTexture(GL_TEXTURE_2D, ObjectOrZero(texture));
     if (texture && !texture->GetTarget()) {
       ContextGL()->TexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
@@ -2186,12 +2188,8 @@ void WebGLRenderingContextBase::compressedTexImage2D(
   if (!ValidateCompressedTexFormat("compressedTexImage2D", internalformat))
     return;
   GLsizei data_length;
-  if (!base::CheckedNumeric<GLsizei>(data.View()->byteLengthAsSizeT())
-           .AssignIfValid(&data_length)) {
-    SynthesizeGLError(GL_INVALID_VALUE, "compressedTexImage2D",
-                      "src_length exceeds the maximum supported length");
+  if (!ExtractDataLengthIfValid("compressedTexImage2D", data, &data_length))
     return;
-  }
   ContextGL()->CompressedTexImage2D(target, level, internalformat, width,
                                     height, border, data_length,
                                     data.View()->BaseAddressMaybeShared());
@@ -2213,12 +2211,8 @@ void WebGLRenderingContextBase::compressedTexSubImage2D(
   if (!ValidateCompressedTexFormat("compressedTexSubImage2D", format))
     return;
   GLsizei data_length;
-  if (!base::CheckedNumeric<GLsizei>(data.View()->byteLengthAsSizeT())
-           .AssignIfValid(&data_length)) {
-    SynthesizeGLError(GL_INVALID_VALUE, "compressedTexImage2D",
-                      "src_length exceeds the maximum supported length");
+  if (!ExtractDataLengthIfValid("compressedTexSubImage2D", data, &data_length))
     return;
-  }
   ContextGL()->CompressedTexSubImage2D(target, level, xoffset, yoffset, width,
                                        height, format, data_length,
                                        data.View()->BaseAddressMaybeShared());
@@ -5435,7 +5429,7 @@ void WebGLRenderingContextBase::TexImageHelperCanvasRenderingContextHost(
   // (e.g. CanUseTexImageViaGPU returning false).
   if (is_webgl_canvas && upload_via_gpu) {
     source_canvas_webgl_context =
-        ToWebGLRenderingContextBase(context_host->RenderingContext());
+        To<WebGLRenderingContextBase>(context_host->RenderingContext());
   } else {
     image = context_host->GetSourceImageForCanvas(
         &source_image_status, kPreferAcceleration,

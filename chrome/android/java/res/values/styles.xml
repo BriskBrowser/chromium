@@ -140,12 +140,8 @@
 
     <style name="Base.Theme.Chromium.Settings" parent="Theme.Chromium.WithActionBar">
         <item name="android:spinnerItemStyle">@style/PreferenceSpinnerItem</item>
-        <item name="floatLabelTextAppearance">@style/TextAppearance.BlackCaption</item>
-        <item name="floatLabelPaddingLeft">@dimen/pref_autofill_field_horizontal_padding</item>
-        <item name="floatLabelPaddingRight">@dimen/pref_autofill_field_horizontal_padding</item>
-        <item name="floatLabelPaddingTop">@dimen/pref_autofill_field_top_margin</item>
         <item name="actionBarStyle">@style/SettingsActionBarModern</item>
-        <item name="preferenceTheme">@style/Theme.Chromium.PreferenceTheme</item>
+        <item name="preferenceTheme">@style/PreferenceTheme</item>
     </style>
 
     <!-- TODO(huayinz): Verify if these text styles are up to date with UX and override styles in
@@ -199,77 +195,45 @@
     </style>
 
     <!-- Settings -->
-    <style name="Theme.Chromium.PreferenceTheme">
-        <item name="preferenceStyle">@style/Theme.Chromium.PreferenceItem</item>
-        <item name="preferenceFragmentCompatStyle">@style/Theme.Chromium.PreferenceFragment</item>
-        <item name="preferenceFragmentListStyle">@style/Theme.Chromium.PreferenceFragmentList</item>
-        <item name="dialogPreferenceStyle">@style/Theme.Chromium.DialogPreference</item>
-        <item name="checkBoxPreferenceStyle">@style/Theme.Chromium.CheckBoxPreference</item>
-        <item name="switchPreferenceCompatStyle">@style/Theme.Chromium.SwitchPreference</item>
+    <style name="PreferenceTheme">
+        <item name="preferenceStyle">@style/PreferenceItem</item>
+        <item name="preferenceFragmentCompatStyle">@style/SettingsFragment</item>
+        <item name="preferenceFragmentListStyle">@style/SettingsFragmentList</item>
+        <item name="dialogPreferenceStyle">@style/DialogPreference</item>
+        <item name="checkBoxPreferenceStyle">@style/CheckBoxPreference</item>
+        <item name="switchPreferenceCompatStyle">@style/SwitchPreference</item>
     </style>
 
-    <style name="Theme.Chromium.PreferenceFragment">
+    <style name="SettingsFragment">
         <item name="android:divider">@drawable/list_divider_compat</item>
     </style>
 
-    <style name="Theme.Chromium.PreferenceItem">
+    <style name="PreferenceItem">
         <item name="android:layout">@layout/preference_compat</item>
     </style>
 
-    <!-- TODO(crbug.com/971791): The asymmetric start and end paddings here preserve the same
-         overall padding as the pre-support library custom preference layout. Following migration to
-         the support library preferences, we should investigate simplifying these styles.-->
-    <style name="Theme.Chromium.PreferenceLayoutCompat">
-        <item name="android:paddingStart">8dp</item>
-        <item name="android:paddingEnd">10dp</item>
-        <item name="android:minHeight">?android:attr/listPreferredItemHeight</item>
-        <item name="android:background">?android:attr/selectableItemBackground</item>
-    </style>
-
-    <style name="Theme.Chromium.PreferenceDescriptionCompat">
-        <item name="android:paddingTop">6dp</item>
-        <item name="android:paddingBottom">6dp</item>
-        <item name="android:paddingEnd">8dp</item>
-    </style>
-
-    <style name="Theme.Chromium.PreferenceWidgetCompat">
-        <item name="android:minWidth">48dp</item>
-    </style>
-
-    <style name="Theme.Chromium.PreferenceFragmentList">
+    <style name="SettingsFragmentList">
         <item name="android:paddingStart">@dimen/pref_list_padding_kitkat</item>
         <item name="android:paddingEnd">@dimen/pref_list_padding_kitkat</item>
     </style>
 
-    <style name="Theme.Chromium.DialogPreference">
+    <style name="DialogPreference">
         <item name="android:layout">@layout/preference_compat</item>
         <item name="android:negativeButtonText">@android:string/cancel</item>
     </style>
 
-    <style name="Theme.Chromium.CheckBoxPreference">
+    <style name="CheckBoxPreference">
         <item name="android:layout">@layout/preference_compat</item>
         <item name="android:widgetLayout">@layout/preference_widget_checkbox</item>
     </style>
 
-    <style name="Theme.Chromium.SwitchPreference">
+    <style name="SwitchPreference">
         <item name="android:layout">@layout/preference_compat</item>
         <item name="android:widgetLayout">@layout/preference_widget_switch_compat</item>
     </style>
 
     <style name="SettingsActionBarModern" parent="@style/Widget.AppCompat.Light.ActionBar.Solid">
       <item name="titleTextStyle">@style/TextAppearance.BlackHeadline</item>
-    </style>
-    <style name="TextAppearance.PreferenceMediumText">
-        <item name="android:textSize">18sp</item>
-        <item name="android:textColor">?android:attr/textColorPrimary</item>
-    </style>
-    <style name="PreferenceTitle">
-        <item name="android:ellipsize">end</item>
-        <item name="android:singleLine">true</item>
-        <item name="android:textAppearance">@style/TextAppearance.PreferenceMediumText</item>
-    </style>
-    <style name="PreferenceSummary">
-        <item name="android:textAppearance">@style/TextAppearance.BlackBody</item>
     </style>
     <style name="PreferenceScreenLayout">
         <item name="android:paddingTop">16dp</item>
@@ -279,23 +243,8 @@
         <item name="android:paddingStart">@dimen/pref_autofill_content_spacing</item>
         <item name="android:paddingEnd">@dimen/pref_autofill_content_spacing</item>
     </style>
-    <style name="PreferenceLayoutBase">
-        <item name="android:background">?android:attr/activatedBackgroundIndicator</item>
-        <item name="android:minHeight">?android:attr/listPreferredItemHeight</item>
-        <item name="android:paddingTop">6dp</item>
-        <item name="android:paddingBottom">6dp</item>
-        <item name="android:paddingStart">8dp</item>
-        <item name="android:paddingEnd">8dp</item>
-    </style>
-    <style name="PreferenceLayout" parent="PreferenceLayoutBase" />
     <style name="PreferenceSpinnerItem">
         <item name="android:textAppearance">@style/TextAppearance.PreferenceMediumText</item>
-    </style>
-    <style name="PreferenceSpinnerUnderlineView">
-        <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">1dp</item>
-        <item name="android:layout_marginTop">2dp</item>
-        <item name="android:background">@color/modern_grey_600</item>
     </style>
     <style name="TextAppearance.AccessibilityTextPreference">
         <item name="android:textColor">?android:attr/textColorPrimary</item>
@@ -499,7 +448,7 @@
 
     <!-- Payments UI -->
     <style name="TextAppearance.PaymentsUiSectionWarningText">
-        <item name="android:textColor">@color/error_text_color</item>
+        <item name="android:textColor">@color/default_text_color_error</item>
         <item name="android:textSize">@dimen/text_size_medium</item>
     </style>
     <style name="TextAppearance.PaymentsUiSectionDescriptiveTextEndAligned" parent="TextAppearance.BlackBody">
@@ -516,7 +465,7 @@
         <item name="android:textStyle">bold</item>
     </style>
     <style name="TextAppearance.PaymentRequestErrorText">
-        <item name="android:textColor">@color/error_text_color</item>
+        <item name="android:textColor">@color/default_text_color_error</item>
         <item name="android:textSize">@dimen/text_size_large</item>
     </style>
 
@@ -590,7 +539,7 @@
         <item name="android:background">@android:color/transparent</item>
     </style>
     <style name="TextAppearance.BottomToolbarLabel" parent="TextAppearance.RobotoMediumStyle">
-        <item name="android:textColor">@color/default_text_color_dark_secondary</item>
+        <item name="android:textColor">@color/default_text_color_secondary_dark</item>
         <item name="android:textSize">12sp</item>
     </style>
     <style name="BottomToolbarButtonWrapper">

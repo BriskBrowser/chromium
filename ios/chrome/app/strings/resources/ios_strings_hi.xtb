@@ -140,6 +140,7 @@
 <translation id="2773292004659987824">गुप्त मोड में खोज</translation>
 <translation id="277771892408211951">भाषा चुनें</translation>
 <translation id="2780046210906776326">कोई ईमेल खाता नहीं</translation>
+<translation id="2781331604911854368">चालू है</translation>
 <translation id="2781692009645368755">Google Pay</translation>
 <translation id="2800683595868705743">टैब स्विचर को छोड़ें</translation>
 <translation id="2830972654601096923">पते प्रबंधित करें...</translation>
@@ -175,6 +176,7 @@
 <translation id="3268451620468152448">खुले सत्र</translation>
 <translation id="3277021493514034324">साइट का पता कॉपी किया गया</translation>
 <translation id="3290875554372353449">कोई खाता चुनें</translation>
+<translation id="3311748811247479259">बंद है</translation>
 <translation id="3324193307694657476">पता 2</translation>
 <translation id="3329904751041170572">सर्वर से कनेक्ट नहीं कर सका.</translation>
 <translation id="3335947283844343239">बंद किए गए टैब फिर से खोलें</translation>
@@ -192,6 +194,7 @@
 <translation id="3482959374254649722">आपके टैब समन्वयित कर रहा है...</translation>
 <translation id="3493531032208478708">सुझाई गई सामग्री के बारे में <ph name="BEGIN_LINK" />ज़्यादा जानें<ph name="END_LINK" /></translation>
 <translation id="3494788280727468875">ब्राउज़िंग डेटा साफ़ करने की पुष्टि करें</translation>
+<translation id="35083190962747987">${url} खोलें</translation>
 <translation id="3519193562722059437">वेब ब्राउज़ करने के लिए टैब खोलें.</translation>
 <translation id="3527085408025491307">फ़ोल्डर</translation>
 <translation id="3529024052484145543">सुरक्षित नहीं है</translation>
@@ -301,6 +304,7 @@
 <translation id="5062321486222145940">Google डिस्क इंस्टॉल करें</translation>
 <translation id="5083464117946352670">फ़ाइल आकार तय नहीं हो पा रहा.</translation>
 <translation id="5094827893301452931">ट्वीट पूरा हुआ.</translation>
+<translation id="5118764316110575523">बंद है</translation>
 <translation id="5127805178023152808">समन्वयन बंद है</translation>
 <translation id="5132942445612118989">सभी डिवाइस पर अपने पासवर्ड, इतिहास और दूसरी कई चीज़ें सिंक करें</translation>
 <translation id="5140288047769711648">Chrome आपके लिए इस पासवर्ड को याद रखेगा. आपको इसे याद नहीं रखना होगा.</translation>
@@ -349,13 +353,11 @@ Handoff को Settings के General अनुभाग में भी स�
 <translation id="5854790677617711513">30 दिनों से ज़्यादा पुराना</translation>
 <translation id="5857090052475505287">नया फ़ोल्डर</translation>
 <translation id="5857770089550859117">सिंक शुरू करने के लिए पासफ़्रेज़ ज़रूरी है</translation>
-<translation id="5860033963881614850">बंद</translation>
 <translation id="5869029295770560994">ठीक है, समझ लिया</translation>
 <translation id="5871497086027727873">1 आइटम ले जाया गया</translation>
 <translation id="5897956970858271241">कॉपी किए गए लिंक पर जाएं</translation>
 <translation id="5911030830365207728">Google अनुवाद</translation>
 <translation id="5913600720976431809">पेज का अनुवाद करने के विकल्प</translation>
-<translation id="5916664084637901428">चालू</translation>
 <translation id="5938160824633642847">आपके डिवाइस की करीब पूरी जगह भर गई है. जगह खाली करके दोबारा आज़माएं.</translation>
 <translation id="5948291296578561264">इससे फ़ोटो आपकी फ़ोटो लाइब्रेरी में सेव कर लिए जाते हैं.</translation>
 <translation id="5955891643922670672">ऑफ़लाइन वर्शन देख रहे हैं</translation>
@@ -365,6 +367,7 @@ Handoff को Settings के General अनुभाग में भी स�
 <translation id="5979837087407522202">पासवर्ड खोजें</translation>
 <translation id="5982717868370722439">मौजूदा डेटा <ph name="USER_EMAIL" /> में जोड़ें.</translation>
 <translation id="5984222099446776634">हाल ही में देखे गए</translation>
+<translation id="5988851877894965432">Chrome में यूआरएल खोलें</translation>
 <translation id="6012140227487808125">एन्क्रिप्ट हो रहा है...</translation>
 <translation id="6021332621416007159">इसमें खोलें...</translation>
 <translation id="6039429417015973673"><ph name="TITLE" />, <ph name="PUBLISHER_INFORMATION" />, <ph name="PUBLICATION_DATE" /></translation>
@@ -514,6 +517,7 @@ Handoff को Settings के General अनुभाग में भी स�
 <translation id="7961015016161918242">कभी नहीं</translation>
 <translation id="7971521879845308059">पॉप-अप अवरोधित करें</translation>
 <translation id="7982789257301363584">नेटवर्क</translation>
+<translation id="800361585186029508">यह इनपुट किए गए यूआरएल को Google Chrome में खोलता है.</translation>
 <translation id="8007420562015504427">गुप्त मोड में खोज</translation>
 <translation id="8019783059653722575">इससे आप फ़ोटो सेव कर सकते हैं और अपलोड कर सकते हैं.</translation>
 <translation id="802154636333426148">डाउनलोड विफल रहा</translation>
@@ -524,7 +528,7 @@ Handoff को Settings के General अनुभाग में भी स�
 <translation id="8073872304774253879">खोजों और ब्राउज़िंग को बेहतर बनाएं</translation>
 <translation id="8076014560081431679">सहेजी गई साइट सेटिंग नहीं हटाई जाएंगी और इससे आपका ब्राउज़िंग व्यवहार प्रदर्शित हो सकता है. <ph name="BEGIN_LINK" />ज़्यादा जानें<ph name="END_LINK" /></translation>
 <translation id="8114753159095730575">फ़ाइल डाउनलोड करने की सुविधा उपलब्ध है. विकल्प स्क्रीन के नीचे उपलब्ध हैं.</translation>
-<translation id="8131740175452115882">दुबारा पूछें</translation>
+<translation id="8131740175452115882">पुष्टि करें</translation>
 <translation id="8197543752516192074">पेज का अनुवाद करें</translation>
 <translation id="8205564605687841303">रद्द करें</translation>
 <translation id="8225985093977202398">संचित चित्र और फ़ाइलें</translation>

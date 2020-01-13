@@ -9,7 +9,6 @@
 কিছুমান সুবিধা উপলব্ধ নহ'ব পাৰে আৰু অগ্ৰাধিকাৰসমূহত কৰা সলনি কার্য ছেভ নহ'ব পাৰে।</translation>
 <translation id="1088300314857992706"><ph name="USER_EMAIL_ADDRESS" />এ আগতে Chrome ব্যৱহাৰ কৰি আছিল</translation>
 <translation id="1097330777386562916">আপুনি Chromeৰ পৰা বাহিৰ হোৱা সময়ত কুকীসমূহ আৰু ছাইট ডেটা মচক</translation>
-<translation id="1104959162601287462">&amp;Chrome OSৰ বিষয়ে</translation>
 <translation id="110877069173485804">এয়া হৈছে আপোনাৰ Chrome</translation>
 <translation id="1142745911746664600">Chrome আপডে’ট কৰিব নোৱাৰি</translation>
 <translation id="1154147086299354128">Chromeত &amp;খোলক</translation>
@@ -21,7 +20,6 @@
 <translation id="1553358976309200471">Chrome আপডে’ট কৰক</translation>
 <translation id="1587223624401073077">Google Chromeএ আপোনাৰ কেমেৰা ব্যৱহাৰ কৰি আছে।</translation>
 <translation id="1587325591171447154"><ph name="FILE_NAME" />টো ক্ষতিকাৰক বাবে Chromeএ সেইটো অৱৰোধ কৰিছে।</translation>
-<translation id="1590588151039584890">আপডে'ট কৰিবলৈ এই কম্পিউটাৰটোত Chrome বন্ধ হ'ব লাগিব। ইয়াৰ ফলত এই কম্পিউটাৰত লগ ইন কৰা অন্য ব্যৱহাৰকাৰীসকলে নিজৰ ছেভ নকৰা সাল সলনি কার্যসমূহ হেৰুৱাব পাৰে।</translation>
 <translation id="1619887657840448962">আমি Chromeক অধিক সুৰক্ষিত কৰি তুলিবলৈ <ph name="IDS_EXTENSION_WEB_STORE_TITLE" />ত সূচীবদ্ধ নোহোৱা আৰু আপুনি নজনাকৈয়ে যোগ হ’ব পৰা এক্সটেনশ্বন অক্ষম কৰিছোঁ।</translation>
 <translation id="1628000112320670027">Chromeৰ জৰিয়তে সহায় পাওক</translation>
 <translation id="1635734105302489219">আপুনি Chromeৰ পৰা বাহিৰ হ'লে কুকীসমূহ মচে। ছিংক কৰি থাকিবলৈ, এই <ph name="COOKIE_SETTINGS_LINK" /> সলনি কৰক।</translation>
@@ -146,7 +144,6 @@
 <translation id="5430073640787465221">আপোনাৰ পচন্দৰ ফাইলটো ব্যৱহাৰযোগ্য নহয় বা অমান্য।
 
 Google Chromeএ আপোনাৰ ছেটিংসমূহ পুনৰুদ্ধাৰ কৰিবলৈ সক্ষম নহ'ল।</translation>
-<translation id="5543953544073077331">Chromeৰ অন্য প্ৰতিলিপিসমূহ চলি আছে। আপডে'ট কৰিবলৈ সেইবোৰ বন্ধ কৰক।</translation>
 <translation id="556024056938947818">Google Chromeএ পাছৱর্ডসমূহ দেখুৱাবলৈ চেষ্টা কৰি আছে।</translation>
 <translation id="5566025111015594046">Google Chrome (mDNS-In)</translation>
 <translation id="5657226924540934362">এই পৃষ্ঠাখনত যদি কোনোটো ছেটিং দেখা পোৱা নাযায়, তেন্তে আপোনাৰ <ph name="LINK_BEGIN" />
@@ -196,7 +193,6 @@ Google Chromeএ আপোনাৰ ছেটিংসমূহ পুনৰু�
 <translation id="7408085963519505752">Chrome OS চৰ্তাৱলী</translation>
 <translation id="7419046106786626209">আপোনাৰ ড‘মেইনত ছিংক কৰাৰ সুবিধা নথকাৰ বাবে Chrome OSএ আপোনাৰ ডেটা ছিংক কৰিব নোৱাৰিলে।</translation>
 <translation id="7486227612705979895">Chromeএ ঠিকনাৰ বাৰত পৰামর্শ দিবলৈ আপোনাৰ ড্ৰাইভত এক্সেছ কৰিব</translation>
-<translation id="7531671357096394523">Chromeৰ প্ৰতিলিপিসমূহৰ পৰা বাহিৰ হওক।</translation>
 <translation id="7535429826459677826">Google Chrome Dev</translation>
 <translation id="7573289029918943991">আপোনাৰ ডিভাইচটো আপ-টু-ডে’ট হৈ আছেনে নাই সেয়া চাবলৈ <ph name="LINK_BEGIN" />Chrome OSৰ ছেটিংসমূহ<ph name="LINK_END" />লৈ যাওক</translation>
 <translation id="7589360514048265910">Mac OS X 10.9 আৰু সমর্থিত নহয় বাবে কম্পিউটাৰটোৱে Google Chrome সম্পর্কীয় আপডে’টসমূহ লাভ নকৰিব।</translation>

@@ -45,7 +45,6 @@ import org.chromium.chrome.browser.omnibox.LocationBar.OmniboxFocusReason;
 import org.chromium.chrome.browser.omnibox.LocationBarVoiceRecognitionHandler;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
-import org.chromium.chrome.browser.snackbar.SnackbarManager;
 import org.chromium.chrome.browser.suggestions.SuggestionsDependencyFactory;
 import org.chromium.chrome.browser.suggestions.SuggestionsEventReporter;
 import org.chromium.chrome.browser.suggestions.SuggestionsMetrics;
@@ -61,6 +60,7 @@ import org.chromium.chrome.browser.tab.TabImpl;
 import org.chromium.chrome.browser.tab.TabObserver;
 import org.chromium.chrome.browser.tab.TabSelectionType;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
+import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
 import org.chromium.chrome.browser.util.UrlConstants;
 import org.chromium.chrome.browser.util.UrlUtilities;
 import org.chromium.chrome.browser.vr.VrModuleProvider;
@@ -85,7 +85,7 @@ public class NewTabPage implements NativePage, InvalidationAwareThumbnailProvide
     private static final String NAVIGATION_ENTRY_SCROLL_POSITION_KEY = "NewTabPageScrollPosition";
     public static final String CONTEXT_MENU_USER_ACTION_PREFIX = "Suggestions";
 
-    protected final Tab mTab;
+    protected final TabImpl mTab;
     private final ActivityTabProvider mActivityTabProvider;
     private final ActivityLifecycleDispatcher mActivityLifecycleDispatcher;
 
@@ -274,24 +274,26 @@ public class NewTabPage implements NativePage, InvalidationAwareThumbnailProvide
      * @param tabModelSelector The TabModelSelector used to open tabs.
      * @param activityTabProvider Allows us to check if we are the current tab.
      * @param activityLifecycleDispatcher Allows us to subscribe to backgrounding events.
+     * @param tab The {@link TabImpl} that contains this new tab page.
      */
     public NewTabPage(ChromeActivity activity, NativePageHost nativePageHost,
             TabModelSelector tabModelSelector, ActivityTabProvider activityTabProvider,
-            ActivityLifecycleDispatcher activityLifecycleDispatcher) {
+            ActivityLifecycleDispatcher activityLifecycleDispatcher, TabImpl tab) {
         mConstructedTimeNs = System.nanoTime();
         TraceEvent.begin(TAG);
 
         mActivityTabProvider = activityTabProvider;
         mActivityLifecycleDispatcher = activityLifecycleDispatcher;
-        mTab = nativePageHost.getActiveTab();
-        Profile profile = ((TabImpl) mTab).getProfile();
+
+        mTab = tab;
+        Profile profile = mTab.getProfile();
 
         SuggestionsDependencyFactory depsFactory = SuggestionsDependencyFactory.getInstance();
         SuggestionsSource suggestionsSource = depsFactory.createSuggestionSource(profile);
         SuggestionsEventReporter eventReporter = depsFactory.createEventReporter();
 
         SuggestionsNavigationDelegate navigationDelegate = new SuggestionsNavigationDelegate(
-                activity, profile, nativePageHost, tabModelSelector);
+                activity, profile, nativePageHost, tabModelSelector, mTab);
         mNewTabPageManager = new NewTabPageManagerImpl(suggestionsSource, eventReporter,
                 navigationDelegate, profile, nativePageHost,
                 GlobalDiscardableReferencePool.getReferencePool(), activity.getSnackbarManager());

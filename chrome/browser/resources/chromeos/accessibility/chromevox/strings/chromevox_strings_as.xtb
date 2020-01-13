@@ -416,6 +416,7 @@
 <translation id="3914732343065571127">ChromeVox নিদের্শনাৰ প্ৰসংগ</translation>
 <translation id="3930383913623796990">বসন্তকালৰ প্ৰকৃতিৰ দৰে সেউজীয়া</translation>
 <translation id="3930498801443296724">Pullquote</translation>
+<translation id="3935615366277838204">বৰফলাৰ <ph name="LETTER" /></translation>
 <translation id="3936394396199829062">লেভেণ্ডাৰ ব্লাশ্ব</translation>
 <translation id="3941269780691800708">মাউচৰ তলত থকা পাঠ কৈ শুনাওক।</translation>
 <translation id="394953087167197343">ভুল বানান সূচাওক:</translation>
@@ -789,7 +790,6 @@
 <translation id="6459511626086141404">ফ্লেট কীমেপ</translation>
 <translation id="6468049171101508116">পৰৱর্তী বুটাম</translation>
 <translation id="646954774886932461">সূচক</translation>
-<translation id="6479792383819319132">পৰৱৰ্তী কোনো দফা নাই।</translation>
 <translation id="6493991254603208962">উজ্জ্বলতা কমাওক</translation>
 <translation id="6501595918865591267">সেউজ নীলা</translation>
 <translation id="6508059270146105198">ব্ৰেইল ডিছপ্লে’ক পৃষ্ঠাটোৰ একেবাৰে তলৰ অংশলৈ নিয়ক</translation>
@@ -812,7 +812,6 @@
 <translation id="6637586476836377253">লগ</translation>
 <translation id="6657128831881431364">প্ৰগতিৰ হাৰ নির্দেশ কৰা দণ্ড</translation>
 <translation id="6659594942844771486">টেব</translation>
-<translation id="6675661017770918201">পূৰ্বৱৰ্তী কোনো দফা নাই।</translation>
 <translation id="667999046851023355">নথি</translation>
 <translation id="6688209025607531203">ম'ডেল বহিৰ্ভূত সতৰ্কবাণী</translation>
 <translation id="6689672606256159458">গাঢ় ছেলম'ন</translation>
@@ -841,6 +840,7 @@
 <translation id="6865519907510167493">বানান ভুল</translation>
 <translation id="6871161210040114857">কে'ছ প্ৰত্যাখ্যান কৰি থকা হৈছে।</translation>
 <translation id="6877435256196695200">ইয়াৰ পিছত কোনো গ্ৰাফিক নাই৷</translation>
+<translation id="688976158310523235">সন্ধান মেনু</translation>
 <translation id="6897341342232909480">বাওঁফালে স্থানান্তৰ কৰক</translation>
 <translation id="6901540140423170855">তাৰিখ</translation>
 <translation id="6910211073230771657">মচা হ’ল</translation>
@@ -853,6 +853,7 @@
 <translation id="699159175332639490">Search + O + W</translation>
 <translation id="6994042831499278539">প্ৰসংগৰ কাৰণে শব্দাৱলী</translation>
 <translation id="6996566555547746822">পৰৱৰ্তী কম্ব’ বাকচ</translation>
+<translation id="6997224546856374593">বৰফলাৰ আখৰ পঢ়োঁতে:</translation>
 <translation id="700202842116345659">গ্ৰন্থপঞ্জীৰ প্ৰবিষ্টি</translation>
 <translation id="7005146664810010831">কোনো URL পোৱা নগ’ল</translation>
 <translation id="7010712454773919705">ChromeVox সংশোধক কী</translation>
@@ -933,6 +934,7 @@ Chrome ব্ৰাউজাৰৰ মেনু খুলিবলৈ Alt+F ট�
 <translation id="744163271241493234">পাছৱৰ্ড সম্পাদক</translation>
 <translation id="7491962110804786152">টেব</translation>
 <translation id="7492049978501397201">প্ৰৱেশ কৰা ডায়লগ</translation>
+<translation id="7505149250476994901">আখৰৰ আগত "cap" বুলি কওক</translation>
 <translation id="7518543783849163354">সাময়িকভাৱে ChromeVoxৰ কথা কোৱা বন্ধ কৰিবলৈ নিয়ন্ত্ৰণ বুটামটো টিপক।</translation>
 <translation id="7521682724501952239">আপুনি টাচ্চ্‌স্ক্রীণৰ জৰিয়তে ChromeVox ব্যৱহাৰ কৰিব পাৰে।</translation>
 <translation id="7532613204005497612">জুন</translation>
@@ -1204,6 +1206,7 @@ Chrome ব্ৰাউজাৰৰ মেনু খুলিবলৈ Alt+F ট�
 <translation id="9065283790526219006">+পপআপ</translation>
 <translation id="9066023754636984703">সবিশেষলৈ পোনপটীয়াকৈ যাবলৈ Search+A, J টিপক।</translation>
 <translation id="9067522039955793016">পৃষ্ঠা বিচ্ছেদ</translation>
+<translation id="9074824103975499138">ChromeVox মেনুসমূহত সন্ধান কৰক</translation>
 <translation id="9077213568694924680">বাছনিৰ পৰা আঁতৰোৱা হ’ল</translation>
 <translation id="9077305471618729969">পাতল সাগৰ সেউজীয়া</translation>
 <translation id="9082874451376019682">আগৰ কোনো শ্লাইডাৰ নাই৷</translation>

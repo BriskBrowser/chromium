@@ -184,9 +184,6 @@ android_builder(
     cores = 16,
     goma_jobs = goma.jobs.J300,
     ssd = True,
-    tryjob = tryjob(
-        experiment_percentage = 100,
-    ),
 )
 
 android_builder(
@@ -404,8 +401,6 @@ blink_builder(
             '.+/[+]/third_party/blink/renderer/core/paint/.+',
             '.+/[+]/third_party/blink/renderer/core/svg/.+',
             '.+/[+]/third_party/blink/renderer/platform/graphics/.+',
-            '.+/[+]/third_party/blink/web_tests/FlagExpectations/enable-blink-features=CompositeAfterPaint',
-            '.+/[+]/third_party/blink/web_tests/flag-specific/enable-blink-features=CompositeAfterPaint/.+',
         ],
     ),
 )
@@ -460,6 +455,35 @@ blink_mac_builder(
 
 blink_mac_builder(
     name = 'mac10.14-blink-rel',
+)
+
+
+# Used for listing chrome trybots in chromium's commit-queue.cfg without also
+# adding them to chromium's cr-buildbucket.cfg. Note that the recipe these
+# builders run allow only known roller accounts when triggered via the CQ.
+def chrome_internal_verififer(
+    *,
+    builder):
+  luci.cq_tryjob_verifier(
+      builder = 'chrome:try/' + builder,
+      cq_group = 'cq',
+      includable_only = True,
+  )
+
+chrome_internal_verififer(
+    builder = 'chromeos-betty-chrome',
+)
+
+chrome_internal_verififer(
+    builder = 'chromeos-betty-pi-arc-chrome',
+)
+
+chrome_internal_verififer(
+    builder = 'chromeos-eve-compile-chrome',
+)
+
+chrome_internal_verififer(
+    builder = 'chromeos-kevin-compile-chrome',
 )
 
 
@@ -1189,8 +1213,8 @@ linux_builder(
             '.+/[+]/third_party/blink/renderer/core/paint/.+',
             '.+/[+]/third_party/blink/renderer/core/svg/.+',
             '.+/[+]/third_party/blink/renderer/platform/graphics/.+',
-            '.+/[+]/third_party/blink/web_tests/FlagExpectations/enable-blink-features=CompositeAfterPaint',
-            '.+/[+]/third_party/blink/web_tests/flag-specific/enable-blink-features=CompositeAfterPaint/.+',
+            '.+/[+]/third_party/blink/web_tests/FlagExpectations/composite-after-paint',
+            '.+/[+]/third_party/blink/web_tests/flag-specific/composite-after-paint/.+',
         ],
     ),
 )
@@ -1205,7 +1229,8 @@ linux_builder(
             '.+/[+]/third_party/blink/renderer/core/svg/.+',
             '.+/[+]/third_party/blink/renderer/platform/fonts/shaping/.+',
             '.+/[+]/third_party/blink/renderer/platform/graphics/.+',
-            '.+/[+]/third_party/blink/web_tests/flag-specific/enable-blink-features=LayoutNG/.+',
+            '.+/[+]/third_party/blink/web_tests/FlagExpectations/disable-layout-ng',
+            '.+/[+]/third_party/blink/web_tests/flag-specific/disable-layout-ng/.+',
         ],
     ),
 )
@@ -1548,7 +1573,8 @@ win_builder(
 win_builder(
     name = 'win10_chromium_x64_coverage_rel_ng',
     os = os.WINDOWS_10,
-    use_clang_coverage = True
+    use_clang_coverage = True,
+    tryjob = tryjob(experiment_percentage = 3),
 )
 
 win_builder(

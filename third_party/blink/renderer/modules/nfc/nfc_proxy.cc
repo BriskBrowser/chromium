@@ -97,10 +97,9 @@ void NFCProxy::Push(device::mojom::blink::NDEFMessagePtr message,
 }
 
 void NFCProxy::CancelPush(
-    const String& target,
     device::mojom::blink::NFC::CancelPushCallback callback) {
   DCHECK(nfc_remote_);
-  nfc_remote_->CancelPush(StringToNDEFPushTarget(target), std::move(callback));
+  nfc_remote_->CancelPush(std::move(callback));
 }
 
 // device::mojom::blink::NFCClient implementation.
@@ -118,13 +117,13 @@ void NFCProxy::OnWatch(const Vector<uint32_t>& watch_ids,
   }
 }
 
-void NFCProxy::OnError(device::mojom::blink::NDEFErrorType error) {
+void NFCProxy::OnError(device::mojom::blink::NDEFErrorPtr error) {
   // Dispatch the event to all readers. We iterate on a copy of |readers_|
   // because a reader's onerror event handler may remove itself from |readers_|
   // just during the iteration process.
   ReaderMap copy = readers_;
   for (auto& pair : copy) {
-    pair.key->OnError(error);
+    pair.key->OnError(error->error_message);
   }
 }
 

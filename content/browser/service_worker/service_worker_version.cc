@@ -33,6 +33,7 @@
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/service_worker/service_worker_installed_scripts_sender.h"
+#include "content/browser/service_worker/service_worker_provider_host.h"
 #include "content/browser/service_worker/service_worker_registration.h"
 #include "content/common/service_worker/service_worker_utils.h"
 #include "content/public/browser/browser_thread.h"
@@ -458,7 +459,11 @@ void ServiceWorkerVersion::StopWorker(base::OnceClosure callback) {
 
   switch (running_status()) {
     case EmbeddedWorkerStatus::STARTING:
-    case EmbeddedWorkerStatus::RUNNING:
+    case EmbeddedWorkerStatus::RUNNING: {
+      // EmbeddedWorkerInstance::Stop() may synchronously call
+      // ServiceWorkerVersion::OnStopped() and destroy |this|. This protection
+      // avoids it.
+      scoped_refptr<ServiceWorkerVersion> protect = this;
       embedded_worker_->Stop();
       if (running_status() == EmbeddedWorkerStatus::STOPPED) {
         RunSoon(std::move(callback));
@@ -466,6 +471,7 @@ void ServiceWorkerVersion::StopWorker(base::OnceClosure callback) {
       }
       stop_callbacks_.push_back(std::move(callback));
       return;
+    }
     case EmbeddedWorkerStatus::STOPPING:
       stop_callbacks_.push_back(std::move(callback));
       return;
@@ -763,11 +769,9 @@ void ServiceWorkerVersion::MoveControlleeToBackForwardCacheMap(
 
 void ServiceWorkerVersion::RestoreControlleeFromBackForwardCacheMap(
     const std::string& client_uuid) {
-  // TODO(crbug.com/1021718): Change these to DCHECK once we figure out the
-  // cause of crash.
-  CHECK(IsBackForwardCacheEnabled());
-  CHECK(!base::Contains(controllee_map_, client_uuid));
-  CHECK(base::Contains(bfcached_controllee_map_, client_uuid));
+  DCHECK(IsBackForwardCacheEnabled());
+  DCHECK(!base::Contains(controllee_map_, client_uuid));
+  DCHECK(base::Contains(bfcached_controllee_map_, client_uuid));
   AddControllee(bfcached_controllee_map_[client_uuid]);
   bfcached_controllee_map_.erase(client_uuid);
 }
@@ -1687,8 +1691,10 @@ void ServiceWorkerVersion::StartWorkerInternal() {
 
   auto provider_info =
       blink::mojom::ServiceWorkerProviderInfoForStartWorker::New();
-  provider_host_ = ServiceWorkerProviderHost::CreateForServiceWorker(
-      context(), base::WrapRefCounted(this), &provider_info);
+  DCHECK(!provider_host_);
+  provider_host_ = std::make_unique<ServiceWorkerProviderHost>(
+      provider_info->host_remote.InitWithNewEndpointAndPassReceiver(),
+      base::WrapRefCounted(this), context());
 
   auto params = blink::mojom::EmbeddedWorkerStartParams::New();
   params->service_worker_version_id = version_id_;
@@ -2090,6 +2096,7 @@ void ServiceWorkerVersion::OnStoppedInternal(EmbeddedWorkerStatus old_status) {
   receiver_.reset();
   pending_external_requests_.clear();
   worker_is_idle_on_renderer_ = true;
+  provider_host_.reset();
 
   for (auto& observer : observers_)
     observer.OnRunningStateChanged(this);
@@ -2260,6 +2267,7 @@ void ServiceWorkerVersion::InitializeGlobalScope() {
   // service worker startup.
   DCHECK(registration);
 
+  DCHECK(provider_host_);
   service_worker_remote_->InitializeGlobalScope(
       std::move(service_worker_host_),
       provider_host_->container_host()

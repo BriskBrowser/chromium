@@ -274,19 +274,13 @@ _NOT_CONVERTED_TO_MODERN_BIND_AND_CALLBACK = '|'.join((
   '^chrome/test/',
   '^chrome/tools/',
   '^chrome/utility/',
-  '^chromecast/app/',
-  '^chromecast/browser/',
-  '^chromecast/crash/',
   '^chromecast/media/',
   '^chromecast/metrics/',
   '^chromecast/net/',
   '^chromeos/attestation/',
   '^chromeos/components/',
-  '^chromeos/dbus/',
-  '^chromeos/login/',
   '^chromeos/network/',
   '^chromeos/services/',
-  '^chromeos/settings/',
   '^components/arc/',
   '^components/assist_ranker/',
   '^components/autofill/',
@@ -1341,6 +1335,8 @@ _GENERIC_PYDEPS_FILES = [
     'third_party/blink/renderer/bindings/scripts/build_web_idl_database.pydeps',
     'third_party/blink/renderer/bindings/scripts/collect_idl_files.pydeps',
     'third_party/blink/renderer/bindings/scripts/generate_bindings.pydeps',
+    ('third_party/blink/renderer/bindings/scripts/'
+     'generate_high_entropy_list.pydeps'),
     'tools/binary_size/sizes.pydeps',
     'tools/binary_size/supersize.pydeps',
 ]
@@ -1351,17 +1347,13 @@ _ALL_PYDEPS_FILES = _ANDROID_SPECIFIC_PYDEPS_FILES + _GENERIC_PYDEPS_FILES
 
 # Bypass the AUTHORS check for these accounts.
 _KNOWN_ROBOTS = set(
-    '%s-chromium-autoroll@skia-buildbots.google.com.iam.gserviceaccount.com' % s
-    for s in ('afdo', 'angle', 'catapult', 'chromite', 'depot-tools',
-              'fuchsia-sdk', 'nacl', 'pdfium', 'perfetto', 'skia',
-              'spirv', 'src-internal', 'webrtc')
   ) | set('%s@appspot.gserviceaccount.com' % s for s in ('findit-for-me',)
   ) | set('%s@developer.gserviceaccount.com' % s for s in ('3su6n15k.default',)
   ) | set('%s@chops-service-accounts.iam.gserviceaccount.com' % s
           for s in ('bling-autoroll-builder', 'v8-ci-autoroll-builder',
                     'wpt-autoroller',)
   ) | set('%s@skia-public.iam.gserviceaccount.com' % s
-          for s in ('chromium-autoroll',)
+          for s in ('chromium-autoroll', 'chromium-release-autoroll')
   ) | set('%s@skia-corp.google.com.iam.gserviceaccount.com' % s
           for s in ('chromium-internal-autoroll',))
 
@@ -4645,14 +4637,6 @@ def _CheckTranslationScreenshots(input_api, output_api):
   import sys
   from io import StringIO
 
-  try:
-    old_sys_path = sys.path
-    sys.path = sys.path + [input_api.os_path.join(
-          input_api.PresubmitLocalPath(), 'tools', 'translation')]
-    from helper import grd_helper
-  finally:
-    sys.path = old_sys_path
-
   new_or_added_paths = set(f.LocalPath()
       for f in input_api.AffectedFiles()
       if (f.Action() == 'A' or f.Action() == 'M'))
@@ -4663,6 +4647,9 @@ def _CheckTranslationScreenshots(input_api, output_api):
   affected_grds = [f for f in input_api.AffectedFiles()
       if (f.LocalPath().endswith('.grd') or
           f.LocalPath().endswith('.grdp'))]
+  if not affected_grds:
+    return []
+
   affected_png_paths = [f.AbsoluteLocalPath()
       for f in input_api.AffectedFiles()
       if (f.LocalPath().endswith('.png'))]
@@ -4706,6 +4693,13 @@ def _CheckTranslationScreenshots(input_api, output_api):
     if input_api.os_path.exists(sha1_path) and sha1_path not in removed_paths:
       unnecessary_sha1_files.append(sha1_path)
 
+  try:
+    old_sys_path = sys.path
+    sys.path = sys.path + [input_api.os_path.join(
+          input_api.PresubmitLocalPath(), 'tools', 'translation')]
+    from helper import grd_helper
+  finally:
+    sys.path = old_sys_path
 
   for f in affected_grds:
     file_path = f.LocalPath()

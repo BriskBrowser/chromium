@@ -29,6 +29,7 @@
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/geometry/insets.h"
+#include "ui/native_theme/native_theme.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/label.h"
@@ -38,18 +39,11 @@
 #include "ui/views/layout/layout_types.h"
 #include "ui/views/view_class_properties.h"
 
-namespace {
-
-constexpr int TAB_GROUP_HEADER_CXMENU_NEW_TAB_IN_GROUP = 13;
-constexpr int TAB_GROUP_HEADER_CXMENU_UNGROUP = 14;
-constexpr int TAB_GROUP_HEADER_CXMENU_CLOSE_GROUP = 15;
-constexpr int TAB_GROUP_HEADER_CXMENU_FEEDBACK = 16;
-}  // namespace
-
 // static
-views::Widget* TabGroupEditorBubbleView::Show(TabGroupHeader* anchor_view,
-                                              TabController* tab_controller,
-                                              tab_groups::TabGroupId group) {
+views::Widget* TabGroupEditorBubbleView::Show(
+    TabGroupHeader* anchor_view,
+    TabController* tab_controller,
+    const tab_groups::TabGroupId& group) {
   views::Widget* const widget = BubbleDialogDelegateView::CreateBubble(
       new TabGroupEditorBubbleView(anchor_view, tab_controller, group));
   widget->Show();
@@ -73,7 +67,7 @@ views::View* TabGroupEditorBubbleView::GetInitiallyFocusedView() {
 TabGroupEditorBubbleView::TabGroupEditorBubbleView(
     TabGroupHeader* anchor_view,
     TabController* tab_controller,
-    tab_groups::TabGroupId group)
+    const tab_groups::TabGroupId& group)
     : tab_controller_(tab_controller),
       group_(group),
       title_field_controller_(this),
@@ -110,13 +104,11 @@ TabGroupEditorBubbleView::TabGroupEditorBubbleView(
   title_field_->SetAccessibleName(base::ASCIIToUTF16("Group title"));
   title_field_->set_controller(&title_field_controller_);
 
-  InitColorSet();
-  const SkColor current_color = tab_controller_->GetPaintedGroupColor(
-      tab_controller_->GetGroupColorId(group_));
+  const SkColor initial_color = InitColorSet();
 
   color_selector_ =
       group_modifier_container->AddChildView(std::make_unique<ColorPickerView>(
-          colors_, background_color(), current_color,
+          colors_, background_color(), initial_color,
           base::Bind(&TabGroupEditorBubbleView::UpdateGroup,
                      base::Unretained(this))));
   color_selector_->SetBorder(views::CreateEmptyBorder(
@@ -174,17 +166,31 @@ TabGroupEditorBubbleView::TabGroupEditorBubbleView(
 
 TabGroupEditorBubbleView::~TabGroupEditorBubbleView() = default;
 
-void TabGroupEditorBubbleView::InitColorSet() {
+SkColor TabGroupEditorBubbleView::InitColorSet() {
   base::flat_map<tab_groups::TabGroupColorId, tab_groups::TabGroupColor>
       all_colors = tab_groups::GetTabGroupColorSet();
+  ui::NativeTheme* native_theme = ui::NativeTheme::GetInstanceForNativeUi();
+
+  // Keep track of the current group's color, to be returned as the initial
+  // selected value.
+  const tab_groups::TabGroupColorId initial_color_id =
+      tab_controller_->GetGroupColorId(group_);
+  SkColor initial_color;
 
   color_ids_.reserve(all_colors.size());
   colors_.reserve(all_colors.size());
   for (auto const color_pair : all_colors) {
     color_ids_.push_back(color_pair.first);
-    SkColor color = tab_controller_->GetPaintedGroupColor(color_pair.first);
+    SkColor color = native_theme->ShouldUseDarkColors()
+                        ? color_pair.second.dark_theme_color
+                        : color_pair.second.light_theme_color;
     colors_.push_back({color, color_pair.second.label});
+
+    if (color_pair.first == initial_color_id)
+      initial_color = color;
   }
+
+  return initial_color;
 }
 
 void TabGroupEditorBubbleView::UpdateGroup() {

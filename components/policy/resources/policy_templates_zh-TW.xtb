@@ -241,13 +241,6 @@
           這項政策會針對內容更具體的 <ph name="IDLE_ACTION_AC_POLICY_NAME" /> 和 <ph name="IDLE_ACTION_BATTERY_POLICY_NAME" /> 政策提供備用值。如果設定這項政策，但未設定內容更具體的相關政策，系統就會使用這項政策的值。
 
           如果不設定這項政策，內容更具體的政策行為將不會受到影響。</translation>
-<translation id="1383493480903114193">這項政策會強制網路程式碼在瀏覽器程序中執行。
-
-      這項政策預設為停用；如果你啟用政策，當網路程序受到沙箱保護時，使用者就可能會遇到安全性問題。
-
-      設置這項政策是為了讓企業能轉換到不需掛接網路 API 的第三方軟體。建議你在 LSP 和 Win32 API 修補程式使用 Proxy 伺服器。
-
-      如果不設定這項政策，網路程式碼可能會在瀏覽器程序外執行 (取決於 NetworkService 實驗的實測結果)。</translation>
 <translation id="1384459581748403878">參考頁面：<ph name="REFERENCE_URL" /></translation>
 <translation id="138847842893090358">回報作業系統的更新狀態</translation>
 <translation id="1393485621820363363">已啟用企業裝置印表機</translation>
@@ -349,7 +342,7 @@
 <translation id="1522425503138261032">允許網站追蹤使用者的實際位置</translation>
 <translation id="1523774894176285446">要啟動的替代瀏覽器 (適用於已設定的網站)。</translation>
 <translation id="152657506688053119">預設搜尋的替代網址清單</translation>
-<translation id="1530812829012954197">一律在瀏覽器中顯示以下網址模式</translation>
+<translation id="1530812829012954197">一律在瀏覽器中算繪以下網址模式</translation>
 <translation id="1541170838458414064">限制列印頁面大小</translation>
 <translation id="1553684822621013552">如果將這項政策設為 true，系統會為使用者啟用 ARC
       (需經過額外政策設定檢查 - 如果目前的
@@ -1045,6 +1038,14 @@
           這個值必須是字串化的 JSON 字典陣列。每個字典都必須採用 <ph name="AUTO_SELECT_CERTIFICATE_FOR_URLS_EXAMPLE" />格式，其中 <ph name="URL_PATTERN_PLACEHOLDER" /> 是內容設定模式，<ph name="FILTER_PLACEHOLDER" /> 會限制瀏覽器自動選取的用戶端憑證。無論是否設定篩選器，瀏覽器只會選取符合伺服器憑證要求的憑證。例如，如果 <ph name="FILTER_PLACEHOLDER" /> 的格式為 <ph name="AUTO_SELECT_CERTIFICATE_FOR_URLS_FILTER_EXAMPLE" />，則瀏覽器只會選取由 CommonName <ph name="ISSUER_CN_PLACEHOLDER" /> 憑證所核發的用戶端憑證。如果 <ph name="FILTER_PLACEHOLDER" /> 包含 <ph name="ISSUER_STRING_VALUE" /> 和 <ph name="SUBJECT_STRING_VALUE" /> 區段，則瀏覽器只會選取同時符合兩個條件的用戶端憑證。如果 <ph name="FILTER_PLACEHOLDER" /> 指定了機構 (也就是「O」)，憑證必須有至少一個機構與指定值相符，才會納入選取範圍。如果 <ph name="FILTER_PLACEHOLDER" /> 指定了機構單位 (也就是「OU」)，憑證必須有至少一個機構單位與指定值相符，才會納入選取範圍。如果 <ph name="FILTER_PLACEHOLDER" /> 是空白的字典 <ph name="EMPTY_DICTIONARY" />，則瀏覽器在選取用戶端憑證時不會受到額外限制。
 
           如果不設定這項政策，系統不會為任何網站自動選取憑證。</translation>
+<translation id="2528659559494311776">這項政策可控管傳輸層安全標準 (TLS) 1.3 中的一項安全防護功能，其作用在於防範降級攻擊，以保護連線的安全性。這項政策與舊版相容，且不會影響與傳輸層安全標準 (TLS) 1.2 伺服器或 Proxy 相容的連線。但是，部分舊版的傳輸層安全標準 (TLS) 攔截 Proxy 具有實作瑕疵，因此會造成無法相容的情形。
+
+      如果將這項政策設為 True 或不予設定，<ph name="PRODUCT_NAME" /> 會針對所有連線啟用這些安全保護措施。
+
+      如果將這項政策設為 False，當連線使用本機安裝的 CA 憑證進行驗證時，<ph name="PRODUCT_NAME" /> 會停用這些安全保護措施。當連線使用公開信任的 CA 憑證進行驗證時，系統一律會啟用這些保護措施。
+
+      這項政策的預設值在 <ph name="PRODUCT_NAME" /> 81 版中已從 False 變更為 True。受影響的 Proxy 將無法連線，錯誤代碼為 ERR_TLS13_DOWNGRADE_DETECTED。如果系統管理員需要更多時間升級受影響的 Proxy，可以使用此政策暫時停用這項安全性功能。這項政策將在第 85 版後移除。
+      </translation>
 <translation id="2529659024053332711">讓你指定啟動時的運作行為。
 
           如果你選擇 [開啟新分頁]，那麼每當你啟動 <ph name="PRODUCT_NAME" />，系統就會開啟新分頁。
@@ -1578,6 +1579,15 @@
       如果關閉這項設定或未指定設定值，<ph name="PRODUCT_NAME" /> 就不會強制執行 YouTube 嚴格篩選模式。不過，外部政策 (例如 YouTube 政策) 可能仍會強制執行嚴格篩選模式。</translation>
 <translation id="3428247105888806363">啟用網路預測功能</translation>
 <translation id="3432863169147125747">控管列印設定。</translation>
+<translation id="3434053014926283175">在登入畫面上將滑鼠的主要按鈕切換為右鍵。
+
+          如果將這項政策設為啟用，系統一律會在登入畫面上將滑鼠右鍵設為主要按鈕。
+
+          如果將這項政策設為停用，系統一律會在登入畫面上將滑鼠左鍵設為主要按鈕。
+
+          設好這項政策後，使用者即無法變更或覆寫設定。
+
+          如果不設定這項政策，系統會在登入畫面上將滑鼠左鍵預設為主要按鈕，但使用者隨時可以切換。</translation>
 <translation id="3434932177006334880">這項設定在 Chrome 42 版之前稱為 EnableWebBasedSignin，Chrome 43 版已不再支援這項設定。
 
       如果企業客戶使用的 SSO 解決方案與新版內嵌登入流程不相容，就很適合使用這項設定。
@@ -2375,9 +2385,9 @@
       如果停用這項政策或不予設定，則無法同時在多個網站中進行瀏覽及開啟新視窗/分頁。</translation>
 <translation id="4680961954980851756">啟用自動填入</translation>
 <translation id="4693779768620889402">可支援擴充功能的目的地</translation>
-<translation id="4699592681017489215">這項政策會設定可用於停用 DNS 攔截檢查功能的本機切換按鈕。這些檢查會嘗試偵測瀏覽器使用的 Proxy 是否會重新導向未知的主機名稱。
+<translation id="4699592681017489215">這項政策會設定可用於停用 DNS 攔截檢查功能的本機切換按鈕。這些檢查機制會嘗試偵測瀏覽器是否透過 Proxy，將使用者重新導向未知的主機名稱。
 
-      在網路設定已知的企業環境中可能不需要使用這項偵測功能，因為這項功能會在啟動裝置和每次變更 DNS 設定時帶來一些 DNS 和 HTTP 流量。
+      在企業環境中，由於網路設定並沒有不確定性，所以可能不需要使用這種偵測機制，因為這項功能會在啟動裝置和每次變更 DNS 設定時產生一些 DNS 和 HTTP 流量。
 
       如果不設定這項政策或設為啟用，系統會執行 DNS 攔截檢查。如果明確指定停用這項政策，系統就不會執行 DNS 攔截檢查。</translation>
 <translation id="4703402283970867140">啟用智慧型調光模式來延長使用時間，直到螢幕變暗為止</translation>
@@ -2606,7 +2616,7 @@
 
       如果停用這項設定或不設定，系統只會使用優先程度最高的來源所列出的項目，並將所有其他來源顯示為衝突項目並予以忽略。</translation>
 <translation id="5141670636904227950">設定啟用的螢幕放大鏡在登入畫面的預設類型</translation>
-<translation id="5142301680741828703">一律轉譯下列 <ph name="PRODUCT_FRAME_NAME" /> 中的網址模式</translation>
+<translation id="5142301680741828703">一律算繪下列 <ph name="PRODUCT_FRAME_NAME" /> 中的網址模式</translation>
 <translation id="5148753489738115745">允許你指定 <ph name="PRODUCT_FRAME_NAME" /> 啟動 <ph name="PRODUCT_NAME" /> 時使用的其他參數。
 
           如果未設定這項政策，系統會使用預設命令列。</translation>
@@ -2867,7 +2877,7 @@
 <translation id="5442026853063570579">這項政策也可以控制 Android 開發人員選項的存取權。如果將這項政策設為「DeveloperToolsDisallowed」(值 2)，使用者將無法存取開發人員選項。如果將這項政策設為其他值或不予設定，使用者只要在 Android 設定應用程式中輕觸版本號碼七次，即可存取開發人員選項。</translation>
 <translation id="5447306928176905178">在網頁上回報記憶體資訊 (JavaScript 堆積大小) (已不適用)</translation>
 <translation id="5457065417344056871">在瀏覽器中啟用訪客模式</translation>
-<translation id="5457924070961220141">允許你在安裝「<ph name="PRODUCT_FRAME_NAME" />」之後，設定預設的 HTML 轉譯器。如果未設定這項政策，系統就會使用預設設定，允許主機瀏覽器進行轉譯，但是你可以覆寫這項預設，改由「<ph name="PRODUCT_FRAME_NAME" />」轉譯 HTML 網頁。</translation>
+<translation id="5457924070961220141">允許你在安裝「<ph name="PRODUCT_FRAME_NAME" />」之後，設定預設的 HTML 算繪器。如果未設定這項政策，系統就會使用預設設定，允許主機瀏覽器進行算繪，但是你可以覆寫這項預設，改由「<ph name="PRODUCT_FRAME_NAME" />」算繪 HTML 網頁。</translation>
 <translation id="5464816904705580310">為管理化環境下的使用者調整設定。</translation>
 <translation id="546726650689747237">在 AC 供電環境下執行時的螢幕調暗延遲時間</translation>
 <translation id="5469143988693423708">已允許使用者執行 Crostini</translation>
@@ -4098,21 +4108,6 @@
 這項政策應用於逐步輪換存取碼設定。新設定一律會加到 |future_config| 中，同時
       現有值會移到 |current_config| 中。|current_config| 先前的值則會移到 |old_configs|，並在輪換結束後移除。這項政策只適用於兒童使用者。如果設定這項政策，系統將可在兒童使用者裝置上驗證家長存取碼。如果不設定這項政策，系統將無法在兒童使用者裝置上驗證家長存取碼。</translation>
 <translation id="7625444193696794922">指定裝置的固定發布頻道。</translation>
-<translation id="7625498350540361483">
-      如果將這項政策設為 True，<ph name="PRODUCT_NAME" /> 可以從 Google 服務 (例如 Google Meet) 收集 WebRTC 事件記錄，並將這些記錄上傳至 Google。
-
-      如果將這項政策設為 False，則 <ph name="PRODUCT_NAME" /> 不會收集及上傳這些記錄。
-
-      如果未設定這項政策，則 M76 以下版本 (包含 M76 版) 的 <ph name="PRODUCT_NAME" /> 不會收集及上傳這些記錄。
-
-      自 M77 版起，如果未設定這項政策，當瀏覽器設定檔處於受管理狀態 (亦即，當設定檔能接收雲端或電腦層級的政策)，且不屬於子項設定檔、暫時設定檔、登入設定檔或無痕模式設定檔時，<ph name="PRODUCT_NAME" /> 預設會收集或上傳這類記錄。
-
-      這些記錄包含的診斷資訊有助於偵錯 Chrome 中的語音或視訊通話問題，例如收發 RTP 封包的時間和大小、回報網路壅塞情形，以及有關語音與視訊畫格的時間和品質等中繼資料。這些記錄中不會包含通話的語音和視訊內容。
-
-      這項由 Chrome 執行的資料收集作業只會由 Google 的網路服務觸發，例如 Google Hangouts 或 Google Meet。
-
-      Google 可能會依照工作階段 ID 將這些記錄與 Google 服務本身收集的其他記錄建立關聯，目的是簡化偵錯作業。
-      </translation>
 <translation id="7632724434767231364">GSSAPI 資料庫名稱</translation>
 <translation id="7635471475589566552">設定「<ph name="PRODUCT_NAME" />」的應用程式語言代碼，並且禁止使用者變更語言代碼。如果你啟用這項設定，「<ph name="PRODUCT_NAME" />」就會使用指定的語言代碼。如果設定的語言代碼不受支援，就會改用「en-US」。如果停用或尚未調整這項設定，「<ph name="PRODUCT_NAME" />」就會使用使用者指定的偏好語言代碼 (如果已設定)、系統語言代碼或備用語言代碼「en-US」。</translation>
 <translation id="7643883929273267746">限制在 <ph name="PRODUCT_NAME" /> 中顯示的帳戶</translation>
@@ -4410,6 +4405,7 @@
           設定這項政策後，使用者即無法變更或覆寫。
 
           如果不設定這項政策，系統預設會停用游標醒目顯示功能，但使用者隨時可以啟用這項功能。</translation>
+<translation id="8171924760436219650">在登入畫面上將滑鼠的主要按鈕切換為右鍵</translation>
 <translation id="8172676363520748127">如果啟用這項設定，使用者將無法透過鍵盤快速鍵或擴充功能 API 擷取螢幕畫面。
 
       如果停用或不指定這項設定，使用者將可以擷取螢幕畫面。</translation>
@@ -5036,8 +5032,8 @@
 <translation id="922540222991413931">設定擴充功能、應用程式和使用者指令碼安裝來源</translation>
 <translation id="924557436754151212">第一次執行時從預設瀏覽器匯入已儲存的密碼</translation>
 <translation id="930930237275114205">設定 <ph name="PRODUCT_FRAME_NAME" /> 使用者資料目錄</translation>
-<translation id="943865157632139008">這項政策可讓你在安裝 <ph name="PRODUCT_FRAME_NAME" />後，設定預設的 HTML 轉譯器。
-      系統在預設設定下，會允許主機瀏覽器進行轉譯，但是你可以覆寫預設設定，改由 <ph name="PRODUCT_FRAME_NAME" />轉譯 HTML 網頁。</translation>
+<translation id="943865157632139008">這項政策可讓你在安裝 <ph name="PRODUCT_FRAME_NAME" />後，設定預設的 HTML 算繪器。
+      系統在預設設定下，會允許主機瀏覽器進行算繪，但是你可以覆寫預設設定，改由 <ph name="PRODUCT_FRAME_NAME" />算繪 HTML 網頁。</translation>
 <translation id="944817693306670849">設定磁碟快取大小</translation>
 <translation id="949278212566535827">允許下載受密碼保護的檔案</translation>
 <translation id="966854160628341653">這項政策可控管 <ph name="PRODUCT_OS_NAME" /> 是否允許建立新的使用者帳戶。如果將這項政策設為 False，沒有帳戶的使用者將無法登入裝置。

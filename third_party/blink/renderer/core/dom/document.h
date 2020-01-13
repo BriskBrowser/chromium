@@ -36,9 +36,8 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "base/timer/elapsed_timer.h"
+#include "net/cookies/site_for_cookies.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
-#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
-#include "third_party/blink/public/mojom/ukm/ukm.mojom-blink.h"
 #include "third_party/blink/public/platform/web_focus_type.h"
 #include "third_party/blink/public/platform/web_insecure_request_policy.h"
 #include "third_party/blink/renderer/core/accessibility/axid.h"
@@ -1010,7 +1009,7 @@ class CORE_EXPORT Document : public ContainerNode,
 
   scoped_refptr<const SecurityOrigin> TopFrameOrigin() const;
 
-  const KURL SiteForCookies() const;
+  net::SiteForCookies SiteForCookies() const;
 
   // Storage Access API methods to check for or request access to storage that
   // may otherwise be blocked.
@@ -1371,6 +1370,7 @@ class CORE_EXPORT Document : public ContainerNode,
   int NodeCount() const { return node_count_; }
 
   SnapCoordinator& GetSnapCoordinator();
+  void PerformScrollSnappingTasks();
 
   void DidEnforceInsecureRequestPolicy();
   void DidEnforceInsecureNavigationsSet();
@@ -1585,13 +1585,12 @@ class CORE_EXPORT Document : public ContainerNode,
   bool IsAnimatedPropertyCounted(CSSPropertyID property) const;
   void ClearUseCounterForTesting(mojom::WebFeature);
 
-  void RecordCallInDetachedWindow(v8::Isolate::UseCounterFeature reason);
-
   // Bind Content Security Policy to this document. This will cause the
   // CSP to resolve the 'self' attribute and all policies will then be
   // applied to this document.
   void BindContentSecurityPolicy();
 
+  void UpdateForcedColors();
   bool InForcedColorsMode() const;
 
   // Returns true if the subframe document is cross-site to the main frame. If
@@ -1786,12 +1785,6 @@ class CORE_EXPORT Document : public ContainerNode,
 
   void ProcessDisplayLockActivationObservation(
       const HeapVector<Member<IntersectionObserverEntry>>&);
-
-  void SetNavigationSourceId(int64_t source_id);
-
-  // TODO(bartekn): Remove after investigation is completed.
-  void EmitDetachedWindowsUkmEvent(
-      const HashSet<v8::Isolate::UseCounterFeature>& reasons);
 
   DocumentLifecycle lifecycle_;
 
@@ -2066,10 +2059,6 @@ class CORE_EXPORT Document : public ContainerNode,
   int64_t ukm_source_id_;
   bool needs_to_record_ukm_outlive_time_;
 
-  std::unique_ptr<mojo::AssociatedRemote<mojom::blink::UkmSourceIdFrameHost>>
-      ukm_binding_;
-  uint64_t navigation_source_id_ = ukm::kInvalidSourceId;
-
   // Tracks and reports UKM metrics of the number of attempted font family match
   // attempts (both successful and not successful) by the page.
   std::unique_ptr<FontMatchingMetrics> font_matching_metrics_;
@@ -2169,8 +2158,7 @@ class CORE_EXPORT Document : public ContainerNode,
 
   Member<IntersectionObserver> display_lock_activation_observer_;
 
-  HashSet<v8::Isolate::UseCounterFeature> calls_in_detached_window_orphaned_;
-  HashSet<v8::Isolate::UseCounterFeature> calls_in_detached_window_emitted_;
+  bool in_forced_colors_mode_;
 };
 
 extern template class CORE_EXTERN_TEMPLATE_EXPORT Supplement<Document>;

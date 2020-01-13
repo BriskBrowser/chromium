@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <directxmath.h>
 #include <wrl.h>
 
 #include "base/stl_util.h"
@@ -781,14 +780,7 @@ XrResult xrSuggestInteractionProfileBindings(
       g_test_helper.ValidatePath(suggested_bindings->interactionProfile));
   std::string interaction_profile =
       g_test_helper.PathToString(suggested_bindings->interactionProfile);
-  RETURN_IF(
-      interaction_profile.compare(
-          interaction_profile::kMicrosoftMotionControllerInteractionProfile) !=
-              0 &&
-          interaction_profile.compare(
-              interaction_profile::kKHRSimpleControllerInteractionProfile) != 0,
-      XR_ERROR_VALIDATION_FAILURE,
-      "xrSetInteractionProfileSuggestedBindings invalid interaction_profile");
+
   RETURN_IF(suggested_bindings->suggestedBindings == nullptr,
             XR_ERROR_VALIDATION_FAILURE,
             "XrInteractionProfileSuggestedBinding has nullptr "

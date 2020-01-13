@@ -2,32 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-'use strict';
-
-/**
- * Namespace for the Camera app.
- */
-var cca = cca || {};
-
-/**
- * Namespace for the ARC++ intent.
- */
-cca.intent = cca.intent || {};
-
-/**
- * import {assertNotReached} from './chrome_util.js';
- */
-var assertNotReached = assertNotReached || {};
-
-/**
- * import {Mode} from './type.js';
- */
-var Mode = Mode || {};
+import {ChromeHelper} from './mojo/chrome_helper.js';
+import {Mode} from './type.js';
 
 /**
  * Thrown when fails to parse intent url.
  */
-cca.intent.ParseError = class extends Error {
+export class ParseError extends Error {
   /**
    * @param {!URL} url Intent url.
    */
@@ -39,14 +20,14 @@ cca.intent.ParseError = class extends Error {
      */
     this.url_ = url;
 
-    this.name = 'ParseError';
+    this.name = this.constructor.name;
   }
-};
+}
 
 /**
  * Intent from ARC++.
  */
-cca.intent.Intent = class {
+export class Intent {
   /**
    * @param {!URL} url
    * @param {number} intentId
@@ -102,11 +83,11 @@ cca.intent.Intent = class {
   }
 
   /**
-   * @return {!cca.mojo.ChromeHelper}
+   * @return {!ChromeHelper}
    * @private
    */
   get chromeHelper_() {
-    return cca.mojo.ChromeHelper.getInstance();
+    return ChromeHelper.getInstance();
   }
 
   /**
@@ -166,27 +147,30 @@ cca.intent.Intent = class {
 
   /**
    * @param {!URL} url Url passed along with app launch event.
-   * @return {!cca.intent.Intent} Created intent object. Returns null if input
-   *     is not a valid intent url.
-   * @throws {cca.intent.ParseError}
+   * @return {!Intent} Created intent object. Returns null if input is not a
+   *     valid intent url.
+   * @throws {ParseError}
    */
   static create(url) {
     const params = url.searchParams;
     const getBool = (key) => params.get(key) === '1';
     let param = params.get('intentId');
     if (param === null) {
-      throw new cca.intent.ParseError(url);
+      throw new ParseError(url);
     }
     const intentId = parseInt(param, 10);
 
     param = params.get('mode');
     if (param === null || !Object.values(Mode).includes(param)) {
-      throw new cca.intent.ParseError(url);
+      throw new ParseError(url);
     }
     const mode = /** @type {Mode} */ (param);
 
-    return new cca.intent.Intent(
+    return new Intent(
         url, intentId, mode, getBool('shouldHandleResult'),
         getBool('shouldDownScale'), getBool('isSecure'));
   }
-};
+}
+
+/** @const */
+cca.intent.Intent = Intent;

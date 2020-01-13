@@ -225,6 +225,8 @@ public class TabListCoordinator implements Destroyable {
                     false));
         }
 
+        // TODO(crbug.com/1004570) : Support drag and drop, and swipe to dismiss when
+        // CLOSE_TAB_SUGGESTIONS is enabled.
         if ((mMode == TabListMode.GRID || mMode == TabListMode.LIST)
                 && selectionDelegateProvider == null) {
             ItemTouchHelper touchHelper = new ItemTouchHelper(mMediator.getItemTouchHelperCallback(
@@ -368,5 +370,19 @@ public class TabListCoordinator implements Destroyable {
      */
     void addSpecialListItem(int index, @UiType int uiType, PropertyModel model) {
         mMediator.addSpecialItemToModel(index, uiType, model);
+    }
+
+    /**
+     * Removes a special {@link org.chromium.ui.modelutil.MVCListAdapter.ListItem} that
+     * has the given {@code uiType} and/or its {@link PropertyModel} has the given
+     * {@code itemIdentifier}.
+     *
+     * @param uiType The uiType to match.
+     * @param itemIdentifier The itemIdentifier to match. This can be obsoleted if the {@link
+     *         org.chromium.ui.modelutil.MVCListAdapter.ListItem} does not need additional
+     *         identifier.
+     */
+    void removeSpecialListItem(@UiType int uiType, int itemIdentifier) {
+        mMediator.removeSpecialItemFromModel(uiType, itemIdentifier);
     }
 }

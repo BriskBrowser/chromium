@@ -9,8 +9,8 @@ import androidx.annotation.VisibleForTesting;
 import org.chromium.base.Callback;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
-import org.chromium.chrome.browser.ContentSettingsType;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.components.content_settings.ContentSettingsType;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -562,6 +562,7 @@ public class WebsitePreferenceBridge {
         int getMidiSettingForOrigin(String origin, String embedder, boolean isIncognito);
         int getNfcSettingForOrigin(String origin, String embedder, boolean isIncognito);
         int getNotificationSettingForOrigin(String origin, boolean isIncognito);
+        boolean isNotificationEmbargoedForOrigin(Profile profile, String origin);
         int getProtectedMediaIdentifierSettingForOrigin(
                 String origin, String embedder, boolean isIncognito);
         int getSensorsSettingForOrigin(String origin, String embedder, boolean isIncognito);

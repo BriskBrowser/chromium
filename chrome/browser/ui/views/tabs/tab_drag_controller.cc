@@ -1407,8 +1407,8 @@ void TabDragController::RunMoveLoop(const gfx::Vector2d& drag_offset) {
   }
   const views::Widget::MoveLoopSource move_loop_source =
       event_source_ == EVENT_SOURCE_MOUSE
-          ? views::Widget::MOVE_LOOP_SOURCE_MOUSE
-          : views::Widget::MOVE_LOOP_SOURCE_TOUCH;
+          ? views::Widget::MoveLoopSource::kMouse
+          : views::Widget::MoveLoopSource::kTouch;
   const views::Widget::MoveLoopEscapeBehavior escape_behavior =
       is_dragging_new_browser_
           ? views::Widget::MOVE_LOOP_ESCAPE_BEHAVIOR_HIDE
@@ -2142,8 +2142,8 @@ void TabDragController::UpdateGroupForDraggedTabs() {
   }
 
   if (updated_group.has_value()) {
-    attached_model->MoveTabsIntoGroup(selected, selected[0],
-                                      updated_group.value());
+    attached_model->MoveTabsAndSetGroup(selected, selected[0],
+                                        updated_group.value());
   } else {
     attached_model->RemoveFromGroup(selected);
     attached_model->MoveSelectedTabsTo(to_index);

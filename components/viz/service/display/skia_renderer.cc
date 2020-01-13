@@ -53,10 +53,10 @@
 #include "third_party/skia/include/effects/SkGradientShader.h"
 #include "third_party/skia/include/effects/SkImageFilters.h"
 #include "third_party/skia/include/effects/SkOverdrawColorFilter.h"
+#include "third_party/skia/include/effects/SkRuntimeEffect.h"
 #include "third_party/skia/include/effects/SkShaderMaskFilter.h"
 #include "third_party/skia/include/gpu/GrBackendSurface.h"
 #include "third_party/skia/include/third_party/skcms/skcms.h"
-#include "third_party/skia/src/core/SkColorFilterPriv.h"
 #include "ui/gfx/color_transform.h"
 #include "ui/gfx/geometry/axis_transform2d.h"
 #include "ui/gfx/geometry/rect_conversions.h"
@@ -861,7 +861,8 @@ void SkiaRenderer::BindFramebufferToOutputSurface() {
   switch (draw_mode_) {
     case DrawMode::DDL: {
       root_canvas_ = skia_output_surface_->BeginPaintCurrentFrame();
-      DCHECK(root_canvas_);
+      // TODO(https://crbug.com/1038107): Handle BeginPaintCurrentFrame() fail.
+      CHECK(root_canvas_);
       break;
     }
     case DrawMode::SKPRECORD: {
@@ -2151,16 +2152,11 @@ sk_sp<SkColorFilter> SkiaRenderer::GetColorFilter(const gfx::ColorSpace& src,
         sdr_white_level / gfx::ColorSpace::kDefaultSDRWhiteLevel);
   }
 
-  std::unique_ptr<SkRuntimeColorFilterFactory>& factory =
-      color_filter_cache_[dst][adjusted_src];
-  if (!factory) {
+  sk_sp<SkRuntimeEffect>& effect = color_filter_cache_[dst][adjusted_src];
+  if (!effect) {
     std::unique_ptr<gfx::ColorTransform> transform =
         gfx::ColorTransform::NewColorTransform(
             adjusted_src, dst, gfx::ColorTransform::Intent::INTENT_PERCEPTUAL);
-    // TODO(backer): Support lookup table transforms (e.g.
-    // COLOR_CONVERSION_MODE_LUT).
-    if (!transform->CanGetShaderSource())
-      return nullptr;
 
     const char* hdr = R"(
 uniform half offset;
@@ -2182,8 +2178,9 @@ void main(inout half4 color) {
 
     std::string shader = hdr + transform->GetSkShaderSource() + ftr;
 
-    factory.reset(new SkRuntimeColorFilterFactory(
-        SkString(shader.c_str(), shader.size())));
+    effect = std::get<0>(
+        SkRuntimeEffect::Make(SkString(shader.c_str(), shader.size())));
+    DCHECK(effect);
   }
 
   YUVInput input;
@@ -2191,7 +2188,7 @@ void main(inout half4 color) {
   input.multiplier = resource_multiplier;
   sk_sp<SkData> data = SkData::MakeWithCopy(&input, sizeof(input));
 
-  return factory->make(std::move(data));
+  return effect->makeColorFilter(std::move(data));
 }
 
 SkiaRenderer::DrawRPDQParams SkiaRenderer::CalculateRPDQParams(

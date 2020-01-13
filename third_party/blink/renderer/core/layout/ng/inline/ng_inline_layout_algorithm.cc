@@ -7,7 +7,6 @@
 #include <memory>
 
 #include "base/containers/adapters.h"
-#include "third_party/blink/renderer/core/layout/ng/inline/ng_baseline.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_bidi_paragraph.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_box_state.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_break_token.h"
@@ -77,8 +76,10 @@ NGInlineLayoutAlgorithm::~NGInlineLayoutAlgorithm() = default;
 NGInlineBoxState* NGInlineLayoutAlgorithm::HandleOpenTag(
     const NGInlineItem& item,
     const NGInlineItemResult& item_result,
+    NGLineBoxFragmentBuilder::ChildList* line_box,
     NGInlineLayoutStateStack* box_states) const {
-  NGInlineBoxState* box = box_states->OnOpenTag(item, item_result, line_box_);
+  NGInlineBoxState* box =
+      box_states->OnOpenTag(item, item_result, baseline_type_, line_box);
   // Compute text metrics for all inline boxes since even empty inlines
   // influence the line height, except when quirks mode and the box is empty
   // for the purpose of empty block calculation.
@@ -103,10 +104,14 @@ NGInlineBoxState* NGInlineLayoutAlgorithm::HandleCloseTag(
     box->EnsureTextMetrics(*item.Style(), baseline_type_);
   box = box_states_->OnCloseTag(&line_box_, box, baseline_type_,
                                 item.HasEndEdge());
-  // Just clear |NeedsLayout| flags. Culled inline boxes do not need paint
-  // invalidations. If this object produces box fragments,
-  // |NGInlineBoxStateStack| takes care of invalidations.
-  item.GetLayoutObject()->ClearNeedsLayoutWithoutPaintInvalidation();
+  if (!RuntimeEnabledFeatures::LayoutNGFragmentItemEnabled()) {
+    // Just clear |NeedsLayout| flags. Culled inline boxes do not need paint
+    // invalidations. If this object produces box fragments,
+    // |NGInlineBoxStateStack| takes care of invalidations.
+    item.GetLayoutObject()->ClearNeedsLayoutWithoutPaintInvalidation();
+  } else {
+    item.GetLayoutObject()->ClearNeedsLayout();
+  }
   return box;
 }
 
@@ -160,12 +165,13 @@ void NGInlineLayoutAlgorithm::RebuildBoxStates(
   }
 
   // Create box states for tags that are not closed yet.
+  NGLineBoxFragmentBuilder::ChildList line_box;
   box_states->OnBeginPlaceItems(line_info.LineStyle(), baseline_type_,
-                                quirks_mode_);
+                                quirks_mode_, &line_box);
   for (const NGInlineItem* item : open_items) {
     NGInlineItemResult item_result;
     NGLineBreaker::ComputeOpenTagResult(*item, ConstraintSpace(), &item_result);
-    HandleOpenTag(*item, item_result, box_states);
+    HandleOpenTag(*item, item_result, &line_box, box_states);
   }
 }
 
@@ -175,9 +181,9 @@ void NGInlineLayoutAlgorithm::CheckBoxStates(
     const NGInlineBreakToken* break_token) const {
   NGInlineLayoutStateStack rebuilt;
   RebuildBoxStates(line_info, break_token, &rebuilt);
-  rebuilt.OnBeginPlaceItems(line_info.LineStyle(), baseline_type_,
-                            quirks_mode_);
-
+  NGLineBoxFragmentBuilder::ChildList line_box;
+  rebuilt.OnBeginPlaceItems(line_info.LineStyle(), baseline_type_, quirks_mode_,
+                            &line_box);
   DCHECK(box_states_);
   box_states_->CheckSame(rebuilt);
 }
@@ -201,8 +207,8 @@ void NGInlineLayoutAlgorithm::CreateLine(
   // The baseline is adjusted after the height of the line box is computed.
   const ComputedStyle& line_style = line_info->LineStyle();
   box_states_->SetIsEmptyLine(line_info->IsEmptyLine());
-  NGInlineBoxState* box =
-      box_states_->OnBeginPlaceItems(line_style, baseline_type_, quirks_mode_);
+  NGInlineBoxState* box = box_states_->OnBeginPlaceItems(
+      line_style, baseline_type_, quirks_mode_, &line_box_);
 #if DCHECK_IS_ON()
   if (is_box_states_from_context_)
     CheckBoxStates(*line_info, BreakToken());
@@ -261,7 +267,7 @@ void NGInlineLayoutAlgorithm::CreateLine(
     } else if (item.Type() == NGInlineItem::kControl) {
       PlaceControlItem(item, *line_info, &item_result, box);
     } else if (item.Type() == NGInlineItem::kOpenTag) {
-      box = HandleOpenTag(item, item_result, box_states_);
+      box = HandleOpenTag(item, item_result, &line_box_, box_states_);
     } else if (item.Type() == NGInlineItem::kCloseTag) {
       box = HandleCloseTag(item, item_result, box);
     } else if (item.Type() == NGInlineItem::kAtomicInline) {
@@ -459,7 +465,8 @@ NGInlineBoxState* NGInlineLayoutAlgorithm::PlaceAtomicInline(
   // position += item_result->margins.LineLeft(style.Direction());
 
   item_result->has_edge = true;
-  NGInlineBoxState* box = box_states_->OnOpenTag(item, *item_result, line_box_);
+  NGInlineBoxState* box =
+      box_states_->OnOpenTag(item, *item_result, baseline_type_, line_box_);
   PlaceLayoutResult(item_result, box, box->margin_inline_start);
   return box_states_->OnCloseTag(&line_box_, box, baseline_type_);
 }
@@ -472,20 +479,20 @@ void NGInlineLayoutAlgorithm::PlaceLayoutResult(NGInlineItemResult* item_result,
   DCHECK(item_result->item);
   const NGInlineItem& item = *item_result->item;
   DCHECK(item.Style());
-  NGBoxFragment fragment(ConstraintSpace().GetWritingMode(),
-                         ConstraintSpace().Direction(),
-                         To<NGPhysicalBoxFragment>(
-                             item_result->layout_result->PhysicalFragment()));
-  NGLineHeightMetrics metrics = fragment.BaselineMetrics(
-      {NGBaselineAlgorithmType::kAtomicInline, baseline_type_},
-      ConstraintSpace());
+  NGLineHeightMetrics metrics =
+      NGBoxFragment(ConstraintSpace().GetWritingMode(),
+                    ConstraintSpace().Direction(),
+                    To<NGPhysicalBoxFragment>(
+                        item_result->layout_result->PhysicalFragment()))
+          .BaselineMetrics(item_result->margins, baseline_type_);
   if (box)
     box->metrics.Unite(metrics);
 
   LayoutUnit line_top = item_result->margins.line_over - metrics.ascent;
   line_box_.AddChild(std::move(item_result->layout_result),
                      LogicalOffset{inline_offset, line_top},
-                     item_result->inline_size, item.BidiLevel());
+                     item_result->inline_size, /* children_count */ 0,
+                     item.BidiLevel());
 }
 
 // Place all out-of-flow objects in |line_box_|.
@@ -542,7 +549,7 @@ void NGInlineLayoutAlgorithm::PlaceOutOfFlowObjects(
     if (box->StyleRef().IsOriginalDisplayInlineType()) {
       // An inline-level OOF element positions itself within the line, at the
       // position it would have been if it was in-flow.
-      static_offset.inline_offset = child.offset.inline_offset;
+      static_offset.inline_offset = child.rect.offset.inline_offset;
 
       // The static-position of inline-level OOF-positioned nodes depends on
       // previous floats (if any).
@@ -566,7 +573,7 @@ void NGInlineLayoutAlgorithm::PlaceOutOfFlowObjects(
       }
     }
 
-    child.offset = static_offset;
+    child.rect.offset = static_offset;
   }
 
   if (UNLIKELY(has_rtl_block_level_out_of_flow_objects)) {
@@ -579,7 +586,7 @@ void NGInlineLayoutAlgorithm::PlaceOutOfFlowObjects(
       }
       if (has_preceding_inline_level_content &&
           !box->StyleRef().IsOriginalDisplayInlineType()) {
-        child.offset.block_offset += line_height;
+        child.rect.offset.block_offset += line_height;
       }
     }
   }
@@ -640,8 +647,8 @@ void NGInlineLayoutAlgorithm::PlaceFloatingObjects(
       block_offset = -fragment.BlockSize() - block_offset;
     }
 
-    child.offset = {child.bfc_offset.line_offset - bfc_line_offset,
-                    block_offset};
+    child.rect.offset = {child.bfc_offset.line_offset - bfc_line_offset,
+                         block_offset};
   }
 }
 
@@ -1086,22 +1093,9 @@ void NGInlineLayoutAlgorithm::BidiReorder(TextDirection base_direction) {
 
   // For opaque items, copy bidi levels from adjacent items.
   if (has_opaque_items) {
-    UBiDiLevel last_level = levels.front();
-    if (last_level == kOpaqueBidiLevel) {
-      for (const UBiDiLevel level : levels) {
-        if (level != kOpaqueBidiLevel) {
-          last_level = level;
-          break;
-        }
-      }
-    }
-    // If all items are opaque, use the base direction.
-    if (last_level == kOpaqueBidiLevel) {
-      if (IsLtr(base_direction))
-        return;
-      last_level = 1;
-    }
-    for (UBiDiLevel& level : levels) {
+    // Use the paragraph level for trailing opaque items.
+    UBiDiLevel last_level = IsLtr(base_direction) ? 0 : 1;
+    for (UBiDiLevel& level : base::Reversed(levels)) {
       if (level == kOpaqueBidiLevel)
         level = last_level;
       else

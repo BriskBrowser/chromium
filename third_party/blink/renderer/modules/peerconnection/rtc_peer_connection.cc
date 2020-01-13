@@ -227,7 +227,7 @@ RTCIceCandidatePlatform* ConvertToRTCIceCandidatePlatform(
       UseCounter::Count(context,
                         WebFeature::kRTCIceCandidateDefaultSdpMLineIndex);
     }
-    return RTCIceCandidatePlatform::Create(
+    return MakeGarbageCollected<RTCIceCandidatePlatform>(
         ice_candidate_init->candidate(), ice_candidate_init->sdpMid(),
         sdp_m_line_index, ice_candidate_init->usernameFragment());
   }
@@ -2187,7 +2187,7 @@ RTCRtpTransceiver* RTCPeerConnection::addTransceiver(
     const String& kind_string = track_or_kind.GetAsString();
     // TODO(hbos): Make cricket::MediaType an allowed identifier in
     // rtc_peer_connection.cc and use that instead of a boolean.
-    std::string kind;
+    String kind;
     if (kind_string == "audio") {
       kind = webrtc::MediaStreamTrackInterface::kAudioKind;
     } else if (kind_string == "video") {
@@ -3101,6 +3101,9 @@ void RTCPeerConnection::ChangeSignalingState(
   if (signaling_state_ !=
       webrtc::PeerConnectionInterface::SignalingState::kClosed) {
     signaling_state_ = signaling_state;
+    if (closed_) {
+      return;
+    }
     Event* event = Event::Create(event_type_names::kSignalingstatechange);
     if (dispatch_event_immediately)
       DispatchEvent(*event);

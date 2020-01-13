@@ -95,6 +95,8 @@ class ASH_EXPORT ScrollableShelfView : public views::AccessiblePaneView,
   LayoutStrategy layout_strategy_for_test() const { return layout_strategy_; }
   gfx::Vector2dF scroll_offset_for_test() const { return scroll_offset_; }
 
+  const DragImageView* drag_icon_for_test() const { return drag_icon_.get(); }
+
   int first_tappable_app_index() { return first_tappable_app_index_; }
   int last_tappable_app_index() { return last_tappable_app_index_; }
 
@@ -117,6 +119,7 @@ class ASH_EXPORT ScrollableShelfView : public views::AccessiblePaneView,
  private:
   class GradientLayerDelegate;
   class ScrollableShelfArrowView;
+  class DragIconDropAnimationDelegate;
 
   struct FadeZone {
     // Bounds of the fade in/out zone.
@@ -177,6 +180,7 @@ class ASH_EXPORT ScrollableShelfView : public views::AccessiblePaneView,
   void ViewHierarchyChanged(
       const views::ViewHierarchyChangedDetails& details) override;
   void ScrollRectToVisible(const gfx::Rect& rect) override;
+  std::unique_ptr<ui::Layer> RecreateLayer() override;
 
   // ShelfButtonDelegate:
   void OnShelfButtonAboutToRequestFocusFromTabTraversal(ShelfButton* button,
@@ -191,8 +195,9 @@ class ASH_EXPORT ScrollableShelfView : public views::AccessiblePaneView,
                                   const gfx::Point& point,
                                   ui::MenuSourceType source_type) override;
 
-  // Overridden from ShellObserver:
-  void OnShelfAlignmentChanged(aura::Window* root_window) override;
+  // ShellObserver:
+  void OnShelfAlignmentChanged(aura::Window* root_window,
+                               ShelfAlignment old_alignment) override;
 
   // ShelfTooltipDelegate:
   bool ShouldShowTooltipForView(const views::View* view) const override;
@@ -363,7 +368,7 @@ class ASH_EXPORT ScrollableShelfView : public views::AccessiblePaneView,
   // Updates |scroll_offset_| from |target_offset_| using shelf alignment.
   // |scroll_offset_| may need to update in following cases: (1) View bounds are
   // changed. (2) View is scrolled. (3) A shelf icon is added/removed.
-  bool UpdateScrollOffset(float target_offset);
+  void UpdateScrollOffset(float target_offset);
 
   // Updates the available space, which may also trigger the change in scroll
   // offset and layout strategy.
@@ -434,6 +439,11 @@ class ASH_EXPORT ScrollableShelfView : public views::AccessiblePaneView,
   // Replaces the dragged app icon during drag procedure. It ensures that the
   // app icon can be dragged out of the shelf view.
   std::unique_ptr<DragImageView> drag_icon_;
+
+  // The delegate to create the animation of moving the dropped icon to the
+  // ideal place after drag release.
+  std::unique_ptr<DragIconDropAnimationDelegate>
+      drag_icon_drop_animation_delegate_;
 
   base::OneShotTimer page_flip_timer_;
 

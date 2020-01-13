@@ -48,17 +48,6 @@ Polymer({
 
     placeholder: String,
 
-    /**
-     * Used to track in real time if the |value| in cr-searchable-drop-down
-     * matches the value in the underlying cr-input.These values will differ
-     * after a user types in input that does not match a valid dropdown option.
-     */
-    invalid: {
-      type: Boolean,
-      value: false,
-      notify: true,
-    },
-
     /** @type {!Array<string>} */
     items: {
       type: Array,
@@ -87,10 +76,7 @@ Polymer({
     },
 
     /** @private {string} */
-    searchTerm_: {
-      type: String,
-      observer: 'updateInvalid_',
-    },
+    searchTerm_: String,
 
     /** @private {boolean} */
     dropdownRefitPending_: Boolean,
@@ -115,13 +101,13 @@ Polymer({
   openDropdownTimeoutId_: 0,
 
   /** @override */
-  attached: function() {
+  attached() {
     this.pointerDownListener_ = this.onPointerDown_.bind(this);
     document.addEventListener('pointerdown', this.pointerDownListener_);
   },
 
   /** @override */
-  detached: function() {
+  detached() {
     document.removeEventListener('pointerdown', this.pointerDownListener_);
   },
 
@@ -129,7 +115,7 @@ Polymer({
    * Enqueues a task to refit the iron-dropdown if it is open.
    * @private
    */
-  enqueueDropdownRefit_: function() {
+  enqueueDropdownRefit_() {
     const dropdown = this.$$('iron-dropdown');
     if (!this.dropdownRefitPending_ && dropdown.opened) {
       this.dropdownRefitPending_ = true;
@@ -141,13 +127,13 @@ Polymer({
   },
 
   /** @private */
-  openDropdown_: function() {
+  openDropdown_() {
     this.$$('iron-dropdown').open();
     this.opened_ = true;
   },
 
   /** @private */
-  closeDropdown_: function() {
+  closeDropdown_() {
     if (this.openDropdownTimeoutId_) {
       clearTimeout(this.openDropdownTimeoutId_);
     }
@@ -161,7 +147,7 @@ Polymer({
    * a new task is enqueued.
    * @private
    */
-  enqueueOpenDropdown_: function() {
+  enqueueOpenDropdown_() {
     if (this.opened_) {
       return;
     }
@@ -176,7 +162,7 @@ Polymer({
    * @param {!Array<string>} newValue
    * @private
    */
-  onItemsChanged_: function(oldValue, newValue) {
+  onItemsChanged_(oldValue, newValue) {
     // Refit the iron-dropdown so that it can expand as neccessary to
     // accommodate new items. Refitting is done on a new task because the change
     // notification might not yet have propagated to the iron-dropdown.
@@ -184,7 +170,7 @@ Polymer({
   },
 
   /** @private */
-  onFocus_: function() {
+  onFocus_() {
     if (this.readonly) {
       return;
     }
@@ -195,7 +181,7 @@ Polymer({
    * @param {!Event} event
    * @private
    */
-  onMouseMove_: function(event) {
+  onMouseMove_(event) {
     const item = event.composedPath().find(
         elm => elm.classList && elm.classList.contains('list-item'));
     if (!item) {
@@ -220,7 +206,7 @@ Polymer({
    * @param {!Event} event
    * @private
    */
-  onPointerDown_: function(event) {
+  onPointerDown_(event) {
     if (this.readonly) {
       return;
     }
@@ -254,7 +240,7 @@ Polymer({
    *   Element
    * @private
    */
-  onKeyDown_: function(event) {
+  onKeyDown_(event) {
     const dropdown = this.$$('iron-dropdown');
     if (!dropdown.opened) {
       if (this.readonly) {
@@ -308,7 +294,7 @@ Polymer({
    *   if no item is selected.
    * @private
    */
-  findSelectedItem_: function() {
+  findSelectedItem_() {
     const dropdown = this.$$('iron-dropdown');
     const items = Array.from(dropdown.getElementsByClassName('list-item'));
     return items.find(item => item.hasAttribute('selected_'));
@@ -320,7 +306,7 @@ Polymer({
    *   no item is selected.
    * @private
    */
-  findSelectedItemIndex_: function() {
+  findSelectedItemIndex_() {
     const dropdown = this.$$('iron-dropdown');
     const items = Array.from(dropdown.getElementsByClassName('list-item'));
     return items.findIndex(item => item.hasAttribute('selected_'));
@@ -333,7 +319,7 @@ Polymer({
    * @param {boolean} moveDown
    * @private
    */
-  updateSelected_: function(items, currentIndex, moveDown) {
+  updateSelected_(items, currentIndex, moveDown) {
     const numItems = items.length;
     let nextIndex = 0;
     if (currentIndex == -1) {
@@ -350,7 +336,7 @@ Polymer({
   },
 
   /** @private */
-  onInput_: function() {
+  onInput_() {
     this.searchTerm_ = this.$.search.value;
 
     if (this.updateValueOnInput) {
@@ -377,7 +363,7 @@ Polymer({
    * @param {{model:Object}} event
    * @private
    */
-  onSelect_: function(event) {
+  onSelect_(event) {
     this.closeDropdown_();
 
     this.value = event.model.item;
@@ -391,7 +377,7 @@ Polymer({
   },
 
   /** @private */
-  filterItems_: function(searchTerm) {
+  filterItems_(searchTerm) {
     if (!searchTerm) {
       return null;
     }
@@ -406,7 +392,7 @@ Polymer({
    * @return {boolean}
    * @private
    */
-  shouldShowErrorMessage_: function(errorMessage, errorMessageAllowed) {
+  shouldShowErrorMessage_(errorMessage, errorMessageAllowed) {
     return !!this.getErrorMessage_(errorMessage, errorMessageAllowed);
   },
 
@@ -416,7 +402,7 @@ Polymer({
    * @return {string}
    * @private
    */
-  getErrorMessage_: function(errorMessage, errorMessageAllowed) {
+  getErrorMessage_(errorMessage, errorMessageAllowed) {
     if (!errorMessageAllowed) {
       return '';
     }
@@ -434,17 +420,6 @@ Polymer({
   onBlur_ : function () {
     if (!this.updateValueOnInput) {
       this.$.search.value = this.value;
-      this.searchTerm_ = '';
     }
-  },
-
-  /**
-   * If |updateValueOnInput| is true then any value is allowable so always set
-   * |invalid| to false.
-   * @private
-   */
-  updateInvalid_: function () {
-    this.invalid =
-        !this.updateValueOnInput && this.value != this.$.search.value;
   }
 });

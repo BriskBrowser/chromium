@@ -4,7 +4,7 @@
 
 #include "chrome/common/chrome_features.h"
 
-#include <vector>
+#include <array>
 
 #include "base/command_line.h"
 #include "base/no_destructor.h"
@@ -63,8 +63,10 @@ const base::Feature kAppNotificationStatusMessaging{
 
 #if !defined(OS_ANDROID)
 // App Service related flags. See chrome/services/app_service/README.md.
+const base::Feature kAppServiceContextMenu{"AppServiceContextMenu",
+                                           base::FEATURE_DISABLED_BY_DEFAULT};
 const base::Feature kAppServiceInstanceRegistry{
-    "AppServiceInstanceRegistry", base::FEATURE_DISABLED_BY_DEFAULT};
+    "AppServiceInstanceRegistry", base::FEATURE_ENABLED_BY_DEFAULT};
 const base::Feature kAppServiceIntentHandling{
     "AppServiceIntentHandling", base::FEATURE_DISABLED_BY_DEFAULT};
 const base::Feature kAppServiceShelf{"AppServiceShelf",
@@ -142,7 +144,7 @@ const base::Feature kThirdPartyModulesBlocking{
 const base::Feature kTLS13HardeningForLocalAnchors{
     "TLS13HardeningForLocalAnchors", base::FEATURE_ENABLED_BY_DEFAULT};
 
-#if (defined(OS_LINUX) && !defined(OS_CHROMEOS)) || defined(OS_MACOSX)
+#if BUILDFLAG(TRIAL_COMPARISON_CERT_VERIFIER_SUPPORTED)
 // Enables the dual certificate verification trial feature.
 // https://crbug.com/649026
 const base::Feature kCertDualVerificationTrialFeature{
@@ -262,24 +264,35 @@ const base::Feature kDesktopPWAsCacheDuringDefaultInstall{
 const base::Feature kDesktopPWAsLocalUpdating{"DesktopPWAsLocalUpdating",
                                               base::FEATURE_ENABLED_BY_DEFAULT};
 
+// Adds a tab strip to PWA windows, used for UI experimentation.
+const base::Feature kDesktopPWAsTabStrip{"DesktopPWAsTabStrip",
+                                         base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Enables or disables use of new Desktop PWAs browser controller (that uses the
 // universal web_app::AppRegistrar) by extensions-based bookmark apps. Note that
 // the new Desktop PWAs implementation (not based on extensions) always uses the
 // new browser controller.
+// TODO(crbug.com/877898): Enable and delete this feature flag before
+// kDesktopPWAsWithoutExtensions launch.
 const base::Feature kDesktopPWAsUnifiedUiController{
     "DesktopPWAsUnifiedUiController", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Enables or disables use of new Desktop PWAs launch manager by
 // extensions-based bookmark apps. (Note that Bookmark apps not based
 // on extensions unconditionally use the new launch manager.)
+// TODO(crbug.com/877898): Enable and delete this feature flag before
+// kDesktopPWAsWithoutExtensions launch.
 const base::Feature kDesktopPWAsUnifiedLaunch{
     "DesktopPWAsUnifiedLaunch", base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Enables or disables new Desktop PWAs Unified Sync and Storage (USS)
-// implementation that does not use extensions. Requires
+// Enables or disables usage of shared LevelDB instance (ModelTypeStoreService).
+// If this flag is disabled, the new Web Apps system uses its own isolated
+// LevelDB instance for manual testing purposes. Requires
 // kDesktopPWAsWithoutExtensions to be enabled.
-const base::Feature kDesktopPWAsUSS{"DesktopPWAsUSS",
-                                    base::FEATURE_DISABLED_BY_DEFAULT};
+// TODO(crbug.com/877898): Delete this feature flag before
+// kDesktopPWAsWithoutExtensions launch.
+const base::Feature kDesktopPWAsSharedStoreService{
+    "DesktopPWAsSharedStoreService", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Disables downloads of unsafe file types over HTTP.
 const base::Feature kDisallowUnsafeHttpDownloads{
@@ -307,10 +320,6 @@ const base::FeatureParam<std::string> kDnsOverHttpsTemplatesParam{
 const base::Feature kDownloadsLocationChange{"DownloadsLocationChange",
                                              base::FEATURE_ENABLED_BY_DEFAULT};
 #endif
-
-// If enabled, Drive will use FCM for its invalidations.
-const base::Feature kDriveFcmInvalidations{"DriveFCMInvalidations",
-                                           base::FEATURE_ENABLED_BY_DEFAULT};
 
 // If enabled, policies will use FCM (Firebase Cloud Messaging) for its
 // invalidations.
@@ -511,7 +520,7 @@ const base::Feature kAcknowledgeNtpOverrideOnDeactivate{
 // not shown on the omnibox, since its functionality is replaced by the
 // setting.
 const base::Feature kMixedContentSiteSetting{"MixedContentSiteSetting",
-                                             base::FEATURE_DISABLED_BY_DEFAULT};
+                                             base::FEATURE_ENABLED_BY_DEFAULT};
 
 #if !defined(OS_ANDROID)
 const base::Feature kOnConnectNative{"OnConnectNative",
@@ -734,23 +743,12 @@ const base::Feature kHeavyAdPrivacyMitigations{
     "HeavyAdPrivacyMitigations", base::FEATURE_ENABLED_BY_DEFAULT};
 
 #if defined(OS_ANDROID)
-const base::Feature kUseDisplayWideColorGamut{"UseDisplayWideColorGamut",
-                                              base::FEATURE_ENABLED_BY_DEFAULT};
-
 bool UseDisplayWideColorGamut() {
   auto compute_use_display_wide_color_gamut = []() {
-    // Enabled this feature for devices listed in "enabled_models" field trial
-    // param. This is a comma separated list.
-    std::string enabled_models_list = base::GetFieldTrialParamValueByFeature(
-        kUseDisplayWideColorGamut, "enabled_models");
-    if (enabled_models_list.empty())
-      return false;
-
     const char* current_model =
         base::android::BuildInfo::GetInstance()->model();
-    std::vector<std::string> enabled_models =
-        base::SplitString(enabled_models_list, ",", base::KEEP_WHITESPACE,
-                          base::SPLIT_WANT_NONEMPTY);
+    const std::array<std::string, 2> enabled_models = {
+        std::string{"Pixel 4"}, std::string{"Pixel 4 XL"}};
     for (const std::string& model : enabled_models) {
       if (model == current_model)
         return true;
@@ -819,7 +817,7 @@ const base::Feature kSmartDim{"SmartDim", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Enable USBGuard at the lockscreen on Chrome OS.
 // TODO(crbug.com/874630): Remove this kill-switch
-const base::Feature kUsbguard{"USBGuard", base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kUsbguard{"USBGuard", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Enable USB Bouncer for managing a device whitelist for USBGuard on Chrome OS.
 const base::Feature kUsbbouncer{"USBBouncer",

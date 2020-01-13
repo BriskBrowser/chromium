@@ -18,9 +18,11 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/strings/string16.h"
+#include "components/services/storage/public/mojom/indexed_db_control.mojom.h"
 #include "content/browser/browser_main_loop.h"
 #include "content/browser/indexed_db/indexed_db_backing_store.h"
 #include "content/public/browser/indexed_db_context.h"
+#include "mojo/public/cpp/bindings/receiver_set.h"
 #include "storage/browser/quota/quota_manager_proxy.h"
 #include "storage/browser/quota/special_storage_policy.h"
 #include "url/origin.h"
@@ -40,7 +42,9 @@ namespace content {
 class IndexedDBConnection;
 class IndexedDBFactoryImpl;
 
-class CONTENT_EXPORT IndexedDBContextImpl : public IndexedDBContext {
+class CONTENT_EXPORT IndexedDBContextImpl
+    : public IndexedDBContext,
+      public storage::mojom::IndexedDBControl {
  public:
   // Recorded in histograms, so append only.
   enum ForceCloseReason {
@@ -79,19 +83,24 @@ class CONTENT_EXPORT IndexedDBContextImpl : public IndexedDBContext {
       scoped_refptr<base::SequencedTaskRunner> io_task_runner,
       scoped_refptr<base::SequencedTaskRunner> custom_task_runner);
 
+  void Bind(mojo::PendingReceiver<storage::mojom::IndexedDBControl> control);
+
+  // mojom::IndexedDBControl implementation:
+  void GetUsage(GetUsageCallback usage_callback) override;
+  void DeleteForOrigin(const url::Origin& origin,
+                       DeleteForOriginCallback callback) override;
+
   IndexedDBFactoryImpl* GetIDBFactory();
+
+  base::SequencedTaskRunner* IOTaskRunner();
 
   // Called by StoragePartitionImpl to clear session-only data.
   void Shutdown();
-
 
   int64_t GetOriginDiskUsage(const url::Origin& origin);
 
   // IndexedDBContext implementation:
   base::SequencedTaskRunner* IDBTaskRunner() override;
-  base::SequencedTaskRunner* IOTaskRunner() override;
-  std::vector<StorageUsageInfo> GetAllOriginsInfo() override;
-  void DeleteForOrigin(const url::Origin& origin) override;
   void CopyOriginData(const url::Origin& origin,
                       IndexedDBContext* dest_context) override;
   base::FilePath GetFilePathForTesting(const url::Origin& origin) override;
@@ -123,6 +132,8 @@ class CONTENT_EXPORT IndexedDBContextImpl : public IndexedDBContext {
 
   // ForceClose takes a value rather than a reference since it may release the
   // owning object.
+  // ForceClose needs to move to async to support multi-thread scopes. See
+  // https://crbug.com/965142.
   void ForceClose(const url::Origin origin, ForceCloseReason reason);
   bool ForceSchemaDowngrade(const url::Origin& origin);
   V2SchemaCorruptionStatus HasV2SchemaCorruption(const url::Origin& origin);
@@ -195,6 +206,8 @@ class CONTENT_EXPORT IndexedDBContextImpl : public IndexedDBContext {
   std::map<url::Origin, int64_t> origin_size_map_;
   base::ObserverList<Observer>::Unchecked observers_;
   base::Clock* clock_;
+
+  mojo::ReceiverSet<storage::mojom::IndexedDBControl> receivers_;
 
   DISALLOW_COPY_AND_ASSIGN(IndexedDBContextImpl);
 };

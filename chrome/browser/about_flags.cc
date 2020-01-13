@@ -96,13 +96,15 @@
 #include "components/offline_pages/core/offline_page_feature.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/common/omnibox_features.h"
+#include "components/paint_preview/buildflags/buildflags.h"
+#include "components/paint_preview/features/features.h"
 #include "components/password_manager/core/common/password_manager_features.h"
 #include "components/payments/core/features.h"
 #include "components/policy/core/common/features.h"
 #include "components/previews/core/previews_features.h"
 #include "components/previews/core/previews_switches.h"
 #include "components/printing/browser/features.h"
-#include "components/safe_browsing/features.h"
+#include "components/safe_browsing/core/features.h"
 #include "components/security_interstitials/core/features.h"
 #include "components/security_state/core/features.h"
 #include "components/security_state/core/security_state.h"
@@ -348,6 +350,37 @@ const FeatureEntry::Choice kUseAngleChoices[] = {
     {flag_descriptions::kUseAngleD3D11on12, switches::kUseANGLE,
      gl::kANGLEImplementationD3D11on12Name}};
 #endif
+
+#if BUILDFLAG(ENABLE_VR)
+const FeatureEntry::Choice kWebXrForceRuntimeChoices[] = {
+    {flags_ui::kGenericExperimentChoiceDefault, "", ""},
+    {flag_descriptions::kWebXrRuntimeChoiceNone, switches::kWebXrForceRuntime,
+     switches::kWebXrRuntimeNone},
+
+    {flag_descriptions::kWebXrRuntimeChoiceOrientationSensors,
+     switches::kWebXrForceRuntime, switches::kWebXrRuntimeOrientationSensors},
+
+#if BUILDFLAG(ENABLE_OCULUS_VR)
+    {flag_descriptions::kWebXrRuntimeChoiceOculus, switches::kWebXrForceRuntime,
+     switches::kWebXrRuntimeOculus},
+#endif  // ENABLE_OCULUS_VR
+
+#if BUILDFLAG(ENABLE_OPENVR)
+    {flag_descriptions::kWebXrRuntimeChoiceOpenVR, switches::kWebXrForceRuntime,
+     switches::kWebXrRuntimeOpenVr},
+#endif  // ENABLE_OPENVR
+
+#if BUILDFLAG(ENABLE_OPENXR)
+    {flag_descriptions::kWebXrRuntimeChoiceOpenXR, switches::kWebXrForceRuntime,
+     switches::kWebXrRuntimeOpenXr},
+#endif  // ENABLE_OPENXR
+
+#if BUILDFLAG(ENABLE_WINDOWS_MR)
+    {flag_descriptions::kWebXrRuntimeChoiceWindowsMixedReality,
+     switches::kWebXrForceRuntime, switches::kWebXrRuntimeWMR},
+#endif  // ENABLE_WINDOWS_MR
+};
+#endif  // ENABLE_VR
 
 #if defined(OS_ANDROID)
 const FeatureEntry::Choice kReaderModeHeuristicsChoices[] = {
@@ -1668,6 +1701,9 @@ const FeatureEntry kFeatureEntries[] = {
     {"enable-webassembly-threads", flag_descriptions::kEnableWasmThreadsName,
      flag_descriptions::kEnableWasmThreadsDescription, kOsAll,
      FEATURE_VALUE_TYPE(features::kWebAssemblyThreads)},
+    {"enable-webassembly-tiering", flag_descriptions::kEnableWasmTieringName,
+     flag_descriptions::kEnableWasmTieringDescription, kOsAll,
+     FEATURE_VALUE_TYPE(features::kWebAssemblyTiering)},
     {"shared-array-buffer", flag_descriptions::kEnableSharedArrayBufferName,
      flag_descriptions::kEnableSharedArrayBufferDescription, kOsAll,
      FEATURE_VALUE_TYPE(features::kSharedArrayBuffer)},
@@ -2078,6 +2114,9 @@ const FeatureEntry kFeatureEntries[] = {
     {"crostini-backup", flag_descriptions::kCrostiniBackupName,
      flag_descriptions::kCrostiniBackupDescription, kOsCrOS,
      FEATURE_VALUE_TYPE(chromeos::features::kCrostiniBackup)},
+    {"crostini-port-forwarding", flag_descriptions::kCrostiniPortForwardingName,
+     flag_descriptions::kCrostiniPortForwardingDescription, kOsCrOS,
+     FEATURE_VALUE_TYPE(chromeos::features::kCrostiniPortForwarding)},
     {"terminal-system-app", flag_descriptions::kTerminalSystemAppName,
      flag_descriptions::kTerminalSystemAppDescription, kOsCrOS,
      FEATURE_VALUE_TYPE(features::kTerminalSystemApp)},
@@ -2198,6 +2237,10 @@ const FeatureEntry kFeatureEntries[] = {
      flag_descriptions::kDesktopPWAsLocalUpdatingName,
      flag_descriptions::kDesktopPWAsLocalUpdatingDescription, kOsDesktop,
      FEATURE_VALUE_TYPE(features::kDesktopPWAsLocalUpdating)},
+    {"enable-desktop-pwas-tab-strip",
+     flag_descriptions::kDesktopPWAsTabStripName,
+     flag_descriptions::kDesktopPWAsTabStripDescription, kOsDesktop,
+     FEATURE_VALUE_TYPE(features::kDesktopPWAsTabStrip)},
     {"enable-system-webapps", flag_descriptions::kEnableSystemWebAppsName,
      flag_descriptions::kEnableSystemWebAppsDescription, kOsDesktop,
      FEATURE_VALUE_TYPE(features::kSystemWebApps)},
@@ -2261,42 +2304,15 @@ const FeatureEntry kFeatureEntries[] = {
     {"webxr-ar-module", flag_descriptions::kWebXrArModuleName,
      flag_descriptions::kWebXrArModuleDescription, kOsAll,
      FEATURE_VALUE_TYPE(features::kWebXrArModule)},
-    {"webxr-ar-dom-overlay", flag_descriptions::kWebXrArDOMOverlayName,
-     flag_descriptions::kWebXrArDOMOverlayDescription, kOsAndroid,
-     FEATURE_VALUE_TYPE(features::kWebXrArDOMOverlay)},
     {"webxr-hit-test", flag_descriptions::kWebXrHitTestName,
      flag_descriptions::kWebXrHitTestDescription, kOsAll,
      FEATURE_VALUE_TYPE(features::kWebXrHitTest)},
-    {"webxr-anchors", flag_descriptions::kWebXrAnchorsName,
-     flag_descriptions::kWebXrAnchorsDescription, kOsAll,
-     FEATURE_VALUE_TYPE(features::kWebXrAnchors)},
-    {"webxr-plane-detection", flag_descriptions::kWebXrPlaneDetectionName,
-     flag_descriptions::kWebXrPlaneDetectionDescription, kOsAll,
-     FEATURE_VALUE_TYPE(features::kWebXrPlaneDetection)},
-    {"webxr-orientation-sensor-device",
-     flag_descriptions::kWebXrOrientationSensorDeviceName,
-     flag_descriptions::kWebXrOrientationSensorDeviceDescription, kOsDesktop,
-     FEATURE_VALUE_TYPE(device::kWebXrOrientationSensorDevice)},
-#if BUILDFLAG(ENABLE_OCULUS_VR)
-    {"oculus-vr", flag_descriptions::kOculusVRName,
-     flag_descriptions::kOculusVRDescription, kOsWin,
-     FEATURE_VALUE_TYPE(features::kOculusVR)},
-#endif  // ENABLE_OCULUS_VR
-#if BUILDFLAG(ENABLE_OPENVR)
-    {"openvr", flag_descriptions::kOpenVRName,
-     flag_descriptions::kOpenVRDescription, kOsWin,
-     FEATURE_VALUE_TYPE(features::kOpenVR)},
-#endif  // ENABLE_OPENVR
-#if BUILDFLAG(ENABLE_WINDOWS_MR)
-    {"windows-mixed-reality", flag_descriptions::kWindowsMixedRealityName,
-     flag_descriptions::kWindowsMixedRealityDescription, kOsWin,
-     FEATURE_VALUE_TYPE(features::kWindowsMixedReality)},
-#endif  // ENABLE_WINDOWS_MR
-#if BUILDFLAG(ENABLE_OPENXR)
-    {"openxr", flag_descriptions::kOpenXRName,
-     flag_descriptions::kOpenXRDescription, kOsWin,
-     FEATURE_VALUE_TYPE(features::kOpenXR)},
-#endif  // ENABLE_OPENXR
+    {"webxr-incubations", flag_descriptions::kWebXrIncubationsName,
+     flag_descriptions::kWebXrIncubationsDescription, kOsAll,
+     FEATURE_VALUE_TYPE(features::kWebXrIncubations)},
+    {"webxr-runtime", flag_descriptions::kWebXrForceRuntimeName,
+     flag_descriptions::kWebXrForceRuntimeDescription, kOsDesktop,
+     MULTI_VALUE_TYPE(kWebXrForceRuntimeChoices)},
 #if !defined(OS_ANDROID)
     {"xr-sandbox", flag_descriptions::kXRSandboxName,
      flag_descriptions::kXRSandboxDescription, kOsWin,
@@ -2807,12 +2823,6 @@ const FeatureEntry kFeatureEntries[] = {
      flag_descriptions::kOmniboxRichEntitySuggestionsName,
      flag_descriptions::kOmniboxRichEntitySuggestionsDescription, kOsAll,
      FEATURE_VALUE_TYPE(omnibox::kOmniboxRichEntitySuggestions)},
-
-    {"omnibox-group-suggestions-by-search-vs-url",
-     flag_descriptions::kOmniboxGroupSuggestionsBySearchVsUrlName,
-     flag_descriptions::kOmniboxGroupSuggestionsBySearchVsUrlDescription,
-     kOsAll,
-     FEATURE_VALUE_TYPE(omnibox::kOmniboxGroupSuggestionsBySearchVsUrl)},
 
     {"omnibox-preserve-default-match-against-async-update",
      flag_descriptions::kOmniboxPreserveDefaultMatchAgainstAsyncUpdateName,
@@ -3706,13 +3716,6 @@ const FeatureEntry kFeatureEntries[] = {
      FEATURE_VALUE_TYPE(features::kHappinessTrackingSurveysForDesktopDemo)},
 #endif  // !defined(OS_ANDROID)
 
-    {"enable-service-worker-imported-script-update-check",
-     flag_descriptions::kServiceWorkerImportedScriptUpdateCheckName,
-     flag_descriptions::kServiceWorkerImportedScriptUpdateCheckDescription,
-     kOsAll,
-     FEATURE_VALUE_TYPE(
-         blink::features::kServiceWorkerImportedScriptUpdateCheck)},
-
 #if BUILDFLAG(ENABLE_DICE_SUPPORT)
     {"use-multilogin-endpoint", flag_descriptions::kUseMultiloginEndpointName,
      flag_descriptions::kUseMultiloginEndpointDescription,
@@ -4316,12 +4319,6 @@ const FeatureEntry kFeatureEntries[] = {
      FEATURE_VALUE_TYPE(chromeos::features::kSmartDimModelV3)},
 #endif  // defined(OS_CHROMEOS)
 
-#if defined(OS_CHROMEOS)
-    {"split-settings", flag_descriptions::kSplitSettingsName,
-     flag_descriptions::kSplitSettingsDescription, kOsCrOS,
-     FEATURE_VALUE_TYPE(chromeos::features::kSplitSettings)},
-#endif  // defined(OS_CHROMEOS)
-
     {"privacy-settings-redesign",
      flag_descriptions::kPrivacySettingsRedesignName,
      flag_descriptions::kPrivacySettingsRedesignDescription,
@@ -4359,6 +4356,10 @@ const FeatureEntry kFeatureEntries[] = {
      flag_descriptions::kEnableAutofillCreditCardUploadFeedbackDescription,
      kOsWin | kOsMac | kOsLinux,
      FEATURE_VALUE_TYPE(autofill::features::kAutofillCreditCardUploadFeedback)},
+
+    {"font-access", flag_descriptions::kFontAccessAPIName,
+     flag_descriptions::kFontAccessAPIDescription, kOsAll,
+     FEATURE_VALUE_TYPE(blink::features::kFontAccess)},
 
     {"font-src-local-matching", flag_descriptions::kFontSrcLocalMatchingName,
      flag_descriptions::kFontSrcLocalMatchingDescription, kOsAll,
@@ -4580,6 +4581,10 @@ const FeatureEntry kFeatureEntries[] = {
 #endif  // defined(OS_ANDROID)
 
 #if defined(OS_CHROMEOS)
+    {"enable-suggested-files", flag_descriptions::kEnableSuggestedFilesName,
+     flag_descriptions::kEnableSuggestedFilesDescription, kOsCrOS,
+     FEATURE_VALUE_TYPE(app_list_features::kEnableSuggestedFiles)},
+
     {"zero-state-files", flag_descriptions::kZeroStateFilesName,
      flag_descriptions::kZeroStateFilesDescription, kOsCrOS,
      FEATURE_VALUE_TYPE(app_list_features::kEnableZeroStateMixedTypesRanker)},
@@ -4774,6 +4779,9 @@ const FeatureEntry kFeatureEntries[] = {
     {"arc-application-zoom", flag_descriptions::kArcApplicationZoomName,
      flag_descriptions::kArcApplicationZoomDescription, kOsCrOS,
      FEATURE_VALUE_TYPE(arc::kEnableApplicationZoomFeature)},
+    {"crostini-disk-resizing", flag_descriptions::kCrostiniDiskResizingName,
+     flag_descriptions::kCrostiniDiskResizingDescription, kOsCrOS,
+     FEATURE_VALUE_TYPE(chromeos::features::kCrostiniDiskResizing)},
 #endif  // defined(OS_CHROMEOS)
 
 #if defined(OS_ANDROID)
@@ -4823,6 +4831,25 @@ const FeatureEntry kFeatureEntries[] = {
      flag_descriptions::kSlowDCTimerInterruptsWinDescription, kOsWin,
      FEATURE_VALUE_TYPE(base::kSlowDCTimerInterruptsWin)},
 #endif  // OS_WIN
+
+#if BUILDFLAG(ENABLE_PAINT_PREVIEW) && defined(OS_ANDROID)
+    {"paint-preview-test", flag_descriptions::kPaintPreviewTestName,
+     flag_descriptions::kPaintPreviewTestDescription, kOsAndroid,
+     FEATURE_VALUE_TYPE(paint_preview::kPaintPreviewTest)},
+#endif  // ENABLE_PAINT_PREVIEW && defined(OS_ANDROID)
+
+#if defined(OS_ANDROID)
+    {"enable-profile-card", flag_descriptions::kProfileCardName,
+     flag_descriptions::kProfileCardDescription, kOsAndroid,
+     FEATURE_VALUE_TYPE(chrome::android::kProfileCard)},
+#endif  // defined(OS_ANDROID)
+
+#if !defined(OS_ANDROID)
+    {"sync-setup-friendly-settings",
+     flag_descriptions::kSyncSetupFriendlySettingsName,
+     flag_descriptions::kSyncSetupFriendlySettingsDescription, kOsDesktop,
+     FEATURE_VALUE_TYPE(features::kSyncSetupFriendlySettings)},
+#endif  // !defined(OS_ANDROID)
 
     // NOTE: Adding a new flag requires adding a corresponding entry to enum
     // "LoginCustomFlags" in tools/metrics/histograms/enums.xml. See "Flag

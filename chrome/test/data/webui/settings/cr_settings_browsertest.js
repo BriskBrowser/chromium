@@ -466,7 +466,6 @@ TEST_F('CrSettingsPeoplePageTest', 'All', function() {
   mocha.run();
 });
 
-GEN('#if !defined(OS_CHROMEOS)');
 /**
  * Test fixture for
  * chrome/browser/resources/settings/people_page/sync_account_control.html.
@@ -493,8 +492,6 @@ CrSettingsPeoplePageSyncAccountControlTest.prototype = {
 TEST_F('CrSettingsPeoplePageSyncAccountControlTest', 'All', function() {
   mocha.run();
 });
-
-GEN('#endif  // !defined(OS_CHROMEOS)');
 
 /**
  * Test fixture for
@@ -1227,6 +1224,33 @@ TEST_F('CrSettingsSiteDetailsTest', 'MAYBE_All', function() {
 });
 
 /**
+ * Test fixture for
+ * chrome/browser/resources/settings/privacy_page/security_page.html.
+ * @constructor
+ * @extends {CrSettingsBrowserTest}
+ */
+function CrSettingsSecurityPageTest() {}
+
+CrSettingsSecurityPageTest.prototype = {
+  __proto__: CrSettingsBrowserTest.prototype,
+
+  /** @override */
+  browsePreload: 'chrome://settings/privacy_page/security_page.html',
+
+  /** @override */
+  extraLibraries: CrSettingsBrowserTest.prototype.extraLibraries.concat([
+    '../test_browser_proxy.js',
+    'test_sync_browser_proxy.js',
+    'test_privacy_page_browser_proxy.js',
+    'security_page_test.js',
+  ]),
+};
+
+TEST_F('CrSettingsSecurityPageTest', 'All', function() {
+  mocha.run();
+});
+
+/**
  * @constructor
  * @extends {CrSettingsBrowserTest}
  */
@@ -1269,7 +1293,7 @@ CrSettingsSiteListTest.prototype = {
     'test_util.js',
     '../test_util.js',
     'test_site_settings_prefs_browser_proxy.js',
-    'chromeos/test_multidevice_browser_proxy.js',
+    'test_android_info_browser_proxy.js',
     'site_list_tests.js',
   ]),
 };
@@ -1403,7 +1427,7 @@ function CrSettingsSiteDataTest() {}
 CrSettingsSiteDataTest.prototype = {
   __proto__: CrSettingsBrowserTest.prototype,
 
-  browsePreload: 'chrome://settings/site_settings/site_data.html',
+  browsePreload: 'chrome://settings/siteData',
 
   extraLibraries: CrSettingsBrowserTest.prototype.extraLibraries.concat([
     '../test_util.js',
@@ -1930,11 +1954,6 @@ var CrSettingsSplitSettingsFlagTest = class extends CrSettingsBrowserTest {
   /** @override */
   get browsePreload() {
     return 'chrome://settings/basic_page/basic_page.html';
-  }
-
-  /** @override */
-  get featureList() {
-    return {enabled: ['chromeos::features::kSplitSettings']};
   }
 
   /** @override */

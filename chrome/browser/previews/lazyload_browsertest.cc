@@ -47,10 +47,9 @@ class LazyLoadBrowserTest : public InProcessBrowserTest {
   }
 
   void EnableDataSaver(bool enabled) {
-    Profile* profile = Profile::FromBrowserContext(browser()->profile());
-
     data_reduction_proxy::DataReductionProxySettings::
-        SetDataSaverEnabledForTesting(profile->GetPrefs(), enabled);
+        SetDataSaverEnabledForTesting(browser()->profile()->GetPrefs(),
+                                      enabled);
     base::RunLoop().RunUntilIdle();
   }
 
@@ -219,8 +218,9 @@ IN_PROC_BROWSER_TEST_F(LazyLoadBrowserTest,
                                           "loading=lazy img ON_LOAD FOR TEST"));
 }
 
+// Disabled due to flakiness (crbug.com/1035057)
 IN_PROC_BROWSER_TEST_F(LazyLoadBrowserTest,
-                       LazyLoadFrame_DeferredAndLoadedOnScroll) {
+                       DISABLED_LazyLoadFrame_DeferredAndLoadedOnScroll) {
   EnableDataSaver(true);
   SetUpLazyLoadFrameTestPage();
   GURL test_url(embedded_test_server()->GetURL("/mainpage.html"));

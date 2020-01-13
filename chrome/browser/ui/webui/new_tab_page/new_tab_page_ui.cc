@@ -5,6 +5,8 @@
 #include "chrome/browser/ui/webui/new_tab_page/new_tab_page_ui.h"
 
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/search/instant_service.h"
+#include "chrome/browser/search/instant_service_factory.h"
 #include "chrome/browser/ui/webui/favicon_source.h"
 #include "chrome/browser/ui/webui/new_tab_page/new_tab_page_handler.h"
 #include "chrome/browser/ui/webui/webui_util.h"
@@ -48,7 +50,6 @@ content::WebUIDataSource* CreateNewTabPageUiHtmlSource() {
       {"linkCancel", IDS_NTP_CUSTOM_LINKS_CANCEL},
       {"linkCantCreate", IDS_NTP_CUSTOM_LINKS_CANT_CREATE},
       {"linkCantEdit", IDS_NTP_CUSTOM_LINKS_CANT_EDIT},
-      {"linkCantRemove", IDS_NTP_CUSTOM_LINKS_CANT_REMOVE},
       {"linkDone", IDS_NTP_CUSTOM_LINKS_DONE},
       {"linkEditedMsg", IDS_NTP_CONFIRM_MSG_SHORTCUT_EDITED},
       {"linkRemove", IDS_NTP_CUSTOM_LINKS_REMOVE},
@@ -59,11 +60,16 @@ content::WebUIDataSource* CreateNewTabPageUiHtmlSource() {
       {"urlField", IDS_NTP_CUSTOM_LINKS_URL},
 
       // Customize button and dialog.
+      {"backgroundsMenuItem", IDS_NTP_CUSTOMIZE_MENU_BACKGROUND_LABEL},
       {"cancelButton", IDS_CANCEL},
       {"colorPickerLabel", IDS_NTP_CUSTOMIZE_COLOR_PICKER_LABEL},
       {"customizeButton", IDS_NTP_CUSTOMIZE_BUTTON_LABEL},
-      {"defaultColorLabel", IDS_NTP_CUSTOMIZE_DEFAULT_LABEL},
+      {"defaultThemeLabel", IDS_NTP_CUSTOMIZE_DEFAULT_LABEL},
       {"doneButton", IDS_DONE},
+      {"shortcutsMenuItem", IDS_NTP_CUSTOMIZE_MENU_SHORTCUTS_LABEL},
+      {"themesMenuItem", IDS_NTP_CUSTOMIZE_MENU_COLOR_LABEL},
+      {"thirdPartyThemeDescription", IDS_NTP_CUSTOMIZE_3PT_THEME_DESC},
+      {"uninstallThirdPartyThemeButton", IDS_NTP_CUSTOMIZE_3PT_THEME_UNINSTALL},
   };
   AddLocalizedStringsBulk(source, kStrings);
 
@@ -81,19 +87,30 @@ content::WebUIDataSource* CreateNewTabPageUiHtmlSource() {
 }  // namespace
 
 NewTabPageUI::NewTabPageUI(content::WebUI* web_ui)
-    : ui::MojoWebUIController(web_ui, true), page_factory_receiver_(this) {
-  profile_ = Profile::FromWebUI(web_ui);
-
+    : ui::MojoWebUIController(web_ui, true),
+      page_factory_receiver_(this),
+      profile_(Profile::FromWebUI(web_ui)),
+      instant_service_(InstantServiceFactory::GetForProfile(profile_)) {
   content::WebUIDataSource::Add(profile_, CreateNewTabPageUiHtmlSource());
 
   content::URLDataSource::Add(
       profile_, std::make_unique<FaviconSource>(
                     profile_, chrome::FaviconUrlFormat::kFavicon2));
+
+  UpdateBackgroundColor(*instant_service_->GetInitializedNtpTheme());
+  instant_service_->AddObserver(this);
 }
 
 WEB_UI_CONTROLLER_TYPE_IMPL(NewTabPageUI)
 
-NewTabPageUI::~NewTabPageUI() = default;
+NewTabPageUI::~NewTabPageUI() {
+  instant_service_->RemoveObserver(this);
+}
+
+// static
+bool NewTabPageUI::IsNewTabPageOrigin(const GURL& url) {
+  return url.GetOrigin() == GURL(chrome::kChromeUINewTabPageURL).GetOrigin();
+}
 
 void NewTabPageUI::BindInterface(
     mojo::PendingReceiver<new_tab_page::mojom::PageHandlerFactory>
@@ -114,7 +131,22 @@ void NewTabPageUI::CreatePageHandler(
       std::move(pending_page_handler), std::move(pending_page), profile_);
 }
 
-// static
-bool NewTabPageUI::IsNewTabPageOrigin(const GURL& url) {
-  return url.GetOrigin() == GURL(chrome::kChromeUINewTabPageURL).GetOrigin();
+void NewTabPageUI::NtpThemeChanged(const NtpTheme& theme) {
+  // Load time data is cached across page reloads. Update the background color
+  // here to prevent a white flicker on page reload.
+  UpdateBackgroundColor(theme);
+}
+
+void NewTabPageUI::MostVisitedInfoChanged(const InstantMostVisitedInfo& info) {}
+
+void NewTabPageUI::UpdateBackgroundColor(const NtpTheme& theme) {
+  std::unique_ptr<base::DictionaryValue> update(new base::DictionaryValue);
+  auto background_color = theme.background_color;
+  update->SetString(
+      "backgroundColor",
+      base::StringPrintf("#%02X%02X%02X", SkColorGetR(background_color),
+                         SkColorGetG(background_color),
+                         SkColorGetB(background_color)));
+  content::WebUIDataSource::Update(profile_, chrome::kChromeUINewTabPageHost,
+                                   std::move(update));
 }

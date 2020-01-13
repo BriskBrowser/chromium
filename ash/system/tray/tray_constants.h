@@ -106,7 +106,6 @@ constexpr int kUnifiedSliderViewSpacing = 12;
 constexpr int kUnifiedMenuPadding = 8;
 constexpr int kUnifiedMessageCenterBubbleSpacing = 8;
 constexpr int kUnifiedNotificationCenterSpacing = 16;
-constexpr int kUnifiedNonInAppBubblePadding = 8;
 constexpr int kUnifiedTrayIconSize = 20;
 constexpr int kUnifiedTraySpacingBetweenIcons = 6;
 constexpr int kUnifiedTrayBatteryWidth = 10;
@@ -199,6 +198,10 @@ constexpr gfx::Size kStatusAreaOverflowButtonSize(28, 32);
 constexpr int kStatusAreaLeftPaddingForOverflow = 100;
 constexpr int kStatusAreaForceCollapseAvailableWidth = 200;
 constexpr int kStatusAreaOverflowGradientSize = 24;
+
+// Height compensations in tablet mode based on whether the hotseat is shown.
+constexpr int kTrayBubbleInsetTabletModeCompensation = 8;
+constexpr int kTrayBubbleInsetHotseatCompensation = 16;
 
 }  // namespace ash
 

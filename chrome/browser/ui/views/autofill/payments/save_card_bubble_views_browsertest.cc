@@ -63,7 +63,6 @@
 #include "components/sync/test/fake_server/fake_server_network_resources.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents_observer.h"
-#include "content/public/test/back_forward_cache_util.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -81,6 +80,7 @@
 #include "ui/views/controls/styled_label.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/layout/animating_layout_manager.h"
+#include "ui/views/layout/animating_layout_manager_test_util.h"
 #include "ui/views/test/widget_test.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/non_client_view.h"
@@ -189,8 +189,6 @@ class SaveCardBubbleViewsFullFormBrowserTest
         browser()->profile(), username, "password",
         ProfileSyncServiceHarness::SigninType::FAKE_SIGNIN);
 
-    content::BackForwardCacheDisabledTester back_forward_cache_disabled_tester;
-
     // Set up the URL loader factory for the payments client so we can intercept
     // those network requests too.
     test_shared_loader_factory_ =
@@ -202,11 +200,6 @@ class SaveCardBubbleViewsFullFormBrowserTest
         ->client()
         ->GetPaymentsClient()
         ->set_url_loader_factory_for_testing(test_shared_loader_factory_);
-
-    EXPECT_TRUE(back_forward_cache_disabled_tester.IsDisabledForFrameWithReason(
-        GetActiveWebContents()->GetMainFrame()->GetProcess()->GetID(),
-        GetActiveWebContents()->GetMainFrame()->GetRoutingID(),
-        "autofill::ContentAutofillDriver"));
 
     // Set up this class as the ObserverForTest implementation.
     credit_card_save_manager_ = ContentAutofillDriver::GetForRenderFrameHost(
@@ -771,6 +764,11 @@ class SaveCardBubbleViewsFullFormBrowserTest
 
   void ReduceAnimationTime() {
     GetSaveCardIconView()->ReduceAnimationTimeForTesting();
+    auto* const animating_layout = GetAnimatingLayoutManager();
+    if (animating_layout) {
+      animating_layout->SetAnimationDuration(
+          base::TimeDelta::FromMilliseconds(1));
+    }
   }
 
   void ResetEventWaiterForSequence(std::list<DialogEvent> event_sequence) {
@@ -781,18 +779,9 @@ class SaveCardBubbleViewsFullFormBrowserTest
   void WaitForObservedEvent() { event_waiter_->Wait(); }
 
   void WaitForAnimationToEnd() {
-    if (base::FeatureList::IsEnabled(
-            features::kAutofillEnableToolbarStatusChip)) {
-      // Wait for animations to finish.
-      base::RunLoop loop;
-      static_cast<views::AnimatingLayoutManager*>(
-          BrowserView::GetBrowserViewForBrowser(browser())
-              ->toolbar()
-              ->toolbar_account_icon_container()
-              ->GetLayoutManager())
-          ->PostOrQueueAction(loop.QuitClosure());
-      loop.Run();
-    }
+    auto* const animating_layout = GetAnimatingLayoutManager();
+    if (animating_layout)
+      views::test::WaitForAnimatingLayoutManager(animating_layout);
   }
 
   network::TestURLLoaderFactory* test_url_loader_factory() {
@@ -808,6 +797,18 @@ class SaveCardBubbleViewsFullFormBrowserTest
   CreditCardSaveManager* credit_card_save_manager_ = nullptr;
 
  private:
+  views::AnimatingLayoutManager* GetAnimatingLayoutManager() {
+    if (!base::FeatureList::IsEnabled(
+            autofill::features::kAutofillEnableToolbarStatusChip)) {
+      return nullptr;
+    }
+
+    return views::test::GetAnimatingLayoutManager(
+        BrowserView::GetBrowserViewForBrowser(browser())
+            ->toolbar()
+            ->toolbar_account_icon_container());
+  }
+
   std::unique_ptr<autofill::EventWaiter<DialogEvent>> event_waiter_;
   std::unique_ptr<net::FakeURLFetcherFactory> url_fetcher_factory_;
   scoped_refptr<network::SharedURLLoaderFactory> test_shared_loader_factory_;
@@ -1011,57 +1012,11 @@ IN_PROC_BROWSER_TEST_F(SaveCardBubbleViewsFullFormBrowserTest,
 }
 #endif
 
-class SaveCardBubbleViewsFullFormBrowserTestWithoutSplitSettings
+class SaveCardBubbleViewsFullFormBrowserTestSettings
     : public SaveCardBubbleViewsFullFormBrowserTest {
  public:
-  SaveCardBubbleViewsFullFormBrowserTestWithoutSplitSettings() {
-#if defined(OS_CHROMEOS)
-    feature_list_.InitAndDisableFeature(chromeos::features::kSplitSettings);
-#else
-    feature_list_.InitWithFeatures(
-        /*enabled_features=*/{},
-        /*disabled_features=*/{features::kAutofillCreditCardUploadFeedback,
-                               features::kAutofillEnableToolbarStatusChip});
-#endif
-  }
-
- private:
-  base::test::ScopedFeatureList feature_list_;
-};
-
-// TODO(crbug/950007): Remove this test when kSplitSettings is on by default
-// Tests the manage cards bubble. Ensures that clicking the [Manage cards]
-// button redirects properly.
-IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTestWithoutSplitSettings,
-    Local_ManageCardsButtonRedirects) {
-  base::HistogramTester histogram_tester;
-  OpenSettingsFromManageCardsPrompt();
-
-#if defined(OS_CHROMEOS)
-  // ChromeOS should have opened up the settings window.
-  EXPECT_TRUE(
-      chrome::SettingsWindowManager::GetInstance()->FindBrowserForProfile(
-          browser()->profile()));
-#else
-  // Otherwise, another tab should have opened.
-  EXPECT_EQ(2, browser()->tab_strip_model()->count());
-#endif
-
-  // Metrics should have been recorded correctly.
-  EXPECT_THAT(
-      histogram_tester.GetAllSamples("Autofill.ManageCardsPrompt.Local"),
-      ElementsAre(Bucket(AutofillMetrics::MANAGE_CARDS_SHOWN, 1),
-                  Bucket(AutofillMetrics::MANAGE_CARDS_MANAGE_CARDS, 1)));
-}
-
-class SaveCardBubbleViewsFullFormBrowserTestWithSplitSettings
-    : public SaveCardBubbleViewsFullFormBrowserTest {
- public:
-  SaveCardBubbleViewsFullFormBrowserTestWithSplitSettings() {
-#if defined(OS_CHROMEOS)
-    feature_list_.InitAndEnableFeature(chromeos::features::kSplitSettings);
-#else
+  SaveCardBubbleViewsFullFormBrowserTestSettings() {
+#if !defined(OS_CHROMEOS)
     feature_list_.InitWithFeatures(
         /*enabled_features=*/{},
         /*disabled_features=*/{features::kAutofillCreditCardUploadFeedback,
@@ -1075,8 +1030,8 @@ class SaveCardBubbleViewsFullFormBrowserTestWithSplitSettings
 
 // Tests the manage cards bubble. Ensures that clicking the [Manage cards]
 // button redirects properly.
-IN_PROC_BROWSER_TEST_F(SaveCardBubbleViewsFullFormBrowserTestWithSplitSettings,
-                       Local_ManageCardsButtonRedirects_WithSplitSettings) {
+IN_PROC_BROWSER_TEST_F(SaveCardBubbleViewsFullFormBrowserTestSettings,
+                       Local_ManageCardsButtonRedirects) {
   base::HistogramTester histogram_tester;
   OpenSettingsFromManageCardsPrompt();
 
@@ -2306,6 +2261,7 @@ IN_PROC_BROWSER_TEST_F(SaveCardBubbleViewsFullFormBrowserTest,
   FillForm();
   SubmitForm();
   WaitForObservedEvent();
+  WaitForAnimationToEnd();
   EXPECT_TRUE(GetSaveCardIconView()->GetVisible());
   EXPECT_FALSE(GetSaveCardBubbleViews());
 
@@ -2383,6 +2339,7 @@ IN_PROC_BROWSER_TEST_F(
   FillForm();
   SubmitForm();
   WaitForObservedEvent();
+  WaitForAnimationToEnd();
   EXPECT_TRUE(GetSaveCardIconView()->GetVisible());
   EXPECT_FALSE(GetSaveCardBubbleViews());
 
@@ -2489,12 +2446,14 @@ IN_PROC_BROWSER_TEST_F(SaveCardBubbleViewsFullFormBrowserTestForStatusChip,
   AddTabAtIndex(1, GURL("http://example.com/"), ui::PAGE_TRANSITION_TYPED);
   TabStripModel* tab_model = browser()->tab_strip_model();
   tab_model->ActivateTabAt(1, {TabStripModel::GestureType::kOther});
+  WaitForAnimationToEnd();
 
   // Ensures bubble and icon go away if user navigates to another tab.
   EXPECT_FALSE(GetSaveCardIconView()->GetVisible());
   EXPECT_FALSE(GetSaveCardBubbleViews());
 
   tab_model->ActivateTabAt(0, {TabStripModel::GestureType::kOther});
+  WaitForAnimationToEnd();
 
   // If the user navigates back, shows only the icon not the bubble.
   EXPECT_TRUE(GetSaveCardIconView()->GetVisible());

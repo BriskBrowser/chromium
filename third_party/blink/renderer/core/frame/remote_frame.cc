@@ -74,12 +74,11 @@ void RemoteFrame::Trace(blink::Visitor* visitor) {
   Frame::Trace(visitor);
 }
 
-void RemoteFrame::Navigate(const FrameLoadRequest& passed_request,
+void RemoteFrame::Navigate(FrameLoadRequest& frame_request,
                            WebFrameLoadType frame_load_type) {
   if (!navigation_rate_limiter().CanProceed())
     return;
 
-  FrameLoadRequest frame_request(passed_request);
   frame_request.SetFrameType(
       IsMainFrame() ? network::mojom::RequestContextFrameType::kTopLevel
                     : network::mojom::RequestContextFrameType::kNested);
@@ -129,10 +128,9 @@ void RemoteFrame::Navigate(const FrameLoadRequest& passed_request,
         frame->GetSecurityContext() &&
         frame->GetSecurityContext()->IsSandboxed(WebSandboxFlags::kDownloads);
     initiator_frame_is_ad = frame->IsAdSubframe();
-    if (passed_request.ClientRedirectReason() !=
-        ClientNavigationReason::kNone) {
+    if (frame_request.ClientRedirectReason() != ClientNavigationReason::kNone) {
       probe::FrameRequestedNavigation(frame, this, url,
-                                      passed_request.ClientRedirectReason());
+                                      frame_request.ClientRedirectReason());
     }
   }
 
@@ -178,7 +176,7 @@ bool RemoteFrame::DetachDocument() {
 
 void RemoteFrame::CheckCompleted() {
   // Notify the client so that the corresponding LocalFrame can do the check.
-  Client()->CheckCompleted();
+  GetRemoteFrameHostRemote().CheckCompleted();
 }
 
 const RemoteSecurityContext* RemoteFrame::GetSecurityContext() const {
@@ -204,12 +202,13 @@ void RemoteFrame::SetInheritedEffectiveTouchAction(TouchAction touch_action) {
 }
 
 bool RemoteFrame::BubbleLogicalScrollFromChildFrame(
-    ScrollDirection direction,
+    mojom::blink::ScrollDirection direction,
     ScrollGranularity granularity,
     Frame* child) {
   DCHECK(child->Client());
-  To<LocalFrame>(child)->Client()->BubbleLogicalScrollInParentFrame(
-      direction, granularity);
+  To<LocalFrame>(child)
+      ->GetLocalFrameHostRemote()
+      .BubbleLogicalScrollInParentFrame(direction, granularity);
   return false;
 }
 
@@ -348,6 +347,16 @@ void RemoteFrame::Focus() {
 
 void RemoteFrame::SetHadStickyUserActivationBeforeNavigation(bool value) {
   Frame::SetHadStickyUserActivationBeforeNavigation(value);
+}
+
+void RemoteFrame::BubbleLogicalScroll(
+    mojom::blink::ScrollDirection direction,
+    ui::input_types::ScrollGranularity granularity) {
+  Frame* parent_frame = Client()->Parent();
+  DCHECK(parent_frame);
+  DCHECK(parent_frame->IsLocalFrame());
+
+  parent_frame->BubbleLogicalScrollFromChildFrame(direction, granularity, this);
 }
 
 bool RemoteFrame::IsIgnoredForHitTest() const {

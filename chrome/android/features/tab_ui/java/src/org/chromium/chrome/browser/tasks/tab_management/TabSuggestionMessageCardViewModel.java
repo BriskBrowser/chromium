@@ -4,6 +4,10 @@
 
 package org.chromium.chrome.browser.tasks.tab_management;
 
+import static org.chromium.chrome.browser.tasks.tab_management.TabListModel.CardProperties.CARD_ALPHA;
+import static org.chromium.chrome.browser.tasks.tab_management.TabListModel.CardProperties.CARD_TYPE;
+import static org.chromium.chrome.browser.tasks.tab_management.TabListModel.CardProperties.ModelType.MESSAGE;
+
 import android.content.Context;
 import android.graphics.drawable.Drawable;
 
@@ -48,6 +52,8 @@ public class TabSuggestionMessageCardViewModel {
                 .with(MessageCardViewProperties.ACTION_TEXT, actionText)
                 .with(MessageCardViewProperties.DISMISS_BUTTON_CONTENT_DESCRIPTION,
                         dismissButtonContextDescription)
+                .with(CARD_TYPE, MESSAGE)
+                .with(CARD_ALPHA, 1f)
                 .build();
     }
 

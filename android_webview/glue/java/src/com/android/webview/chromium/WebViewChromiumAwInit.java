@@ -30,13 +30,18 @@ import org.chromium.android_webview.AwProxyController;
 import org.chromium.android_webview.AwServiceWorkerController;
 import org.chromium.android_webview.AwTracingController;
 import org.chromium.android_webview.HttpAuthDatabase;
+import org.chromium.android_webview.ProductConfig;
 import org.chromium.android_webview.R;
 import org.chromium.android_webview.VariationsSeedLoader;
 import org.chromium.android_webview.WebViewChromiumRunQueue;
 import org.chromium.android_webview.common.AwResource;
+import org.chromium.android_webview.common.DeveloperModeUtils;
+import org.chromium.android_webview.common.FlagOverrideHelper;
+import org.chromium.android_webview.common.ProductionSupportedFlagList;
 import org.chromium.android_webview.gfx.AwDrawFnImpl;
 import org.chromium.base.BuildConfig;
 import org.chromium.base.BuildInfo;
+import org.chromium.base.BundleUtils;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.FieldTrialList;
 import org.chromium.base.JNIUtils;
@@ -144,6 +149,8 @@ public class WebViewChromiumAwInit {
             ResourceBundle.setAvailablePakLocales(
                     new String[] {}, AwLocaleConfig.getWebViewSupportedPakLocales());
 
+            BundleUtils.setIsBundle(ProductConfig.IS_BUNDLE);
+
             // We are rewriting Java resources in the background.
             // NOTE: Any reference to Java resources will cause a crash.
 
@@ -168,8 +175,11 @@ public class WebViewChromiumAwInit {
             // available when AwFeatureListCreator::SetUpFieldTrials() runs.
             finishVariationsInitLocked();
 
-            if (AwBrowserProcess.isDeveloperModeEnabled()) {
-                AwBrowserProcess.getAndApplyFlagOverridesSync();
+            String webViewPackageName = AwBrowserProcess.getWebViewPackageName();
+            if (DeveloperModeUtils.isDeveloperModeEnabled(webViewPackageName)) {
+                FlagOverrideHelper helper =
+                        new FlagOverrideHelper(ProductionSupportedFlagList.sFlagList);
+                helper.applyFlagOverrides(DeveloperModeUtils.getFlagOverrides(webViewPackageName));
             }
 
             AwBrowserProcess.start();

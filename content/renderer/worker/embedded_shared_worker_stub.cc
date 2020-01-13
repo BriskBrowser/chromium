@@ -17,6 +17,7 @@
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/loader/url_loader_factory_bundle.h"
 #include "third_party/blink/public/common/messaging/message_port_channel.h"
+#include "third_party/blink/public/mojom/devtools/devtools_agent.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_object.mojom.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/web/web_shared_worker.h"
@@ -173,7 +174,8 @@ EmbeddedSharedWorkerStub::CreateWorkerFetchContext() {
   // worker, we need to check the all documents bounded by the shared worker.
   // (crbug.com/723553)
   // https://tools.ietf.org/html/draft-ietf-httpbis-cookie-same-site-07#section-2.1.2
-  worker_fetch_context->set_site_for_cookies(url_);
+  worker_fetch_context->set_site_for_cookies(
+      net::SiteForCookies::FromUrl(url_));
   worker_fetch_context->set_origin_url(url_.GetOrigin());
 
   DCHECK(response_override_);

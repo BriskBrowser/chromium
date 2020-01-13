@@ -52,17 +52,14 @@
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/ssl/bad_clock_blocking_page.h"
 #include "chrome/browser/ssl/cert_verifier_browser_test.h"
 #include "chrome/browser/ssl/certificate_reporting_test_utils.h"
 #include "chrome/browser/ssl/chrome_security_blocking_page_factory.h"
 #include "chrome/browser/ssl/chrome_ssl_host_state_delegate.h"
-#include "chrome/browser/ssl/common_name_mismatch_handler.h"
 #include "chrome/browser/ssl/mitm_software_blocking_page.h"
 #include "chrome/browser/ssl/security_state_tab_helper.h"
 #include "chrome/browser/ssl/ssl_browsertest_util.h"
 #include "chrome/browser/ssl/ssl_error_assistant.h"
-#include "chrome/browser/ssl/ssl_error_assistant.pb.h"
 #include "chrome/browser/ssl/ssl_error_controller_client.h"
 #include "chrome/browser/ssl/ssl_error_handler.h"
 #include "chrome/browser/ui/browser.h"
@@ -93,12 +90,15 @@
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/policy_constants.h"
 #include "components/prefs/testing_pref_service.h"
-#include "components/safe_browsing/common/safe_browsing_prefs.h"
+#include "components/safe_browsing/core/common/safe_browsing_prefs.h"
+#include "components/security_interstitials/content/bad_clock_blocking_page.h"
 #include "components/security_interstitials/content/captive_portal_blocking_page.h"
 #include "components/security_interstitials/content/cert_report_helper.h"
+#include "components/security_interstitials/content/common_name_mismatch_handler.h"
 #include "components/security_interstitials/content/security_interstitial_controller_client.h"
 #include "components/security_interstitials/content/security_interstitial_tab_helper.h"
 #include "components/security_interstitials/content/ssl_blocking_page.h"
+#include "components/security_interstitials/content/ssl_error_assistant.pb.h"
 #include "components/security_interstitials/core/controller_client.h"
 #include "components/security_interstitials/core/metrics_helper.h"
 #include "components/security_state/core/features.h"
@@ -222,6 +222,14 @@ enum ProceedDecision {
   SSL_INTERSTITIAL_PROCEED,
   SSL_INTERSTITIAL_DO_NOT_PROCEED
 };
+
+security_state::SecurityLevel GetPassiveMixedContentSecurityLevel() {
+  if (base::FeatureList::IsEnabled(
+          security_state::features::kPassiveMixedContentWarning)) {
+    return security_state::WARNING;
+  }
+  return security_state::NONE;
+}
 
 // This observer waits for the SSLErrorHandler to start an interstitial timer
 // for the given web contents.
@@ -1169,7 +1177,8 @@ IN_PROC_BROWSER_TEST_F(SSLUITest, GoBackToMixedContent) {
                                      "i.src = 'http://example.test';"
                                      "document.body.appendChild(i);"));
   observer.WaitForDidChangeVisibleSecurityState();
-  ssl_test_util::CheckSecurityState(tab, CertError::NONE, security_state::NONE,
+  ssl_test_util::CheckSecurityState(tab, CertError::NONE,
+                                    GetPassiveMixedContentSecurityLevel(),
                                     AuthState::DISPLAYED_INSECURE_CONTENT);
 
   // Now navigate somewhere else, and then back to the page that dynamically
@@ -1199,7 +1208,8 @@ IN_PROC_BROWSER_TEST_F(SSLUITest, MixedContentWithSameDocumentNavigation) {
                                      "i.src = 'http://example.test';"
                                      "document.body.appendChild(i);"));
   security_state_observer.WaitForDidChangeVisibleSecurityState();
-  ssl_test_util::CheckSecurityState(tab, CertError::NONE, security_state::NONE,
+  ssl_test_util::CheckSecurityState(tab, CertError::NONE,
+                                    GetPassiveMixedContentSecurityLevel(),
                                     AuthState::DISPLAYED_INSECURE_CONTENT);
 
   // Initiate a same-document navigation and check that the page is still
@@ -1208,7 +1218,8 @@ IN_PROC_BROWSER_TEST_F(SSLUITest, MixedContentWithSameDocumentNavigation) {
   ui_test_utils::NavigateToURL(browser(),
                                https_server_.GetURL("/ssl/google.html#foo"));
   navigation_observer.WaitForSameDocumentNavigation();
-  ssl_test_util::CheckSecurityState(tab, CertError::NONE, security_state::NONE,
+  ssl_test_util::CheckSecurityState(tab, CertError::NONE,
+                                    GetPassiveMixedContentSecurityLevel(),
                                     AuthState::DISPLAYED_INSECURE_CONTENT);
 }
 
@@ -2458,7 +2469,8 @@ IN_PROC_BROWSER_TEST_F(SSLUITest, TestDisplaysInsecureContent) {
 
   ssl_test_util::CheckSecurityState(
       browser()->tab_strip_model()->GetActiveWebContents(), CertError::NONE,
-      security_state::NONE, AuthState::DISPLAYED_INSECURE_CONTENT);
+      GetPassiveMixedContentSecurityLevel(),
+      AuthState::DISPLAYED_INSECURE_CONTENT);
 }
 
 // Visits a page that displays an insecure form.
@@ -2786,7 +2798,8 @@ IN_PROC_BROWSER_TEST_F(SSLUITest,
   EXPECT_TRUE(js_result);
 
   // We should now have insecure content.
-  ssl_test_util::CheckSecurityState(tab, CertError::NONE, security_state::NONE,
+  ssl_test_util::CheckSecurityState(tab, CertError::NONE,
+                                    GetPassiveMixedContentSecurityLevel(),
                                     AuthState::DISPLAYED_INSECURE_CONTENT);
 }
 
@@ -2823,7 +2836,8 @@ IN_PROC_BROWSER_TEST_F(SSLUITest, TestDisplaysInsecureContentTwoTabs) {
   observer.Wait();
 
   // The new tab has insecure content.
-  ssl_test_util::CheckSecurityState(tab2, CertError::NONE, security_state::NONE,
+  ssl_test_util::CheckSecurityState(tab2, CertError::NONE,
+                                    GetPassiveMixedContentSecurityLevel(),
                                     AuthState::DISPLAYED_INSECURE_CONTENT);
 
   // The original tab should not be contaminated.
@@ -2898,7 +2912,8 @@ IN_PROC_BROWSER_TEST_F(SSLUITest, TestDisplaysCachedInsecureContent) {
   // content (even though the image comes from the WebCore memory cache).
   const GURL url_https = https_server_.GetURL(replacement_path);
   ui_test_utils::NavigateToURL(browser(), url_https);
-  ssl_test_util::CheckSecurityState(tab, CertError::NONE, security_state::NONE,
+  ssl_test_util::CheckSecurityState(tab, CertError::NONE,
+                                    GetPassiveMixedContentSecurityLevel(),
                                     AuthState::DISPLAYED_INSECURE_CONTENT);
 }
 
@@ -3222,7 +3237,8 @@ IN_PROC_BROWSER_TEST_F(SSLUITestWaitForDOMNotification,
           "document.body.appendChild(img);"));
 
   run_loop.Run();
-  ssl_test_util::CheckSecurityState(tab, CertError::NONE, security_state::NONE,
+  ssl_test_util::CheckSecurityState(tab, CertError::NONE,
+                                    GetPassiveMixedContentSecurityLevel(),
                                     AuthState::DISPLAYED_INSECURE_CONTENT);
 }
 
@@ -5686,7 +5702,8 @@ IN_PROC_BROWSER_TEST_F(SSLUITest, ClientRedirectToMixedContentSSLState) {
   navigation_manager_final_url.WaitForNavigationFinished();
   content::WaitForLoadStop(tab);
 
-  ssl_test_util::CheckSecurityState(tab, CertError::NONE, security_state::NONE,
+  ssl_test_util::CheckSecurityState(tab, CertError::NONE,
+                                    GetPassiveMixedContentSecurityLevel(),
                                     AuthState::DISPLAYED_INSECURE_CONTENT);
 }
 
@@ -7745,6 +7762,62 @@ IN_PROC_BROWSER_TEST_F(RecurrentInterstitialBrowserTest,
   histograms.ExpectBucketCount(
       kRecurrentInterstitialActionHistogram,
       SSLErrorControllerClient::RecurrentErrorAction::kProceed, 1);
+}
+
+// Tests that mixed content is tracked by origin, not by URL. This is tested by
+// checking that mixed content flags are set appropriately for about:blank URLs
+// (who inherit the origin of their opener).
+//
+// Note: we test that mixed content flags are propagated from an opener page to
+// about:blank, but not the other way around. This is because there is no way
+// for a mixed content flag to propagate from about:blank to a different
+// tab. Passive mixed content flags are not propagated from one tab to another,
+// and for active mixed content, there's no way to bypass mixed content blocking
+// on about:blank pages, so there's no way that the origin would get flagged for
+// active mixed content from an about:blank page. (There's no way to bypass
+// mixed content blocking on about:blank pages because the bypass is implemented
+// as a content setting, which doesn't apply to about:blank.)
+IN_PROC_BROWSER_TEST_F(SSLUITest, ActiveMixedContentTrackedByOrigin) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  ASSERT_TRUE(https_server_.Start());
+
+  WebContents* tab = browser()->tab_strip_model()->GetActiveWebContents();
+
+  std::string replacement_path = GetFilePathWithHostAndPortReplacement(
+      "/ssl/page_runs_insecure_content.html",
+      embedded_test_server()->host_port_pair());
+
+  // The insecure script is allowed to load because SSLUITestBase sets the
+  // --allow-running-insecure-content flag.
+  ui_test_utils::NavigateToURL(browser(),
+                               https_server_.GetURL(replacement_path));
+  ssl_test_util::CheckAuthenticationBrokenState(
+      tab, CertError::NONE, AuthState::RAN_INSECURE_CONTENT);
+
+  // Open a new tab from the current page. After an initial navigation,
+  // navigate it to about:blank and check that the about:blank page is
+  // downgraded, because it shares an origin with |tab| which ran mixed
+  // content.
+  //
+  // Note that the security indicator is not downgraded on the initial
+  // about:blank navigation in the new tab. Initial about:blank navigations
+  // don't have navigation entries (yet), so there is no way to track the mixed
+  // content state for these navigations. See https://crbug.com/1038765.
+  ui_test_utils::TabAddedWaiter tab_waiter(browser());
+  ASSERT_TRUE(content::ExecJs(tab, "w = window.open()"));
+  tab_waiter.Wait();
+  WebContents* opened_tab = browser()->tab_strip_model()->GetWebContentsAt(1);
+  content::TestNavigationObserver first_navigation(opened_tab);
+  ASSERT_TRUE(content::ExecJs(
+      tab, content::JsReplace("w.location.href = $1",
+                              embedded_test_server()->GetURL("/title1.html"))));
+  first_navigation.Wait();
+  ssl_test_util::CheckUnauthenticatedState(opened_tab, AuthState::NONE);
+  content::TestNavigationObserver about_blank_navigation(opened_tab);
+  ASSERT_TRUE(content::ExecJs(tab, "w.location.href = 'about:blank'"));
+  about_blank_navigation.Wait();
+  ssl_test_util::CheckAuthenticationBrokenState(
+      opened_tab, CertError::NONE, AuthState::RAN_INSECURE_CONTENT);
 }
 
 // TODO(jcampan): more tests to do below.

@@ -35,6 +35,7 @@
 #include "components/exo/buffer.h"
 #include "components/exo/display.h"
 #include "components/exo/pointer.h"
+#include "components/exo/shell_surface_util.h"
 #include "components/exo/sub_surface.h"
 #include "components/exo/surface.h"
 #include "components/exo/test/exo_test_base.h"
@@ -1105,7 +1106,7 @@ TEST_F(ClientControlledShellSurfaceTest, ClientIniatedResize) {
   shell_surface->SetGeometry(gfx::Rect(window_size));
   surface->Commit();
   EXPECT_TRUE(shell_surface->GetWidget()->widget_delegate()->CanResize());
-  shell_surface->StartDrag(HTTOP, gfx::Point(0, 0));
+  shell_surface->StartDrag(HTTOP, gfx::PointF(0, 0));
 
   aura::Window* window = shell_surface->GetWidget()->GetNativeWindow();
   // Client cannot start drag if mouse isn't pressed.
@@ -1116,7 +1117,7 @@ TEST_F(ClientControlledShellSurfaceTest, ClientIniatedResize) {
   ui::test::EventGenerator* event_generator = GetEventGenerator();
   event_generator->MoveMouseToCenterOf(window);
   event_generator->PressLeftButton();
-  shell_surface->StartDrag(HTTOP, gfx::Point(0, 0));
+  shell_surface->StartDrag(HTTOP, gfx::PointF(0, 0));
   ASSERT_TRUE(window_state->is_dragged());
   event_generator->ReleaseLeftButton();
   ASSERT_FALSE(window_state->is_dragged());
@@ -1124,7 +1125,7 @@ TEST_F(ClientControlledShellSurfaceTest, ClientIniatedResize) {
   // Press pressed outside of the window.
   event_generator->MoveMouseTo(gfx::Point(200, 50));
   event_generator->PressLeftButton();
-  shell_surface->StartDrag(HTTOP, gfx::Point(0, 0));
+  shell_surface->StartDrag(HTTOP, gfx::PointF(0, 0));
   ASSERT_FALSE(window_state->is_dragged());
 }
 
@@ -1214,7 +1215,7 @@ class ClientControlledShellSurfaceDragTest : public test::ExoTestBase {
                          bool fling = false,
                          float velocity = 0.f) {
     ash::WindowState* window_state = ash::WindowState::Get(window);
-    window_state->CreateDragDetails(gfx::Point(0, 0), HTCLIENT,
+    window_state->CreateDragDetails(gfx::PointF(0, 0), HTCLIENT,
                                     ::wm::WINDOW_MOVE_SOURCE_TOUCH);
     std::unique_ptr<ash::TabletModeWindowResizer> controller_ =
         std::make_unique<ash::TabletModeWindowResizer>(
@@ -1222,7 +1223,7 @@ class ClientControlledShellSurfaceDragTest : public test::ExoTestBase {
             std::make_unique<ash::TabletModeBrowserWindowDragDelegate>());
     controller_->drag_delegate_for_testing()
         ->set_drag_start_deadline_for_testing(base::Time::Now());
-    controller_->Drag(location, 0);
+    controller_->Drag(gfx::PointF(location), 0);
     if (fling) {
       ui::GestureEventDetails details =
           ui::GestureEventDetails(ui::ET_SCROLL_FLING_START, 0, velocity);
@@ -1299,7 +1300,8 @@ class ClientControlledShellSurfaceDisplayTest : public test::ExoTestBase {
       aura::Window* window,
       const gfx::Point& point_in_parent,
       int window_component) {
-    return ash::CreateWindowResizer(window, point_in_parent, window_component,
+    return ash::CreateWindowResizer(window, gfx::PointF(point_in_parent),
+                                    window_component,
                                     ::wm::WINDOW_MOVE_SOURCE_MOUSE)
         .release();
   }
@@ -1332,10 +1334,10 @@ class ClientControlledShellSurfaceDisplayTest : public test::ExoTestBase {
     requested_display_ids_.clear();
   }
 
-  gfx::Point CalculateDragPoint(const ash::WindowResizer& resizer,
-                                int delta_x,
-                                int delta_y) {
-    gfx::Point location = resizer.GetInitialLocation();
+  gfx::PointF CalculateDragPoint(const ash::WindowResizer& resizer,
+                                 int delta_x,
+                                 int delta_y) {
+    gfx::PointF location = resizer.GetInitialLocation();
     location.set_x(location.x() + delta_x);
     location.set_y(location.y() + delta_y);
     return location;
@@ -1848,6 +1850,28 @@ TEST_F(ClientControlledShellSurfaceTest, SetOrientationLock) {
   EnableTabletMode(false);
 }
 
+TEST_F(ClientControlledShellSurfaceTest, SetClientAccessibilityId) {
+  gfx::Size buffer_size(64, 64);
+  std::unique_ptr<Buffer> buffer(
+      new Buffer(exo_test_helper()->CreateGpuMemoryBuffer(buffer_size)));
+  std::unique_ptr<Surface> surface(new Surface);
+  auto shell_surface =
+      exo_test_helper()->CreateClientControlledShellSurface(surface.get());
+
+  EXPECT_FALSE(shell_surface->GetWidget());
+  shell_surface->SetClientAccessibilityId(0);
+
+  surface->Attach(buffer.get());
+  surface->Commit();
+  aura::Window* window = shell_surface->GetWidget()->GetNativeWindow();
+  EXPECT_EQ(0, *GetShellClientAccessibilityId(window));
+  shell_surface->SetClientAccessibilityId(1);
+  EXPECT_EQ(1, *GetShellClientAccessibilityId(window));
+
+  shell_surface->SetClientAccessibilityId(-1);
+  EXPECT_FALSE(GetShellClientAccessibilityId(window));
+}
+
 // Tests adjust bounds locally should also request remote client bounds update.
 TEST_F(ClientControlledShellSurfaceTest, AdjustBoundsLocally) {
   UpdateDisplay("800x600");
@@ -2050,8 +2074,8 @@ TEST_F(ClientControlledShellSurfaceTest, PipWindowDragDoesNotAnimate) {
   ui::ScopedAnimationDurationScaleMode animation_scale_mode(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
   std::unique_ptr<ash::WindowResizer> resizer(ash::CreateWindowResizer(
-      window, gfx::Point(), HTCAPTION, ::wm::WINDOW_MOVE_SOURCE_MOUSE));
-  resizer->Drag(gfx::Point(10, 10), 0);
+      window, gfx::PointF(), HTCAPTION, ::wm::WINDOW_MOVE_SOURCE_MOUSE));
+  resizer->Drag(gfx::PointF(10, 10), 0);
   EXPECT_EQ(gfx::Rect(10, 10, 256, 256), window->layer()->GetTargetBounds());
   EXPECT_EQ(gfx::Rect(10, 10, 256, 256), window->layer()->bounds());
   resizer->CompleteDrag();
@@ -2082,8 +2106,8 @@ TEST_F(ClientControlledShellSurfaceTest,
   ui::ScopedAnimationDurationScaleMode animation_scale_mode(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
   std::unique_ptr<ash::WindowResizer> resizer(ash::CreateWindowResizer(
-      window, gfx::Point(), HTCAPTION, ::wm::WINDOW_MOVE_SOURCE_MOUSE));
-  resizer->Drag(gfx::Point(10, 10), 0);
+      window, gfx::PointF(), HTCAPTION, ::wm::WINDOW_MOVE_SOURCE_MOUSE));
+  resizer->Drag(gfx::PointF(10, 10), 0);
   EXPECT_EQ(gfx::Rect(10, 10, 256, 256), window->layer()->GetTargetBounds());
   EXPECT_EQ(gfx::Rect(10, 10, 256, 256), window->layer()->bounds());
   EXPECT_FALSE(window->layer()->GetAnimator()->is_animating());

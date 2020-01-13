@@ -16,8 +16,10 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "chrome/browser/history/web_history_service_factory.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_avatar_icon_util.h"
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/signin/signin_error_controller_factory.h"
@@ -29,11 +31,14 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/singleton_tabs.h"
+#include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service_factory.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/autofill/core/common/autofill_prefs.h"
+#include "components/browsing_data/core/history_notice_utils.h"
+#include "components/history/core/browser/web_history_service.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/signin_error_controller.h"
 #include "components/signin/public/base/signin_metrics.h"
@@ -51,8 +56,10 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "google_apis/gaia/gaia_auth_util.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/webui/web_ui_util.h"
+#include "ui/gfx/image/image.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/login/quick_unlock/pin_backend.h"
@@ -63,10 +70,7 @@
 #endif
 
 #if BUILDFLAG(ENABLE_DICE_SUPPORT)
-#include "chrome/browser/profiles/profile_avatar_icon_util.h"
 #include "chrome/browser/signin/account_consistency_mode_manager.h"
-#include "third_party/skia/include/core/SkBitmap.h"
-#include "ui/gfx/image/image.h"
 #endif
 
 using content::WebContents;
@@ -187,7 +191,6 @@ std::string GetSyncErrorAction(sync_ui_util::ActionType action_type) {
   }
 }
 
-#if BUILDFLAG(ENABLE_DICE_SUPPORT)
 // Returns the base::Value associated with the account, to use in the stored
 // accounts list.
 base::Value GetAccountValue(const AccountInfo& account) {
@@ -203,7 +206,6 @@ base::Value GetAccountValue(const AccountInfo& account) {
   }
   return dictionary;
 }
-#endif  // BUILDFLAG(ENABLE_DICE_SUPPORT)
 
 base::string16 GetEnterPassphraseBody(syncer::PassphraseType passphrase_type,
                                       base::Time passphrase_time) {
@@ -307,6 +309,11 @@ void PeopleHandler::RegisterMessages() {
       "SyncPrefsDispatch",
       base::BindRepeating(&PeopleHandler::HandleSyncPrefsDispatch,
                           base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "GetIsHistoryRecordingEnabledAndCanBeUsed",
+      base::BindRepeating(
+          &PeopleHandler::HandleGetIsHistoryRecordingEnabledAndCanBeUsed,
+          base::Unretained(this)));
 #if defined(OS_CHROMEOS)
   web_ui()->RegisterMessageCallback(
       "AttemptUserExit",
@@ -328,7 +335,6 @@ void PeopleHandler::RegisterMessages() {
       base::BindRepeating(&PeopleHandler::HandleStartSignin,
                           base::Unretained(this)));
 #endif
-#if BUILDFLAG(ENABLE_DICE_SUPPORT)
   web_ui()->RegisterMessageCallback(
       "SyncSetupGetStoredAccounts",
       base::BindRepeating(&PeopleHandler::HandleGetStoredAccounts,
@@ -337,7 +343,6 @@ void PeopleHandler::RegisterMessages() {
       "SyncSetupStartSyncingWithEmail",
       base::BindRepeating(&PeopleHandler::HandleStartSyncingWithEmail,
                           base::Unretained(this)));
-#endif
   web_ui()->RegisterMessageCallback(
       "SyncStartKeyRetrieval",
       base::BindRepeating(&PeopleHandler::HandleStartKeyRetrieval,
@@ -478,7 +483,36 @@ void PeopleHandler::HandleSetDatatypes(const base::ListValue* args) {
     ProfileMetrics::LogProfileSyncInfo(ProfileMetrics::SYNC_CHOOSE);
 }
 
-#if BUILDFLAG(ENABLE_DICE_SUPPORT)
+void PeopleHandler::HandleGetIsHistoryRecordingEnabledAndCanBeUsed(
+    const base::ListValue* args) {
+  AllowJavascript();
+  std::string webui_callback_id;
+  CHECK(args->GetString(0, &webui_callback_id));
+
+  DCHECK(base::FeatureList::IsEnabled(features::kSyncSetupFriendlySettings));
+  syncer::SyncService* sync_service = GetSyncService();
+  history::WebHistoryService* history_service =
+      WebHistoryServiceFactory::GetForProfile(profile_);
+
+  browsing_data::IsHistoryRecordingEnabledAndCanBeUsed(
+      sync_service, history_service,
+      base::Bind(&PeopleHandler::OnQueryHistoryRecordingCompletion,
+                 weak_factory_.GetWeakPtr(), webui_callback_id));
+}
+
+void PeopleHandler::OnQueryHistoryRecordingCompletion(
+    const std::string& webui_callback_id,
+    const base::Optional<bool>& history_recording_enabled) {
+  if (!IsJavascriptAllowed())
+    return;
+
+  std::unique_ptr<base::DictionaryValue> status(new base::DictionaryValue);
+  status->SetBoolean("requestSucceeded", history_recording_enabled.has_value());
+  status->SetBoolean("historyRecordingEnabled",
+                     history_recording_enabled.value_or(false));
+  ResolveJavascriptCallback(base::Value(webui_callback_id), *status);
+}
+
 void PeopleHandler::HandleGetStoredAccounts(const base::ListValue* args) {
   CHECK_EQ(1U, args->GetSize());
   const base::Value* callback_id;
@@ -497,30 +531,28 @@ void PeopleHandler::OnExtendedAccountInfoRemoved(const AccountInfo& info) {
 
 base::Value PeopleHandler::GetStoredAccountsList() {
   base::Value accounts(base::Value::Type::LIST);
-  const bool dice_enabled =
-      AccountConsistencyModeManager::IsDiceEnabledForProfile(profile_);
-
-  if (dice_enabled) {
+#if BUILDFLAG(ENABLE_DICE_SUPPORT)
+  if (AccountConsistencyModeManager::IsDiceEnabledForProfile(profile_)) {
     // If dice is enabled, show all the accounts.
     for (auto const& account :
          signin_ui_util::GetAccountsForDicePromos(profile_)) {
       accounts.Append(GetAccountValue(account));
     }
-  } else {
-    // If dice is disabled (and unified consent enabled), show only the primary
-    // account.
-    auto* identity_manager = IdentityManagerFactory::GetForProfile(profile_);
-    base::Optional<AccountInfo> primary_account_info =
-        identity_manager->FindExtendedAccountInfoForAccountWithRefreshToken(
-            identity_manager->GetPrimaryAccountInfo());
-    if (primary_account_info.has_value())
-      accounts.Append(GetAccountValue(primary_account_info.value()));
+    return accounts;
   }
-
+#endif
+  // If dice is disabled or unsupported, show only the primary account.
+  auto* identity_manager = IdentityManagerFactory::GetForProfile(profile_);
+  base::Optional<AccountInfo> primary_account_info =
+      identity_manager->FindExtendedAccountInfoForAccountWithRefreshToken(
+          identity_manager->GetPrimaryAccountInfo());
+  if (primary_account_info.has_value())
+    accounts.Append(GetAccountValue(primary_account_info.value()));
   return accounts;
 }
 
 void PeopleHandler::HandleStartSyncingWithEmail(const base::ListValue* args) {
+#if BUILDFLAG(ENABLE_DICE_SUPPORT)
   DCHECK(AccountConsistencyModeManager::IsDiceEnabledForProfile(profile_));
   const base::Value* email;
   const base::Value* is_default_promo_account;
@@ -540,8 +572,11 @@ void PeopleHandler::HandleStartSyncingWithEmail(const base::ListValue* args) {
       maybe_account.has_value() ? maybe_account.value() : AccountInfo(),
       signin_metrics::AccessPoint::ACCESS_POINT_SETTINGS,
       is_default_promo_account->GetBool());
-}
+#else
+  // TODO(jamescook): Enable sync on non-DICE platforms (e.g. Chrome OS).
+  NOTIMPLEMENTED();
 #endif
+}
 
 void PeopleHandler::HandleSetEncryption(const base::ListValue* args) {
   SyncConfigInfo configuration;
@@ -931,6 +966,9 @@ std::unique_ptr<base::DictionaryValue> PeopleHandler::GetSyncStatusDictionary()
   sync_status->SetBoolean(
       "disabled", !service || disallowed_by_policy ||
                       !service->GetUserSettings()->IsSyncAllowedByPlatform());
+  // TODO(jamescook): This is always true on Chrome OS, but the WebUI uses
+  // false to mean that the user has sync turned off. We need to distinguish
+  // between the two cases.
   sync_status->SetBoolean("signedIn", identity_manager->HasPrimaryAccount());
   sync_status->SetString("signedInUsername",
                          signin_ui_util::GetAuthenticatedUsername(profile_));

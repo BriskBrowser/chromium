@@ -55,12 +55,6 @@ const base::Feature kOneClickUnelide{"OmniboxOneClickUnelide",
 const base::Feature kSimplifyHttpsIndicator{"SimplifyHttpsIndicator",
                                             base::FEATURE_ENABLED_BY_DEFAULT};
 
-// This feature is used to have final suggestions within the Omnibox grouped
-// by major type. i.e. search types are first, followed by all others,
-// except for the default match which is unchanged in position.
-const base::Feature kOmniboxGroupSuggestionsBySearchVsUrl{
-    "OmniboxGroupSuggestionsBySearchVsUrl", base::FEATURE_ENABLED_BY_DEFAULT};
-
 // Feature used to enable local entity suggestions. Similar to rich entities but
 // but location specific. E.g., typing 'starbucks near' could display the local
 // entity suggestion 'starbucks near disneyland \n starbucks * Anaheim, CA'.
@@ -230,12 +224,6 @@ const base::Feature kDocumentProvider{"OmniboxDocumentProvider",
 const base::Feature kAutocompleteTitles{"OmniboxAutocompleteTitles",
                                         base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Feature to replace the standard ZeroSuggest with icons for most visited sites
-// and collections (bookmarks, history, recent tabs, reading list). Only
-// available on iOS.
-const base::Feature kOmniboxPopupShortcutIconsInZeroState{
-    "OmniboxPopupShortcutIconsInZeroState", base::FEATURE_DISABLED_BY_DEFAULT};
-
 // Feature to use material design weather icons in the omnibox when displaying
 // weather answers.
 const base::Feature kOmniboxMaterialDesignWeatherIcons{
@@ -263,10 +251,6 @@ const base::Feature kOnDeviceHeadProvider{"OmniboxOnDeviceHeadProvider",
 // Feature to debounce drive requests from the document provider.
 const base::Feature kDebounceDocumentProvider{
     "OmniboxDebounceDocumentProvider", base::FEATURE_DISABLED_BY_DEFAULT};
-
-// Exempts the default match from demotion-by-type.
-const base::Feature kOmniboxPreserveDefaultMatchScore{
-    "OmniboxPreserveDefaultMatchScore", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Preserves the default match against change when providers return results
 // asynchronously. This prevents the default match from changing after the user

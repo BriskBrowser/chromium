@@ -9,7 +9,7 @@
 
 #include "content/public/common/client_hints.mojom.h"
 #include "content/shell/browser/shell_content_browser_client.h"
-#include "content/shell/common/web_test/fake_bluetooth_chooser.mojom.h"
+#include "content/shell/common/web_test/fake_bluetooth_chooser.mojom-forward.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "services/service_manager/public/cpp/binder_map.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
@@ -50,10 +50,6 @@ class WebTestContentBrowserClient : public ShellContentBrowserClient {
                                       int child_process_id) override;
   std::unique_ptr<BrowserMainParts> CreateBrowserMainParts(
       const MainFunctionParams& parameters) override;
-  void GetQuotaSettings(
-      content::BrowserContext* context,
-      content::StoragePartition* partition,
-      storage::OptionalQuotaSettingsCallback callback) override;
   std::vector<url::Origin> GetOriginsRequiringDedicatedProcess() override;
   std::unique_ptr<OverlayWindow> CreateWindowForPictureInPicture(
       PictureInPictureWindowController* controller) override;

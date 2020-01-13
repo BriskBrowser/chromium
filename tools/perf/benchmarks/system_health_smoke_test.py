@@ -45,10 +45,13 @@ _DISABLED_TESTS = frozenset({
   'system_health.memory_mobile/background:news:nytimes',
   'system_health.memory_mobile/background:social:facebook',
   'system_health.memory_mobile/background:search:google',
+  'system_health.memory_mobile/browse:chrome:newtab',
   'system_health.memory_mobile/browse:chrome:omnibox',
   'system_health.memory_mobile/browse:media:flickr_infinite_scroll'
+  'system_health.memory_mobile/browse:media:imgur'
   'system_health.memory_mobile/browse:tech:discourse_infinite_scroll',
   'system_health.memory_mobile/browse:shopping:amazon',
+  'system_health.memory_mobile/browse:social:facebook',
   'system_health.memory_mobile/browse:social:facebook_infinite_scroll',
   'system_health.memory_mobile/browse:social:pinterest_infinite_scroll',
   'system_health.memory_mobile/browse:media:facebook_photos',
@@ -60,12 +63,14 @@ _DISABLED_TESTS = frozenset({
   'system_health.memory_mobile/browse:social:twitter',
   'system_health.memory_mobile/browse:tools:maps',
   'system_health.memory_mobile/browse:news:cnn',
+  'system_health.memory_mobile/browse:news:toi',
   'system_health.memory_mobile/browse:news:washingtonpost',
   'system_health.memory_mobile/browse:media:youtube',
   'system_health.memory_mobile/browse:shopping:lazada',
   'system_health.memory_mobile/load:media:facebook_photos',
   'system_health.memory_mobile/load:media:dailymotion',
   'system_health.memory_mobile/load:news:cnn',
+  'system_health.memory_mobile/load:news:irctc',
   'system_health.memory_mobile/load:news:nytimes',
   'system_health.memory_mobile/load:news:qq',
   'system_health.memory_mobile/load:news:reddit',
@@ -302,6 +307,7 @@ def GenerateBenchmarkOptions(output_dir, benchmark_cls):
   options.browser_options.logging_verbosity = 'non-verbose'
   options.target_platforms = benchmark_cls.GetSupportedPlatformNames(
       benchmark_cls.SUPPORTED_PLATFORMS)
+  results_processor.ProcessOptions(options)
   return options
 
 

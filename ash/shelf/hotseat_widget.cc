@@ -63,11 +63,7 @@ class HotseatWindowTargeter : public aura::WindowTargeter {
   bool GetHitTestRects(aura::Window* target,
                        gfx::Rect* hit_test_rect_mouse,
                        gfx::Rect* hit_test_rect_touch) const override {
-    // If the hotseat is not extended we can use the normal targeting as the
-    // hidden parts of the hotseat will not block non-shelf items from taking
-    // events.
-    if (target == hotseat_widget_->GetNativeWindow() &&
-        hotseat_widget_->state() == HotseatState::kExtended) {
+    if (target == hotseat_widget_->GetNativeWindow()) {
       // Shrink the hit bounds from the size of the window to the size of the
       // hotseat opaque background.
       gfx::Rect hit_bounds = target->bounds();
@@ -104,14 +100,10 @@ class HotseatWidget::DelegateView : public views::WidgetDelegateView,
   // Updates the hotseat background.
   void UpdateOpaqueBackground();
 
+  void SetOpaqueBackground(const gfx::Rect& opaque_background_bounds);
+
   // Updates the hotseat background when tablet mode changes.
   void OnTabletModeChanged();
-
-  // Hides |opaque_background_| immediately or with animation.
-  void HideOpaqueBackground(bool animate);
-
-  // Shows |opaque_background_| immediately.
-  void ShowOpaqueBackground();
 
   // views::WidgetDelegateView:
   bool CanActivate() const override;
@@ -125,9 +117,6 @@ class HotseatWidget::DelegateView : public views::WidgetDelegateView,
   }
 
  private:
-  // Returns whether the hotseat background should be shown.
-  bool ShouldShowHotseatBackground() const;
-
   void SetParentLayer(ui::Layer* layer);
 
   FocusCycler* focus_cycler_ = nullptr;
@@ -163,12 +152,19 @@ void HotseatWidget::DelegateView::Init(
 }
 
 void HotseatWidget::DelegateView::UpdateOpaqueBackground() {
-  if (!ShouldShowHotseatBackground()) {
+  if (!HotseatWidget::ShouldShowHotseatBackground()) {
     opaque_background_.SetVisible(false);
     if (features::IsBackgroundBlurEnabled())
       opaque_background_.SetBackgroundBlur(0);
     return;
   }
+
+  SetOpaqueBackground(scrollable_shelf_view_->GetHotseatBackgroundBounds());
+}
+
+void HotseatWidget::DelegateView::SetOpaqueBackground(
+    const gfx::Rect& background_bounds) {
+  DCHECK(HotseatWidget::ShouldShowHotseatBackground());
 
   opaque_background_.SetVisible(true);
   opaque_background_.SetColor(ShelfConfig::Get()->GetDefaultShelfColor());
@@ -178,8 +174,6 @@ void HotseatWidget::DelegateView::UpdateOpaqueBackground() {
   if (opaque_background_.rounded_corner_radii() != rounded_corners)
     opaque_background_.SetRoundedCornerRadius(rounded_corners);
 
-  gfx::Rect background_bounds =
-      scrollable_shelf_view_->GetHotseatBackgroundBounds();
   if (opaque_background_.bounds() != background_bounds)
     opaque_background_.SetBounds(background_bounds);
 
@@ -211,12 +205,6 @@ void HotseatWidget::DelegateView::OnWallpaperColorsChanged() {
   UpdateOpaqueBackground();
 }
 
-bool HotseatWidget::DelegateView::ShouldShowHotseatBackground() const {
-  return chromeos::switches::ShouldShowShelfHotseat() &&
-         Shell::Get()->tablet_mode_controller() &&
-         Shell::Get()->tablet_mode_controller()->InTabletMode();
-}
-
 void HotseatWidget::DelegateView::SetParentLayer(ui::Layer* layer) {
   layer->Add(&opaque_background_);
   ReorderLayers();
@@ -229,6 +217,12 @@ HotseatWidget::HotseatWidget()
 
 HotseatWidget::~HotseatWidget() {
   ShelfConfig::Get()->RemoveObserver(this);
+}
+
+bool HotseatWidget::ShouldShowHotseatBackground() {
+  return chromeos::switches::ShouldShowShelfHotseat() &&
+         Shell::Get()->tablet_mode_controller() &&
+         Shell::Get()->tablet_mode_controller()->InTabletMode();
 }
 
 void HotseatWidget::Initialize(aura::Window* container, Shelf* shelf) {
@@ -249,9 +243,6 @@ void HotseatWidget::Initialize(aura::Window* container, Shelf* shelf) {
     scrollable_shelf_view_ = GetContentsView()->AddChildView(
         std::make_unique<ScrollableShelfView>(ShelfModel::Get(), shelf));
     scrollable_shelf_view_->Init();
-
-    hotseat_window_targeter_ = std::make_unique<aura::ScopedWindowTargeter>(
-        GetNativeWindow(), std::make_unique<HotseatWindowTargeter>(this));
   } else {
     // The shelf view observes the shelf model and creates icons as items are
     // added to the model.
@@ -337,8 +328,9 @@ float HotseatWidget::CalculateOpacity() {
                                               : target_opacity;
 }
 
-void HotseatWidget::UpdateOpaqueBackground() {
-  delegate_view_->UpdateOpaqueBackground();
+void HotseatWidget::SetOpaqueBackground(
+    const gfx::Rect& opaque_background_bounds) {
+  delegate_view_->SetOpaqueBackground(opaque_background_bounds);
 }
 
 void HotseatWidget::UpdateLayout(bool animate) {
@@ -391,6 +383,18 @@ void HotseatWidget::SetState(HotseatState state) {
     return;
 
   state_ = state;
+
+  if (!IsScrollableShelfEnabled())
+    return;
+
+  // If the hotseat is not extended we can use the normal targeting as the
+  // hidden parts of the hotseat will not block non-shelf items from taking
+  if (state == HotseatState::kExtended) {
+    hotseat_window_targeter_ = std::make_unique<aura::ScopedWindowTargeter>(
+        GetNativeWindow(), std::make_unique<HotseatWindowTargeter>(this));
+  } else {
+    hotseat_window_targeter_.reset();
+  }
 }
 
 }  // namespace ash

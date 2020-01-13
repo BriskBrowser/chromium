@@ -319,6 +319,7 @@ _CONFIG = [
             'url::.+',
 
             # Nested namespaces under the blink namespace
+            'bindings::.+',
             'canvas_heuristic_parameters::.+',
             'compositor_target_property::.+',
             'cors::.+',
@@ -379,6 +380,9 @@ _CONFIG = [
 
             # Network service.
             'network::.+',
+
+            # Used in network service types.
+            'net::SiteForCookies',
 
             # Some test helpers live in the blink::test namespace.
             'test::.+',
@@ -746,6 +750,7 @@ _CONFIG = [
             'webrtc::EchoCanceller3Config',
             'webrtc::EchoCanceller3Factory',
             'webrtc::ExperimentalAgc',
+            'webrtc::ExperimentalNs',
             'webrtc::MediaStreamTrackInterface',
             'webrtc::ObserverInterface',
             'webrtc::StreamConfig',
@@ -861,6 +866,7 @@ _CONFIG = [
             'third_party/blink/renderer/core/layout/layout_theme.cc',
             'third_party/blink/renderer/core/paint/fallback_theme.cc',
             'third_party/blink/renderer/core/paint/fallback_theme.h',
+            'third_party/blink/renderer/core/paint/object_painter_base.cc',
             'third_party/blink/renderer/core/paint/theme_painter.cc',
         ],
         'allowed': ['ui::NativeTheme.*'],

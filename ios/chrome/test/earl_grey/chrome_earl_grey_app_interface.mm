@@ -18,6 +18,7 @@
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/content_settings/host_content_settings_map_factory.h"
 #import "ios/chrome/browser/ntp/features.h"
+#import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/settings/autofill/features.h"
 #import "ios/chrome/browser/ui/table_view/feature_flags.h"
 #import "ios/chrome/browser/ui/ui_feature_flags.h"
@@ -32,6 +33,7 @@
 #import "ios/chrome/test/app/sync_test_util.h"
 #import "ios/chrome/test/app/tab_test_util.h"
 #import "ios/chrome/test/earl_grey/accessibility_util.h"
+#import "ios/testing/hardware_keyboard_util.h"
 #import "ios/testing/nserror_util.h"
 #include "ios/testing/verify_custom_webkit.h"
 #import "ios/web/common/features.h"
@@ -114,6 +116,11 @@ using chrome_test_util::BrowserCommandDispatcherForMainBVC;
 + (void)openURLFromExternalApp:(NSString*)URL {
   chrome_test_util::OpenChromeFromExternalApp(
       GURL(base::SysNSStringToUTF8(URL)));
+}
+
++ (void)dismissSettings {
+  [chrome_test_util::DispatcherForActiveBrowserViewController()
+      closeSettingsUI];
 }
 
 #pragma mark - Tab Utilities (EG2)
@@ -619,10 +626,6 @@ using chrome_test_util::BrowserCommandDispatcherForMainBVC;
       payments::features::kWebPaymentsModifiers);
 }
 
-+ (BOOL)isSettingsAddPaymentMethodEnabled {
-  return base::FeatureList::IsEnabled(kSettingsAddPaymentMethod);
-}
-
 + (BOOL)isCreditCardScannerEnabled {
   return base::FeatureList::IsEnabled(kCreditCardScanner);
 }
@@ -679,6 +682,11 @@ using chrome_test_util::BrowserCommandDispatcherForMainBVC;
       chrome_test_util::GetMainController()
           .interfaceProvider.mainInterface.viewController;
   return mainViewController.keyCommands.count;
+}
+
++ (void)simulatePhysicalKeyboardEvent:(NSString*)input
+                                flags:(UIKeyModifierFlags)flags {
+  chrome_test_util::SimulatePhysicalKeyboardEvent(flags, input);
 }
 
 @end

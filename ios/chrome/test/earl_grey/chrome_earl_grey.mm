@@ -188,6 +188,10 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
   [ChromeEarlGreyAppInterface openURLFromExternalApp:spec];
 }
 
+- (void)dismissSettings {
+  [ChromeEarlGreyAppInterface dismissSettings];
+}
+
 #pragma mark - Tab Utilities (EG2)
 
 - (void)selectTabAtIndex:(NSUInteger)index {
@@ -390,16 +394,13 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
   NSString* const kGetCookiesScript =
       @"document.cookie ? document.cookie.split(/;\\s*/) : [];";
   id result = [self executeJavaScript:kGetCookiesScript];
-  EG_TEST_HELPER_ASSERT_TRUE(
-      [result respondsToSelector:@selector(objectEnumerator)],
-      @"The script response is not iterable.");
-
+  // TODO(crbug.com/1041000): Assert that |result| is iterable using
+  // respondToSelector, after the bug is fixed.
   NSMutableDictionary* cookies = [NSMutableDictionary dictionary];
   for (NSString* nameValuePair in result) {
     NSArray* cookieNameValue = [nameValuePair componentsSeparatedByString:@"="];
     EG_TEST_HELPER_ASSERT_TRUE((2 == cookieNameValue.count),
                                @"Cookie has invalid format.");
-
     NSString* cookieName = cookieNameValue[0];
     NSString* cookieValue = cookieNameValue[1];
     cookies[cookieName] = cookieValue;
@@ -427,19 +428,25 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
 }
 
 - (void)waitForMainTabCount:(NSUInteger)count {
-  NSString* errorString = [NSString
-      stringWithFormat:@"Failed waiting for main tab count to become %" PRIuNS,
-                       count];
+  __block NSUInteger actualCount = [ChromeEarlGreyAppInterface mainTabCount];
+  NSString* conditionName = [NSString
+      stringWithFormat:@"Waiting for main tab count to become %" PRIuNS, count];
 
   // Allow the UI to become idle, in case any tabs are being opened or closed.
   [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
 
   GREYCondition* tabCountCheck = [GREYCondition
-      conditionWithName:errorString
+      conditionWithName:conditionName
                   block:^{
-                    return [ChromeEarlGreyAppInterface mainTabCount] == count;
+                    actualCount = [ChromeEarlGreyAppInterface mainTabCount];
+                    return actualCount == count;
                   }];
   bool tabCountEqual = [tabCountCheck waitWithTimeout:kWaitForUIElementTimeout];
+
+  NSString* errorString = [NSString
+      stringWithFormat:@"Failed waiting for main tab count to become %" PRIuNS
+                        "; actual count: %" PRIuNS,
+                       count, actualCount];
   EG_TEST_HELPER_ASSERT_TRUE(tabCountEqual, errorString);
 }
 
@@ -780,10 +787,6 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
   return [ChromeEarlGreyAppInterface isWebPaymentsModifiersEnabled];
 }
 
-- (BOOL)isSettingsAddPaymentMethodEnabled {
-  return [ChromeEarlGreyAppInterface isSettingsAddPaymentMethodEnabled];
-}
-
 - (BOOL)isCreditCardScannerEnabled {
   return [ChromeEarlGreyAppInterface isCreditCardScannerEnabled];
 }
@@ -808,6 +811,11 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
 
 - (NSInteger)registeredKeyCommandCount {
   return [ChromeEarlGreyAppInterface registeredKeyCommandCount];
+}
+
+- (void)simulatePhysicalKeyboardEvent:(NSString*)input
+                                flags:(UIKeyModifierFlags)flags {
+  [ChromeEarlGreyAppInterface simulatePhysicalKeyboardEvent:input flags:flags];
 }
 
 #pragma mark - Pref Utilities (EG2)

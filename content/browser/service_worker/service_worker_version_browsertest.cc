@@ -262,6 +262,24 @@ std::unique_ptr<net::test_server::HttpResponse> RequestHandlerForUpdateWorker(
   return http_response;
 }
 
+// Returns a unique script for each request, to test service worker update.
+std::unique_ptr<net::test_server::HttpResponse>
+RequestHandlerForBigWorkerScript(const net::test_server::HttpRequest& request) {
+  static int counter = 0;
+
+  if (request.relative_url != "/service_worker/update_worker.js")
+    return std::unique_ptr<net::test_server::HttpResponse>();
+
+  auto http_response = std::make_unique<net::test_server::BasicHttpResponse>();
+  http_response->set_code(net::HTTP_OK);
+  std::string script =
+      base::StringPrintf("// empty script. counter = %d\n// ", counter++);
+  script.resize(1E6, 'x');
+  http_response->set_content(std::move(script));
+  http_response->set_content_type("text/javascript");
+  return http_response;
+}
+
 }  // namespace
 
 class ConsoleListener : public EmbeddedWorkerInstance::Listener {
@@ -441,13 +459,14 @@ class ServiceWorkerVersionBrowserTest : public ContentBrowserTest {
     ASSERT_TRUE(
         BrowserThread::CurrentlyOn(ServiceWorkerContext::GetCoreThreadId()));
     remote_endpoints_.emplace_back();
-    base::WeakPtr<ServiceWorkerProviderHost> host = CreateProviderHostForWindow(
-        33 /* dummy render process id */, true /* is_parent_frame_secure */,
-        wrapper()->context()->AsWeakPtr(), &remote_endpoints_.back());
+    base::WeakPtr<ServiceWorkerContainerHost> container_host =
+        CreateContainerHostForWindow(
+            33 /* dummy render process id */, true /* is_parent_frame_secure */,
+            wrapper()->context()->AsWeakPtr(), &remote_endpoints_.back());
     const GURL url = embedded_test_server()->GetURL("/service_worker/host");
-    host->container_host()->UpdateUrls(url, net::SiteForCookies::FromUrl(url),
-                                       url::Origin::Create(url));
-    host->container_host()->SetControllerRegistration(
+    container_host->UpdateUrls(url, net::SiteForCookies::FromUrl(url),
+                               url::Origin::Create(url));
+    container_host->SetControllerRegistration(
         registration_, false /* notify_controllerchange */);
   }
 
@@ -700,7 +719,8 @@ class ServiceWorkerVersionBrowserTest : public ContentBrowserTest {
     request->method = "GET";
     fetch_dispatcher_ = std::make_unique<ServiceWorkerFetchDispatcher>(
         std::move(request), resource_type, std::string() /* client_id */,
-        version_, std::move(prepare_callback), std::move(fetch_callback));
+        version_, std::move(prepare_callback), std::move(fetch_callback),
+        /*is_offline_cpability_check=*/false);
     fetch_dispatcher_->Run();
   }
 
@@ -1430,6 +1450,48 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest,
   }
   // The last update time should be bumped.
   EXPECT_LT(last_update_time, GetLastUpdateCheck(registration_id));
+
+  // Tidy up.
+  base::RunLoop run_loop;
+  public_context()->UnregisterServiceWorker(
+      embedded_test_server()->GetURL(kScope),
+      base::BindOnce(&ExpectResultAndRun, true, run_loop.QuitClosure()));
+  run_loop.Run();
+}
+
+// Regression test for https://crbug.com/1032517.
+IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest,
+                       UpdateWithScriptLargerThanMojoDataPipeBuffer) {
+  const char kScope[] = "/service_worker/handle_fetch.html";
+  const char kWorkerUrl[] = "/service_worker/update_worker.js";
+
+  // Tell the server to return a new script for each `update_worker.js` request.
+  embedded_test_server()->RegisterRequestHandler(
+      base::BindRepeating(&RequestHandlerForBigWorkerScript));
+  StartServerAndNavigateToSetup();
+
+  // Register a service worker and wait for activation.
+  blink::mojom::ServiceWorkerRegistrationOptions options(
+      embedded_test_server()->GetURL(kScope),
+      blink::mojom::ScriptType::kClassic,
+      blink::mojom::ServiceWorkerUpdateViaCache::kNone);
+  auto observer = base::MakeRefCounted<WorkerActivatedObserver>(wrapper());
+  observer->Init();
+  public_context()->RegisterServiceWorker(
+      embedded_test_server()->GetURL(kWorkerUrl), options,
+      base::BindOnce(&ExpectResultAndRun, true, base::DoNothing()));
+  observer->Wait();
+  int64_t registration_id = observer->registration_id();
+
+  // Try to update. Update should have succeeded.
+  {
+    blink::ServiceWorkerStatusCode status =
+        blink::ServiceWorkerStatusCode::kErrorFailed;
+    bool update_found = true;
+    UpdateRegistration(registration_id, &status, &update_found);
+    EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk, status);
+    EXPECT_TRUE(update_found);
+  }
 
   // Tidy up.
   base::RunLoop run_loop;

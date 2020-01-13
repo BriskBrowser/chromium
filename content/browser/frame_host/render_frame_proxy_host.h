@@ -16,7 +16,6 @@
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_sender.h"
 #include "mojo/public/cpp/bindings/associated_receiver.h"
-#include "third_party/blink/public/common/input/web_scroll_types.h"
 #include "third_party/blink/public/mojom/frame/frame.mojom.h"
 #include "third_party/blink/public/platform/web_focus_type.h"
 
@@ -129,11 +128,6 @@ class RenderFrameProxyHost : public IPC::Listener,
   void ScrollRectToVisible(const gfx::Rect& rect_to_scroll,
                            const blink::WebScrollIntoViewParams& params);
 
-  // Continues to bubble a logical scroll from the frame's process. Bubbling
-  // continues from the frame owner element in the parent process.
-  void BubbleLogicalScroll(blink::WebScrollDirection direction,
-                           ui::input_types::ScrollGranularity granularity);
-
   // Sets render frame proxy created state. If |created| is false, any existing
   // mojo connections to RenderFrameProxyHost will be closed.
   void SetRenderFrameProxyCreated(bool created);
@@ -149,12 +143,12 @@ class RenderFrameProxyHost : public IPC::Listener,
   void SetInheritedEffectiveTouchAction(cc::TouchAction touch_action) override;
   void VisibilityChanged(blink::mojom::FrameVisibility visibility) override;
   void DidFocusFrame() override;
+  void CheckCompleted() override;
 
  private:
   // IPC Message handlers.
   void OnDetach();
   void OnOpenURL(const FrameHostMsg_OpenURL_Params& params);
-  void OnCheckCompleted();
   void OnRouteMessageEvent(const FrameMsg_PostMessage_Params& params);
   void OnDidChangeOpener(int32_t opener_routing_id);
   void OnAdvanceFocus(blink::WebFocusType type, int32_t source_routing_id);

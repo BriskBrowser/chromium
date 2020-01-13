@@ -422,9 +422,9 @@ class TabStripModel : public TabGroupController {
   // Moves the set of tabs indicated by |indices| to precede the tab at index
   // |destination_index|, maintaining their order and the order of tabs not
   // being moved, and adds them to the tab group |group|.
-  void MoveTabsIntoGroup(const std::vector<int>& indices,
-                         int destination_index,
-                         tab_groups::TabGroupId group);
+  void MoveTabsAndSetGroup(const std::vector<int>& indices,
+                           int destination_index,
+                           tab_groups::TabGroupId group);
 
   // Similar to AddToExistingGroup(), but creates a group with id |group| if it
   // doesn't exist. This is only intended to be called from session restore
@@ -468,6 +468,7 @@ class TabStripModel : public TabGroupController {
     CommandAddToNewGroup,
     CommandAddToExistingGroup,
     CommandRemoveFromGroup,
+    CommandMoveTabToNewWindow,
     CommandLast
   };
 
@@ -656,11 +657,12 @@ class TabStripModel : public TabGroupController {
   void AddToExistingGroupImpl(const std::vector<int>& indices,
                               tab_groups::TabGroupId group);
 
-  // Implementation of MoveTabsIntoGroup. Moves the set of tabs in |indices| to
-  // the |destination_index| and updates the tabs to the appropriate |group|.
-  void MoveTabsIntoGroupImpl(const std::vector<int>& indices,
-                             int destination_index,
-                             tab_groups::TabGroupId group);
+  // Implementation of MoveTabsAndSetGroupImpl. Moves the set of tabs in
+  // |indices| to the |destination_index| and updates the tabs to the
+  // appropriate |group|.
+  void MoveTabsAndSetGroupImpl(const std::vector<int>& indices,
+                               int destination_index,
+                               base::Optional<tab_groups::TabGroupId> group);
 
   // Moves the tab at |index| to |new_index| and sets its group to |new_group|.
   // Notifies any observers that group affiliation has changed for the tab.
@@ -677,10 +679,10 @@ class TabStripModel : public TabGroupController {
   void GroupTab(int index, tab_groups::TabGroupId group);
 
   // TabGroupController:
-  void CreateTabGroup(tab_groups::TabGroupId group) override;
-  void ChangeTabGroupContents(tab_groups::TabGroupId group) override;
-  void ChangeTabGroupVisuals(tab_groups::TabGroupId group) override;
-  void CloseTabGroup(tab_groups::TabGroupId group) override;
+  void CreateTabGroup(const tab_groups::TabGroupId& group) override;
+  void ChangeTabGroupContents(const tab_groups::TabGroupId& group) override;
+  void ChangeTabGroupVisuals(const tab_groups::TabGroupId& group) override;
+  void CloseTabGroup(const tab_groups::TabGroupId& group) override;
   // The same as count(), but overridden for TabGroup to access.
   int GetTabCount() const override;
 

@@ -139,10 +139,6 @@ void WebContentController::AttachTo(aura::Window* window, int window_id) {
   content::WebContents* contents = GetWebContents();
   auto* contents_window = contents->GetNativeView();
   contents_window->set_id(window_id);
-  contents_window->SetBounds(gfx::Rect(window->bounds().size()));
-  // Set the initial webview size as we depend on the client to do further
-  // sizing.
-  contents_window->SetBounds(gfx::Rect(window->bounds().size()));
   // The aura window is hidden to avoid being shown via the usual layer method,
   // instead it is shows via a SurfaceDrawQuad by exo.
   contents_window->Hide();
@@ -156,8 +152,8 @@ void WebContentController::AttachTo(aura::Window* window, int window_id) {
   surface_->AddSurfaceObserver(this);
 
   // Unretained is safe because we unset this in the destructor.
-  surface_->SetEmbeddedSurfaceId(
-      base::Bind(&WebContentController::GetSurfaceId, base::Unretained(this)));
+  surface_->SetEmbeddedSurfaceId(base::BindRepeating(
+      &WebContentController::GetSurfaceId, base::Unretained(this)));
 
   current_rfh_ = GetWebContents()->GetMainFrame();
   if (current_rfh_) {

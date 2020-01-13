@@ -110,6 +110,59 @@ IndexedDBContextImpl::IndexedDBContextImpl(
       base::MakeRefCounted<IndexedDBQuotaClient>(this));
 }
 
+void IndexedDBContextImpl::Bind(
+    mojo::PendingReceiver<storage::mojom::IndexedDBControl> control) {
+  DCHECK(IDBTaskRunner()->RunsTasksInCurrentSequence());
+  receivers_.Add(this, std::move(control));
+}
+
+void IndexedDBContextImpl::GetUsage(GetUsageCallback usage_callback) {
+  DCHECK(IDBTaskRunner()->RunsTasksInCurrentSequence());
+  std::vector<Origin> origins = GetAllOrigins();
+  std::vector<storage::mojom::IndexedDBStorageUsageInfoPtr> result;
+  for (const auto& origin : origins) {
+    storage::mojom::IndexedDBStorageUsageInfoPtr usage_info =
+        storage::mojom::IndexedDBStorageUsageInfo::New(
+            origin, GetOriginDiskUsage(origin), GetOriginLastModified(origin));
+    result.push_back(std::move(usage_info));
+  }
+  std::move(usage_callback).Run(std::move(result));
+}
+
+// Note - this is being kept async (instead of having a 'sync' version) to allow
+// ForceClose to become asynchronous.  This is required for
+// https://crbug.com/965142.
+void IndexedDBContextImpl::DeleteForOrigin(const Origin& origin,
+                                           DeleteForOriginCallback callback) {
+  DCHECK(IDBTaskRunner()->RunsTasksInCurrentSequence());
+  ForceClose(origin, FORCE_CLOSE_DELETE_ORIGIN);
+  if (!HasOrigin(origin)) {
+    std::move(callback).Run(true);
+    return;
+  }
+
+  if (is_incognito()) {
+    GetOriginSet()->erase(origin);
+    origin_size_map_.erase(origin);
+    std::move(callback).Run(true);
+    return;
+  }
+
+  base::FilePath idb_directory = GetLevelDBPath(origin);
+  EnsureDiskUsageCacheInitialized(origin);
+
+  leveldb::Status s =
+      IndexedDBClassFactory::Get()->leveldb_factory().DestroyLevelDB(
+          idb_directory);
+  if (s.ok()) {
+    base::DeleteFileRecursively(GetBlobStorePath(origin));
+    GetOriginSet()->erase(origin);
+    origin_size_map_.erase(origin);
+  }
+  QueryDiskAndUpdateQuotaUsage(origin);
+  std::move(callback).Run(s.ok());
+}
+
 IndexedDBFactoryImpl* IndexedDBContextImpl::GetIDBFactory() {
   DCHECK(IDBTaskRunner()->RunsTasksInCurrentSequence());
   if (!indexeddb_factory_.get()) {
@@ -122,6 +175,11 @@ IndexedDBFactoryImpl* IndexedDBContextImpl::GetIDBFactory() {
   return indexeddb_factory_.get();
 }
 
+base::SequencedTaskRunner* IndexedDBContextImpl::IOTaskRunner() {
+  DCHECK(io_task_runner_.get());
+  return io_task_runner_.get();
+}
+
 std::vector<Origin> IndexedDBContextImpl::GetAllOrigins() {
   DCHECK(IDBTaskRunner()->RunsTasksInCurrentSequence());
   std::set<Origin>* origins_set = GetOriginSet();
@@ -132,17 +190,6 @@ bool IndexedDBContextImpl::HasOrigin(const Origin& origin) {
   DCHECK(IDBTaskRunner()->RunsTasksInCurrentSequence());
   std::set<Origin>* set = GetOriginSet();
   return set->find(origin) != set->end();
-}
-
-std::vector<StorageUsageInfo> IndexedDBContextImpl::GetAllOriginsInfo() {
-  DCHECK(IDBTaskRunner()->RunsTasksInCurrentSequence());
-  std::vector<Origin> origins = GetAllOrigins();
-  std::vector<StorageUsageInfo> result;
-  for (const auto& origin : origins) {
-    result.push_back(StorageUsageInfo(origin, GetOriginDiskUsage(origin),
-                                      GetOriginLastModified(origin)));
-  }
-  return result;
 }
 
 static bool HostNameComparator(const Origin& i, const Origin& j) {
@@ -310,42 +357,6 @@ base::Time IndexedDBContextImpl::GetOriginLastModified(const Origin& origin) {
   if (!base::GetFileInfo(idb_directory, &file_info))
     return base::Time();
   return file_info.last_modified;
-}
-
-void IndexedDBContextImpl::DeleteForOrigin(const Origin& origin) {
-  DCHECK(IDBTaskRunner()->RunsTasksInCurrentSequence());
-  ForceClose(origin, FORCE_CLOSE_DELETE_ORIGIN);
-  if (!HasOrigin(origin))
-    return;
-
-  if (is_incognito()) {
-    GetOriginSet()->erase(origin);
-    origin_size_map_.erase(origin);
-    return;
-  }
-
-  base::FilePath idb_directory = GetLevelDBPath(origin);
-  EnsureDiskUsageCacheInitialized(origin);
-
-  leveldb::Status s =
-      IndexedDBClassFactory::Get()->leveldb_factory().DestroyLevelDB(
-          idb_directory);
-  if (!s.ok()) {
-    LOG(WARNING) << "Failed to delete LevelDB database: "
-                 << idb_directory.AsUTF8Unsafe();
-  } else {
-    // LevelDB does not delete empty directories; work around this.
-    // TODO(jsbell): Remove when upstream bug is fixed.
-    // https://github.com/google/leveldb/issues/215
-    const bool kNonRecursive = false;
-    base::DeleteFile(idb_directory, kNonRecursive);
-  }
-  base::DeleteFileRecursively(GetBlobStorePath(origin));
-  QueryDiskAndUpdateQuotaUsage(origin);
-  if (s.ok()) {
-    GetOriginSet()->erase(origin);
-    origin_size_map_.erase(origin);
-  }
 }
 
 void IndexedDBContextImpl::CopyOriginData(const Origin& origin,
@@ -631,11 +642,6 @@ std::set<Origin>* IndexedDBContextImpl::GetOriginSet() {
 base::SequencedTaskRunner* IndexedDBContextImpl::IDBTaskRunner() {
   DCHECK(idb_task_runner_.get());
   return idb_task_runner_.get();
-}
-
-base::SequencedTaskRunner* IndexedDBContextImpl::IOTaskRunner() {
-  DCHECK(io_task_runner_.get());
-  return io_task_runner_.get();
 }
 
 }  // namespace content

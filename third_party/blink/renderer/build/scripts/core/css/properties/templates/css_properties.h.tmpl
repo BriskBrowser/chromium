@@ -41,6 +41,10 @@ namespace {{namespace}} {
   (property.is_internal and 'kInternal' or ''),
   (property.affected_by_forced_colors and 'kIsAffectedByForcedColors' or ''),
   (property.ua and 'kUA' or ''),
+  (property.is_animation_property and 'kAnimation' or ''),
+  (property.valid_for_first_letter and 'kValidForFirstLetter' or ''),
+  (property.valid_for_cue and 'kValidForCue' or ''),
+  (property.valid_for_marker and 'kValidForMarker' or ''),
 ] | reject('==', '') | join(' | ') %}
 {% set ctor_args = (not is_alias and [property_id, flags, separator] or []) %}
 // {{property.name}}
@@ -50,7 +54,7 @@ class {{class_name}} final : public {{property.superclass}} {
   const char* GetPropertyName() const override;
   const WTF::AtomicString& GetPropertyNameAtomicString() const override;
   const char* GetJSPropertyName() const override;
-  {% if property.is_internal or property.runtime_flag %}
+  {% if property.is_internal or property.runtime_flag and not property.in_origin_trial%}
   CSSExposure Exposure() const override;
   {% endif %}
   {% if property.in_origin_trial %}

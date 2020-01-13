@@ -171,7 +171,8 @@ class AnimationCompositorAnimationsTest : public PaintTestConfigurations,
  public:
   bool ConvertTimingForCompositor(const Timing& t,
                                   CompositorAnimations::CompositorTiming& out) {
-    return CompositorAnimations::ConvertTimingForCompositor(t, 0, out, 1);
+    return CompositorAnimations::ConvertTimingForCompositor(
+        t, base::TimeDelta(), out, 1);
   }
 
   CompositorAnimations::FailureReasons CanStartEffectOnCompositor(
@@ -206,8 +207,8 @@ class AnimationCompositorAnimationsTest : public PaintTestConfigurations,
       Vector<std::unique_ptr<CompositorKeyframeModel>>& keyframe_models,
       double animation_playback_rate) {
     CompositorAnimations::GetAnimationOnCompositor(
-        *element_, timing, 0, base::nullopt, 0, effect, keyframe_models,
-        animation_playback_rate);
+        *element_, timing, 0, base::nullopt, base::TimeDelta(), effect,
+        keyframe_models, animation_playback_rate);
   }
 
   CompositorAnimations::FailureReasons
@@ -466,7 +467,7 @@ class AnimationCompositorAnimationsTest : public PaintTestConfigurations,
     DCHECK_EQ(keyframe_timing_function->GetType(),
               TimingFunction::Type::CUBIC_BEZIER);
     const auto& cubic_timing_function =
-        ToCubicBezierTimingFunction(*keyframe_timing_function);
+        To<CubicBezierTimingFunction>(*keyframe_timing_function);
     EXPECT_EQ(cubic_timing_function.GetEaseType(), ease_type);
   }
 
@@ -1573,7 +1574,7 @@ TEST_P(AnimationCompositorAnimationsTest,
   EXPECT_EQ(curve_timing_function->GetType(),
             TimingFunction::Type::CUBIC_BEZIER);
   const auto& cubic_timing_function =
-      ToCubicBezierTimingFunction(*curve_timing_function);
+      To<CubicBezierTimingFunction>(*curve_timing_function);
   EXPECT_EQ(cubic_timing_function.GetEaseType(),
             CubicBezierTimingFunction::EaseType::CUSTOM);
   EXPECT_EQ(cubic_timing_function.X1(), 1.0);

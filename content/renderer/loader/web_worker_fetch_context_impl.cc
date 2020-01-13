@@ -483,7 +483,7 @@ bool WebWorkerFetchContextImpl::IsOnSubframe() const {
   return is_on_sub_frame_;
 }
 
-blink::WebURL WebWorkerFetchContextImpl::SiteForCookies() const {
+net::SiteForCookies WebWorkerFetchContextImpl::SiteForCookies() const {
   return site_for_cookies_;
 }
 
@@ -544,6 +544,11 @@ WebWorkerFetchContextImpl::TakePendingWorkerTimingReceiver(int request_id) {
   return receiver.PassPipe();
 }
 
+void WebWorkerFetchContextImpl::SetIsOfflineMode(bool is_offline_mode) {
+  // Worker doesn't support offline mode. There should be no callers.
+  NOTREACHED();
+}
+
 void WebWorkerFetchContextImpl::set_controller_service_worker_mode(
     blink::mojom::ControllerServiceWorkerMode mode) {
   controller_service_worker_mode_ = mode;
@@ -559,7 +564,7 @@ void WebWorkerFetchContextImpl::set_frame_request_blocker(
 }
 
 void WebWorkerFetchContextImpl::set_site_for_cookies(
-    const blink::WebURL& site_for_cookies) {
+    const net::SiteForCookies& site_for_cookies) {
   site_for_cookies_ = site_for_cookies;
 }
 

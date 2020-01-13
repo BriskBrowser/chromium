@@ -16,6 +16,7 @@
 #include "ui/webui/mojo_web_ui_controller.h"
 
 namespace content {
+class WebUIDataSource;
 class WebUIMessageHandler;
 }
 
@@ -27,6 +28,9 @@ class OSSettingsUI : public ui::MojoWebUIController {
  public:
   explicit OSSettingsUI(content::WebUI* web_ui);
   ~OSSettingsUI() override;
+
+  // Initializes the WebUI message handlers for OS-specific settings.
+  void InitOSWebUIHandlers(content::WebUIDataSource* html_source);
 
   // Instantiates implementor of the mojom::CrosNetworkConfig mojo interface
   // passing the pending receiver that will be internally bound.

@@ -17,6 +17,8 @@ from page_sets.login_helpers import facebook_login
 from page_sets.login_helpers import pinterest_login
 from page_sets.login_helpers import tumblr_login
 
+from page_sets.helpers import override_online
+
 from telemetry.util import js_template
 
 
@@ -33,6 +35,12 @@ class _BrowsingStory(system_health_story.SystemHealthStory):
   # Defaults to using the body element if not set.
   CONTAINER_SELECTOR = None
   ABSTRACT_STORY = True
+
+  def __init__(self, story_set, take_memory_measurement,
+               extra_browser_args=None):
+    super(_BrowsingStory, self).__init__(story_set,
+        take_memory_measurement, extra_browser_args)
+    self.script_to_evaluate_on_commit = override_online.ALWAYS_ONLINE
 
   def _WaitForNavigation(self, action_runner):
     if not self.IS_SINGLE_PAGE_APP:
@@ -83,8 +91,14 @@ class _ArticleBrowsingStory(_BrowsingStory):
   # Some devices take long to load news webpages crbug.com/713036. Set to None
   # because we cannot access DEFAULT_WEB_CONTENTS_TIMEOUT from this file.
   COMPLETE_STATE_WAIT_TIMEOUT = None
+  # On some pages (for ex: facebook) articles appear only after we start
+  # scrolling. This specifies if we need scroll main page.
+  SCROLL_BEFORE_BROWSE = False
 
   def _DidLoadDocument(self, action_runner):
+    # Scroll main page if needed before we start browsing articles.
+    if self.SCROLL_BEFORE_BROWSE:
+      self._ScrollMainPage(action_runner)
     for i in xrange(self.ITEMS_TO_VISIT):
       self._NavigateToItem(action_runner, i)
       self._ReadNextArticle(action_runner)
@@ -132,6 +146,34 @@ class FacebookMobileStory(_ArticleBrowsingStory):
   MAIN_PAGE_SCROLL_REPEAT = 1
   SUPPORTED_PLATFORMS = platforms.MOBILE_ONLY
   TAGS = [story_tags.EMERGING_MARKET, story_tags.YEAR_2016]
+
+
+class FacebookMobileStory2019(_ArticleBrowsingStory):
+  NAME = 'browse:social:facebook:2019'
+  URL = 'https://www.facebook.com/rihanna'
+  ITEM_SELECTOR = '._5msj'
+  MAIN_PAGE_SCROLL_REPEAT = 1
+  SUPPORTED_PLATFORMS = platforms.MOBILE_ONLY
+  IS_SINGLE_PAGE_APP = True
+  SCROLL_BEFORE_BROWSE = True
+
+  TAGS = [story_tags.EMERGING_MARKET, story_tags.YEAR_2019]
+
+  def _Login(self, action_runner):
+    facebook_login.LoginWithMobileSite(action_runner, 'facebook4')
+
+  def _ScrollMainPage(self, action_runner):
+    action_runner.tab.WaitForDocumentReadyStateToBeComplete()
+    # Facebook loads content dynamically. So keep trying to scroll till we find
+    # the elements. Retry 5 times waiting a bit each time.
+    for _ in xrange(5):
+      action_runner.RepeatableBrowserDrivenScroll(
+          repeat_count=self.MAIN_PAGE_SCROLL_REPEAT)
+      result = action_runner.EvaluateJavaScript(
+          'document.querySelectorAll("._5msj").length')
+      if result:
+        break
+      action_runner.Wait(1)
 
 
 class FacebookDesktopStory(_ArticleBrowsingStory):
@@ -599,6 +641,47 @@ class ImgurMobileStory(_MediaBrowsingStory):
   IS_SINGLE_PAGE_APP = True
   TAGS = [story_tags.EMERGING_MARKET, story_tags.YEAR_2016]
 
+class ImgurMobileStory2019(_MediaBrowsingStory):
+  NAME = 'browse:media:imgur:2019'
+  URL = 'http://imgur.com/gallery/46DfUFT'
+  SUPPORTED_PLATFORMS = platforms.MOBILE_ONLY
+  IS_SINGLE_PAGE_APP = True
+  TAGS = [story_tags.EMERGING_MARKET, story_tags.YEAR_2019]
+  USER_READ_TIME = 1
+
+  def _DidLoadDocument(self, action_runner):
+    # Accept the cookies
+    accept_button = ".qc-cmp-button"
+    item_selector = js_template.Render(
+       'document.querySelectorAll({{ selector }})[{{ index }}]',
+       selector=accept_button, index=1)
+    action_runner.WaitForElement(element_function=item_selector)
+    action_runner.ClickElement(element_function=item_selector)
+    # To simulate user looking at image
+    action_runner.Wait(self.USER_READ_TIME)
+
+    # Keep scrolling for the specified amount. If we see "continue browse"
+    # button click it to enable further scroll. This button would only be added
+    # after we scrolled a bit. So can't wait for this button at the start.
+    accepted_continue = False
+    for _ in xrange(15):
+      result = action_runner.EvaluateJavaScript(
+          'document.querySelectorAll(".Button-tertiary").length')
+      if result and not accepted_continue:
+        accept_button = ".Button-tertiary"
+        item_selector = js_template.Render(
+           'document.querySelectorAll({{ selector }})[{{ index }}]',
+           selector=accept_button, index=0)
+        action_runner.ScrollPageToElement(element_function=item_selector,
+                                          speed_in_pixels_per_second=400,
+                                          container_selector=None)
+        action_runner.ClickElement(element_function=item_selector)
+        accepted_continue = True
+
+      action_runner.ScrollPage(distance=800)
+      # To simulate user looking at image
+      action_runner.Wait(self.USER_READ_TIME)
+
 
 class ImgurDesktopStory(_MediaBrowsingStory):
   NAME = 'browse:media:imgur'
@@ -924,6 +1007,24 @@ class BrowseFlipKartMobileStory(_ArticleBrowsingStory):
     action_runner.WaitForElement(text="Sunglasses")
 
 
+class BrowseFlipKartMobileStory2019(_ArticleBrowsingStory):
+  NAME = 'browse:shopping:flipkart:2019'
+  URL = 'https://flipkart.com/search?q=Sunglasses'
+  SUPPORTED_PLATFORMS = platforms.MOBILE_ONLY
+  TAGS = [story_tags.EMERGING_MARKET, story_tags.YEAR_2019]
+
+  ITEM_SELECTOR = '.r-1hvjb8t'
+  BACK_SELECTOR = '._3NH1qf'
+  ITEMS_TO_VISIT = 4
+
+  def _WaitForNavigation(self, action_runner):
+    action_runner.WaitForElement(text='View Details')
+
+  def _NavigateBack(self, action_runner):
+    action_runner.ClickElement(selector=self.BACK_SELECTOR)
+    action_runner.WaitForElement(text="sunglasses")
+
+
 class BrowseAmazonMobileStory(_ArticleBrowsingStory):
   NAME = 'browse:shopping:amazon'
   URL = 'https://www.amazon.co.in/s/?field-keywords=Mobile'
@@ -995,6 +1096,16 @@ class BrowseTOIMobileStory(_ArticleBrowsingStory):
   TAGS = [story_tags.EMERGING_MARKET, story_tags.YEAR_2016]
 
   ITEMS_TO_VISIT = 4
+  ITEM_SELECTOR = '.dummy-img'
+
+
+class BrowseTOIMobileStory2019(_ArticleBrowsingStory):
+  NAME = 'browse:news:toi:2019'
+  URL = 'http://m.timesofindia.com'
+  SUPPORTED_PLATFORMS = platforms.MOBILE_ONLY
+  TAGS = [story_tags.EMERGING_MARKET, story_tags.YEAR_2019]
+
+  ITEMS_TO_VISIT = 2
   ITEM_SELECTOR = '.dummy-img'
 
 
@@ -1301,7 +1412,7 @@ class GoogleMapsStory2019(_BrowsingStory):
     '''
   SUPPORTED_PLATFORMS = platforms.DESKTOP_ONLY
   TAGS = [story_tags.JAVASCRIPT_HEAVY, story_tags.WEBGL,
-          story_tags.YEAR_2018]
+          story_tags.YEAR_2019]
 
   def _DidLoadDocument(self, action_runner):
     # Click on the search box.
@@ -1569,7 +1680,7 @@ class _InfiniteScrollStory(system_health_story.SystemHealthStory):
     self.script_to_evaluate_on_commit = '''
         window.WebSocket = undefined;
         window.Worker = undefined;
-        window.performance = undefined;'''
+        window.performance = undefined;''' + override_online.ALWAYS_ONLINE
 
   def _DidLoadDocument(self, action_runner):
     action_runner.WaitForJavaScriptCondition(

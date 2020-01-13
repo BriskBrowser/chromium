@@ -3,10 +3,12 @@
 // found in the LICENSE file.
 
 import 'chrome://new-tab-page/most_visited.js';
+import 'chrome://resources/mojo/mojo/public/js/mojo_bindings_lite.js';
+import 'chrome://resources/mojo/mojo/public/mojom/base/text_direction.mojom-lite.js';
 
 import {BrowserProxy} from 'chrome://new-tab-page/browser_proxy.js';
 import {getDeepActiveElement} from 'chrome://resources/js/util.m.js';
-import {keydown, TestProxy} from 'chrome://test/new_tab_page/test_support.js';
+import {assertFocus, keydown, TestProxy} from 'chrome://test/new_tab_page/test_support.js';
 import {eventToPromise, flushTasks} from 'chrome://test/test_util.m.js';
 
 suite('NewTabPageMostVisitedFocusTest', () => {
@@ -41,7 +43,11 @@ suite('NewTabPageMostVisitedFocusTest', () => {
   async function addTiles(n) {
     const tiles = Array(n).fill(0).map((x, i) => {
       const char = String.fromCharCode(i + /* 'a' */ 97);
-      return {title: char, url: {url: `https://${char}/`}};
+      return {
+        title: char,
+        titleDirection: mojoBase.mojom.TextDirection.LEFT_TO_RIGHT,
+        url: {url: `https://${char}/`},
+      };
     });
     const tilesRendered = eventToPromise('dom-change', mostVisited.$.tiles);
     testProxy.callbackRouterRemote.setMostVisitedInfo({
@@ -51,14 +57,6 @@ suite('NewTabPageMostVisitedFocusTest', () => {
     });
     await testProxy.callbackRouterRemote.$.flushForTesting();
     await tilesRendered;
-  }
-
-  /**
-   * @param {!HTMLElement} element
-   * @private
-   */
-  function assertFocus(element) {
-    assertEquals(element, getDeepActiveElement());
   }
 
   setup(() => {
@@ -143,7 +141,8 @@ suite('NewTabPageMostVisitedFocusTest', () => {
     keydown(tile, 'ArrowLeft');
   });
 
-  test('up/left/right/down addShortcut and no tiles', () => {
+  test('up/left/right/down addShortcut and no tiles', async () => {
+    await addTiles(0);
     mostVisited.$.addShortcut.focus();
     ['ArrowUp', 'ArrowLeft', 'ArrowRight', 'ArrowDown'].forEach(key => {
       keydown(mostVisited.$.addShortcut, key);

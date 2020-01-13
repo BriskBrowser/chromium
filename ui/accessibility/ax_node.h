@@ -315,6 +315,7 @@ class AX_EXPORT AXNode final {
   base::Optional<int> GetTableAriaColCount() const;
   base::Optional<int> GetTableAriaRowCount() const;
   base::Optional<int> GetTableCellCount() const;
+  base::Optional<bool> GetTableHasColumnOrRowHeaderNode() const;
   AXNode* GetTableCaption() const;
   AXNode* GetTableCellFromIndex(int index) const;
   AXNode* GetTableCellFromCoords(int row_index, int col_index) const;
@@ -379,6 +380,10 @@ class AX_EXPORT AXNode final {
   // Returns true if this current node is a list marker or if it's a descendant
   // of a list marker node. Returns false otherwise.
   bool IsInListMarker() const;
+
+  // Returns true if this object is used only for representing text, including
+  // inline text boxes.
+  bool IsTextOnlyObject() const;
 
  private:
   // Computes the text offset where each line starts by traversing all child

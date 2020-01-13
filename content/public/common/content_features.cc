@@ -230,6 +230,10 @@ const base::Feature kIdleDetection{"IdleDetection",
 const base::Feature kInputPredictorTypeChoice{
     "InputPredictorTypeChoice", base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Allow Windows specific implementation for the GetInstalledRelatedApps API.
+const base::Feature kInstalledAppProvider{"InstalledAppProvider",
+                                          base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Alternative to switches::kIsolateOrigins, for turning on origin isolation.
 // List of origins to isolate has to be specified via
 // kIsolateOriginsFieldTrialParamName.
@@ -609,10 +613,14 @@ const base::Feature kWebAssemblyBaseline{"WebAssemblyBaseline",
 const base::Feature kWebAssemblyCodeGC{"WebAssemblyCodeGC",
                                        base::FEATURE_ENABLED_BY_DEFAULT};
 
-// Enable WebAssembly SIMD
+// Enable WebAssembly SIMD.
 // https://github.com/WebAssembly/Simd
 const base::Feature kWebAssemblySimd{"WebAssemblySimd",
                                      base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Enable WebAssembly tiering (Liftoff -> TurboFan).
+const base::Feature kWebAssemblyTiering{"WebAssemblyTiering",
+                                        base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Enable WebAssembly threads.
 // https://github.com/WebAssembly/threads
@@ -715,25 +723,15 @@ const base::Feature kWebXr{"WebXR", base::FEATURE_ENABLED_BY_DEFAULT};
 const base::Feature kWebXrArModule{"WebXRARModule",
                                    base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Enables access to anchors via WebXR API.
-const base::Feature kWebXrAnchors{"WebXRAnchors",
-                                  base::FEATURE_DISABLED_BY_DEFAULT};
-
-// Enables access to the WebXR Device API gamepad module.
-const base::Feature kWebXrGamepadModule{"WebXrGamepadModule",
-                                        base::FEATURE_ENABLED_BY_DEFAULT};
-
 // Enables access to raycasting against estimated XR scene geometry.
 const base::Feature kWebXrHitTest{"WebXRHitTest",
                                   base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Enables access to planes detected in the user's environment.
-const base::Feature kWebXrPlaneDetection{"WebXRPlaneDetection",
+// Enables access to experimental WebXR features.
+const base::Feature kWebXrIncubations{"WebXRIncubations",
+                                      base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kWebXrPermissionsApi{"WebXrPermissionsApi",
                                          base::FEATURE_DISABLED_BY_DEFAULT};
-
-// Enables access to planes detected in the user's environment.
-const base::Feature kWebXrArDOMOverlay{"WebXRARDOMOverlay",
-                                       base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Start streaming scripts on script preload.
 const base::Feature kScriptStreamingOnPreload{"ScriptStreamingOnPreload",

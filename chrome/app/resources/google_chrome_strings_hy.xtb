@@ -9,7 +9,6 @@
 Որոշ գործառույթներ կարող են մատչելի չլինել: Նախընտրանքների փոփոխությունները չեն պահվի:</translation>
 <translation id="1088300314857992706"><ph name="USER_EMAIL_ADDRESS" />-ը նախկինում Chrome է օգտագործել</translation>
 <translation id="1097330777386562916">Chrome-ից դուրս գալիս մաքրել քուքիները և կայքերի տվյալները</translation>
-<translation id="1104959162601287462">&amp;Chrome OS-ի մասին</translation>
 <translation id="110877069173485804">Սա ձեր Chrome-ն է</translation>
 <translation id="1142745911746664600">Չհաջողվեց թարմացնել Chrome-ը</translation>
 <translation id="1154147086299354128">&amp;Բացել Chrome-ում</translation>
@@ -21,7 +20,6 @@
 <translation id="1553358976309200471">Թարմացնել Chrome-ը</translation>
 <translation id="1587223624401073077">Google Chrome-ն օգտագործում է ձեր տեսախցիկը:</translation>
 <translation id="1587325591171447154"><ph name="FILE_NAME" /> ֆայլը վտանգավոր է, և Chrome-ն արգելափակել է այն:</translation>
-<translation id="1590588151039584890">Թարմացման համար անհրաժեշտ է փակել Chrome-ն այս համակարգչում։ Այս համակարգչում մյուս օգտատերերի չպահված փոփոխությունները կարող են կորել։</translation>
 <translation id="1619887657840448962">Chrome-ն ավելի ապահով դարձնելու համար հետևյալ ընդլայնումներն անջատվել են, որոնք նշված չեն <ph name="IDS_EXTENSION_WEB_STORE_TITLE" />-ում և կարող են ավելացված լինել առանց ձեր իմացության:</translation>
 <translation id="1628000112320670027">Chrome-ի օգնության էջ</translation>
 <translation id="1635734105302489219">Երբ Chrome-ից դուրս եք գալիս, քուքիները մաքրվում են: Համաժամացումը շարունակելու համար փոխեք <ph name="COOKIE_SETTINGS_LINK" />ը:</translation>
@@ -144,7 +142,6 @@
 <translation id="5430073640787465221">Ձեր նախընտրանքների ֆայլը վնասված է կամ անվավեր:
 
 Google Chrome-ը չի կարողանում վերականգնել ձեր կարգավորումները:</translation>
-<translation id="5543953544073077331">Chrome-ի այլ օրինակներ են աշխատում: Թարմացնելու համար փակեք դրանք։</translation>
 <translation id="556024056938947818">Google Chrome-ը փորձում է ցույց տալ գաղտնաբառերը:</translation>
 <translation id="5566025111015594046">Google Chrome (mDNS-In)</translation>
 <translation id="5657226924540934362">Եթե որևէ կարգավորում չտեսնեք այս էջում, փնտրեք այն ձեր <ph name="LINK_BEGIN" />
@@ -194,7 +191,6 @@ Google Chrome-ը չի կարողանում վերականգնել ձեր կար�
 <translation id="7408085963519505752">Chrome OS-ի օգտագործման պայմաններ</translation>
 <translation id="7419046106786626209">Chrome OS-ը չկարողացավ համաժամացնել ձեր տվյալները, քանի որ Sync-ը մատչելի չէ ձեր տիրույթի համար:</translation>
 <translation id="7486227612705979895">Chrome-ը կօգտագործի ձեր Drive-ը՝ հասցեագոտում հուշումներ ցուցադրելու համար</translation>
-<translation id="7531671357096394523">Փակեք Chrome-ի բոլոր օրինակները</translation>
 <translation id="7535429826459677826">Google Chrome Dev</translation>
 <translation id="7573289029918943991">Սարքի ծրագրակազմի տարբերակը տեսնելու համար անցեք <ph name="LINK_BEGIN" />Chrome OS-ի կարգավորումներ<ph name="LINK_END" /></translation>
 <translation id="7589360514048265910">Այս համակարգիչն այլևս չի ստանա Google Chrome-ի թարմացումները, քանի որ Mac OS X 10.9 համակարգն այլևս չի աջակցվում:</translation>

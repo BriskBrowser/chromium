@@ -10,6 +10,8 @@ import 'chrome://resources/cr_elements/cr_icons_css.m.js';
 import 'chrome://resources/cr_elements/cr_input/cr_input.m.js';
 import 'chrome://resources/cr_elements/cr_toast/cr_toast.m.js';
 import 'chrome://resources/cr_elements/hidden_style_css.m.js';
+import 'chrome://resources/mojo/mojo/public/js/mojo_bindings_lite.js';
+import 'chrome://resources/mojo/mojo/public/mojom/base/text_direction.mojom-lite.js';
 import './strings.m.js';
 
 import {assert} from 'chrome://resources/js/assert.m.js';
@@ -88,6 +90,9 @@ class MostVisitedElement extends PolymerElement {
       dialogTileTitle_: String,
 
       /** @private */
+      dialogTileTitleDirectionClass_: String,
+
+      /** @private */
       dialogTileUrl_: String,
 
       /** @private */
@@ -126,6 +131,7 @@ class MostVisitedElement extends PolymerElement {
       /** @private */
       showAdd_: {
         type: Boolean,
+        value: false,
         computed: 'computeShowAdd_(tiles_, maxTiles_, customLinksEnabled_)',
       },
 
@@ -164,11 +170,7 @@ class MostVisitedElement extends PolymerElement {
     /** @private {?Debouncer} */
     this.resizeDebouncer_ = null;
     /** @private {?number} */
-    this.setCustomLinksEnabledListenerId_ = null;
-    /** @private {?number} */
     this.setMostVisitedInfoListenerId_ = null;
-    /** @private {?number} */
-    this.setMostVisitedVisibleListenerId_ = null;
     /** @private {number} */
     this.actionMenuTargetIndex_ = -1;
 
@@ -187,20 +189,13 @@ class MostVisitedElement extends PolymerElement {
     super.connectedCallback();
     /** @private {boolean} */
     this.isRtl_ = window.getComputedStyle(this)['direction'] === 'rtl';
-    this.setCustomLinksEnabledListenerId_ =
-        this.callbackRouter_.setCustomLinksEnabled.addListener(enabled => {
-          this.customLinksEnabled_ = enabled;
-        });
     this.setMostVisitedInfoListenerId_ =
         this.callbackRouter_.setMostVisitedInfo.addListener(info => {
           this.visible_ = info.visible;
           this.customLinksEnabled_ = info.customLinksEnabled;
           this.tiles_ = info.tiles.slice(0, 10);
         });
-    this.setMostVisitedVisibleListenerId_ =
-        this.callbackRouter_.setMostVisitedVisible.addListener(visible => {
-          this.visible_ = visible;
-        });
+    this.pageHandler_.updateMostVisitedInfo();
     FocusOutlineManager.forDocument(document);
   }
 
@@ -208,11 +203,7 @@ class MostVisitedElement extends PolymerElement {
   disconnectedCallback() {
     super.disconnectedCallback();
     this.callbackRouter_.removeListener(
-        assert(this.setCustomLinksEnabledListenerId_));
-    this.callbackRouter_.removeListener(
         assert(this.setMostVisitedInfoListenerId_));
-    this.callbackRouter_.removeListener(
-        assert(this.setMostVisitedVisibleListenerId_));
     this.mediaListenerWideWidth_.removeListener(
         assert(this.boundOnWidthChange_));
     this.mediaListenerMediumWidth_.removeListener(
@@ -264,7 +255,6 @@ class MostVisitedElement extends PolymerElement {
     } else if (this.screenWidth_ === ScreenWidth.MEDIUM) {
       maxColumns = 4;
     }
-
 
     const tileCount = Math.min(
         this.maxTiles_,
@@ -363,9 +353,9 @@ class MostVisitedElement extends PolymerElement {
     const dropIndex = getHitIndex(this.tileRects_, x, y);
     this.tileElements_.forEach((element, i) => {
       let positionIndex;
-      if (i == dragIndex) {
+      if (i === dragIndex) {
         return;
-      } else if (dropIndex == -1) {
+      } else if (dropIndex === -1) {
         positionIndex = i;
       } else if (dragIndex < dropIndex && dragIndex <= i && i <= dropIndex) {
         positionIndex = i - 1;
@@ -443,6 +433,17 @@ class MostVisitedElement extends PolymerElement {
   }
 
   /**
+   * @param {!newTabPage.mojom.MostVisitedTile} tile
+   * @return {string}
+   * @private
+   */
+  getTileTitleDirectionClass_(tile) {
+    return tile.titleDirection === mojoBase.mojom.TextDirection.RIGHT_TO_LEFT ?
+        'title-rtl' :
+        'title-ltr';
+  }
+
+  /**
    * @return {string}
    * @private
    */
@@ -463,6 +464,7 @@ class MostVisitedElement extends PolymerElement {
   onAdd_() {
     this.dialogTitle_ = loadTimeData.getString('addLinkTitle');
     this.dialogTileTitle_ = '';
+    this.dialogTileTitleDirectionClass_ = '';
     this.dialogTileUrl_ = '';
     this.dialogTileUrlInvalid_ = false;
     this.adding_ = true;
@@ -486,7 +488,7 @@ class MostVisitedElement extends PolymerElement {
       return;
     }
     const backKey = this.isRtl_ ? 'ArrowRight' : 'ArrowLeft';
-    if (e.key === backKey || e.key == 'ArrowUp') {
+    if (e.key === backKey || e.key === 'ArrowUp') {
       this.tileFocus_(this.tiles_.length - 1);
     }
   }
@@ -515,7 +517,7 @@ class MostVisitedElement extends PolymerElement {
     }
 
     const modifier = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
-    if (modifier && e.key == 'z') {
+    if (modifier && e.key === 'z') {
       e.preventDefault();
       this.pageHandler_.undoMostVisitedTileAction();
     }
@@ -560,9 +562,11 @@ class MostVisitedElement extends PolymerElement {
   onEdit_() {
     this.$.actionMenu.close();
     this.dialogTitle_ = loadTimeData.getString('editLinkTitle');
-    const {title, url} = this.tiles_[this.actionMenuTargetIndex_];
-    this.dialogTileTitle_ = title;
-    this.dialogTileUrl_ = url.url;
+    const tile = this.tiles_[this.actionMenuTargetIndex_];
+    this.dialogTileTitle_ = tile.title;
+    this.dialogTileTitleDirectionClass_ =
+        this.getTileTitleDirectionClass_(tile);
+    this.dialogTileUrl_ = tile.url.url;
     this.dialogTileUrlInvalid_ = false;
     this.$.dialog.showModal();
   }
@@ -642,19 +646,19 @@ class MostVisitedElement extends PolymerElement {
       return;
     }
 
-    if (e.key != 'ArrowLeft' && e.key != 'ArrowRight' && e.key != 'ArrowUp' &&
-        e.key != 'ArrowDown' && e.key != 'Delete') {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' &&
+        e.key !== 'ArrowUp' && e.key !== 'ArrowDown' && e.key !== 'Delete') {
       return;
     }
 
     const {index} = this.$.tiles.modelForElement(e.target);
-    if (e.key == 'Delete') {
+    if (e.key === 'Delete') {
       this.tileRemove_(index);
       return;
     }
 
     const advanceKey = this.isRtl_ ? 'ArrowLeft' : 'ArrowRight';
-    const delta = (e.key == advanceKey || e.key == 'ArrowDown') ? 1 : -1;
+    const delta = (e.key === advanceKey || e.key === 'ArrowDown') ? 1 : -1;
     this.tileFocus_(Math.max(0, index + delta));
   }
 
@@ -730,8 +734,8 @@ class MostVisitedElement extends PolymerElement {
    */
   async tileRemove_(index) {
     const {title, url} = this.tiles_[index];
-    const {success} = await this.pageHandler_.deleteMostVisitedTile(url);
-    this.toast_(success ? 'linkRemove' : 'linkCantRemove', success);
+    this.pageHandler_.deleteMostVisitedTile(url);
+    this.toast_('linkRemovedMsg', /* showButtons= */ true);
     this.tileFocus_(index);
   }
 

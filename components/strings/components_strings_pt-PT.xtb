@@ -210,7 +210,7 @@
 <translation id="1914326953223720820">Serviço de descompressão de ficheiros</translation>
 <translation id="1915697529809968049">Pretende utilizar o Touch ID em vez do CVC?</translation>
 <translation id="1916770123977586577">Para aplicar as definições atualizadas a este site, atualize esta página</translation>
-<translation id="1917876262703816781">Uma violação de dados num site ou aplicação expôs a sua palavra-passe. O Chrome recomenda a alteração da palavra-passe em <ph name="ORIGIN" /> agora.</translation>
+<translation id="1917876262703816781">Uma violação de dados num site ou numa aplicação expôs a sua palavra-passe. O Chrome recomenda que altere a sua palavra-passe em <ph name="ORIGIN" /> agora.</translation>
 <translation id="1919345977826869612">Anúncios</translation>
 <translation id="1919367280705858090">Obter ajuda relativamente a uma mensagem de erro específica</translation>
 <translation id="192020519938775529">{COUNT,plural, =0{Nenhum}=1{1 site}other{# sites}}</translation>
@@ -722,6 +722,7 @@
 <translation id="4340982228985273705">Este computador não é detetado como sendo gerido pela empresa, por isso, a política apenas pode instalar automaticamente extensões alojadas na Web Store do Chrome. O URL de atualização da Web Store do Chrome é "<ph name="CWS_UPDATE_URL" />".</translation>
 <translation id="4346197816712207223">Cartões de crédito aceites</translation>
 <translation id="4346833872170306413">Roc-16K</translation>
+<translation id="4349531505348777662">Acabou de introduzir a sua palavra-passe num site fraudulento. O Chrome recomenda que aceda a <ph name="WEBSITE_1" />, <ph name="WEBSITE_2" /> e outros sites em que utilize esta palavra-passe e a altere agora.</translation>
 <translation id="4356973930735388585">Os utilizadores mal intencionados neste site podem tentar instalar programas perigosos no seu computador que roubam ou eliminam as suas informações (por exemplo, fotos, palavras-passe, mensagens e cartões de crédito).</translation>
 <translation id="4358059973562876591">Os modelos que especificou podem não ser aplicados devido a um erro com a política DnsOverHttpsMode.</translation>
 <translation id="4358461427845829800">Gerir métodos de pagamento…</translation>
@@ -912,7 +913,7 @@
 <translation id="5287240709317226393">Mostrar cookies</translation>
 <translation id="5287456746628258573">Este site utiliza uma configuração de segurança desatualizada, que pode expor as suas informações (por exemplo, palavras-passe ou números de cartões de crédito) quando são enviados para este site.</translation>
 <translation id="5288108484102287882">A validação dos valores da política gerou avisos.</translation>
-<translation id="5295292838686006428">Uma violação de dados num site ou aplicação expôs a sua palavra-passe. O Chrome recomenda que verifique agora as palavras-passe guardadas.</translation>
+<translation id="5295292838686006428">Uma violação de dados num site ou numa aplicação expôs a sua palavra-passe. O Chrome recomenda que verifique agora as palavras-passe guardadas.</translation>
 <translation id="5299298092464848405">Erro ao analisar a política</translation>
 <translation id="5300589172476337783">Mostrar</translation>
 <translation id="5308380583665731573">Ligar</translation>
@@ -934,6 +935,7 @@
 <translation id="5386426401304769735">A cadeia de certificados inclui um certificado assinado através de SHA-1.</translation>
 <translation id="538659543871111977">A4-Tab</translation>
 <translation id="5396631636586785122">Coser extremidade direita</translation>
+<translation id="5400836586163650660">Cinzento</translation>
 <translation id="540969355065856584">Este servidor não conseguiu provar que é <ph name="DOMAIN" />; de momento, o respetivo certificado de segurança não é válido. Isto pode ser provocado por uma configuração incorreta ou por um atacante que esteja a intercetar a sua ligação.</translation>
 <translation id="5421136146218899937">Limpar dados de navegação...</translation>
 <translation id="5430298929874300616">Remover marcador</translation>
@@ -1249,6 +1251,7 @@
 <translation id="6970216967273061347">Distrito</translation>
 <translation id="6973656660372572881">Foram especificados servidores proxy fixos e um URL de script .pac.</translation>
 <translation id="6973932557599545801">Lamento, mas não posso ajudar. Continue por sua conta.</translation>
+<translation id="6975012522936652259">Acabou de introduzir a sua palavra-passe num site fraudulento. O Chromium recomenda que aceda a <ph name="WEBSITE_1" />, <ph name="WEBSITE_2" /> e outros sites em que utilize esta palavra-passe e a altere agora.</translation>
 <translation id="6979158407327259162">Google Drive</translation>
 <translation id="6979440798594660689">Desativar som (predefinição)</translation>
 <translation id="6989763994942163495">Mostrar definições avançadas...</translation>
@@ -1355,7 +1358,7 @@ Detalhes adicionais:
 <translation id="7473891865547856676">Não, obrigado</translation>
 <translation id="7481312909269577407">Avançar</translation>
 <translation id="7485870689360869515">Não foram encontrados dados.</translation>
-<translation id="7495290002932347110">Uma violação de dados num site ou aplicação expôs a sua palavra-passe. O Chrome recomenda que verifique as palavras-passe guardadas e que altere a sua palavra-passe em <ph name="ORIGIN" /> agora.</translation>
+<translation id="7495290002932347110">Uma violação de dados num site ou numa aplicação expôs a sua palavra-passe. O Chrome recomenda que verifique as palavras-passe guardadas e altere a sua palavra-passe em <ph name="ORIGIN" /> agora.</translation>
 <translation id="7498234416455752244">Continuar a editar</translation>
 <translation id="7508255263130623398">O ID do dispositivo da política devolvido está vazio ou não corresponde ao ID do dispositivo atual</translation>
 <translation id="7508870219247277067">Verde abacate</translation>
@@ -1379,6 +1382,7 @@ Detalhes adicionais:
 <translation id="7567204685887185387">Este servidor não conseguiu provar que é o domínio <ph name="DOMAIN" />; o respetivo certificado de segurança poderá ter sido emitido de forma fraudulenta. Isto pode ser o resultado de uma configuração incorreta ou de um invasor a intercetar a sua ligação.</translation>
 <translation id="7569952961197462199">Pretende remover o cartão de crédito do Chrome?</translation>
 <translation id="7569983096843329377">Preto</translation>
+<translation id="7575207903026901870">Botão Remover sugestão, prima Enter para remover esta sugestão.</translation>
 <translation id="7578104083680115302">Pague rapidamente em sites e aplicações em todos os dispositivos com cartões que tenha guardado com o Google.</translation>
 <translation id="7592362899630581445">O certificado do servidor viola as restrições de nome.</translation>
 <translation id="7598391785903975535">Menos de <ph name="UPPER_ESTIMATE" /></translation>
@@ -1625,6 +1629,7 @@ Detalhes adicionais:
 <translation id="8891727572606052622">Modo de proxy inválido.</translation>
 <translation id="8903921497873541725">Ampliar</translation>
 <translation id="890485472659500557">Engineering-C</translation>
+<translation id="890493561996401738">Botão Remover sugestão, prima Enter para remover, <ph name="REMOVE_BUTTON_FOCUSED_FRIENDLY_MATCH_TEXT" />.</translation>
 <translation id="8910670906166981838">Está no Modo de navegação anónima</translation>
 <translation id="8912362522468806198">Conta Google</translation>
 <translation id="8918231688545606538">Esta página é suspeita</translation>
@@ -1715,6 +1720,7 @@ Detalhes adicionais:
 <translation id="988159990683914416">Compilação de programador</translation>
 <translation id="989988560359834682">Editar endereço</translation>
 <translation id="992115559265932548"><ph name="MICROSOFT_ACTIVE_DIRECTORY" /></translation>
+<translation id="992256792861109788">Rosa</translation>
 <translation id="992432478773561401">O "<ph name="SOFTWARE_NAME" />" não foi instalado corretamente no computador ou na rede:
     &lt;ul&gt;
     &lt;li&gt;Experimente desinstalar ou desativar o "<ph name="SOFTWARE_NAME" />"&lt;/li&gt;

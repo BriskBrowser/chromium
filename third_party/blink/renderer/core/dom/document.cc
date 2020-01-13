@@ -639,6 +639,10 @@ class Document::SecurityContextInit : public FeaturePolicyParserDelegate {
     // Initialize feature policy, depends on origin trials.
     InitializeFeaturePolicy(initializer, document_classes);
 
+    // Initialize document policy.
+    document_policy_ =
+        DocumentPolicy::CreateWithHeaderPolicy(initializer.GetDocumentPolicy());
+
     // Initialize the agent. Depends on security origin.
     InitializeAgent(initializer);
   }
@@ -654,6 +658,11 @@ class Document::SecurityContextInit : public FeaturePolicyParserDelegate {
   std::unique_ptr<FeaturePolicy> TakeFeaturePolicy() {
     DCHECK(feature_policy_);
     return std::move(feature_policy_);
+  }
+
+  std::unique_ptr<DocumentPolicy> TakeDocumentPolicy() {
+    DCHECK(document_policy_);
+    return std::move(document_policy_);
   }
 
   const Vector<String>& FeaturePolicyParseMessages() const {
@@ -1041,6 +1050,7 @@ class Document::SecurityContextInit : public FeaturePolicyParserDelegate {
   scoped_refptr<SecurityOrigin> security_origin_;
   WebSandboxFlags sandbox_flags_ = WebSandboxFlags::kNone;
   std::unique_ptr<FeaturePolicy> feature_policy_;
+  std::unique_ptr<DocumentPolicy> document_policy_;
   Vector<String> feature_policy_parse_messages_;
   ParsedFeaturePolicy parsed_header_;
   Member<ContentSecurityPolicy> csp_;
@@ -1095,6 +1105,7 @@ Document::Document(const DocumentInit& initializer,
                        security_initializer.GetSecurityOrigin(),
                        security_initializer.GetSandboxFlags(),
                        security_initializer.TakeFeaturePolicy(),
+                       security_initializer.TakeDocumentPolicy(),
                        security_initializer.GetSecureContextMode()),
       evaluate_media_queries_on_style_recalc_(false),
       pending_sheet_layout_(kNoLayoutWithPendingSheets),
@@ -1253,6 +1264,8 @@ Document::Document(const DocumentInit& initializer,
 
   lifecycle_.AdvanceTo(DocumentLifecycle::kInactive);
 
+  UpdateForcedColors();
+
   // Since CSSFontSelector requires Document::fetcher_ and StyleEngine owns
   // CSSFontSelector, need to initialize |style_engine_| after initializing
   // |fetcher_|.
@@ -1404,7 +1417,7 @@ void Document::ChildrenChanged(const ChildrenChange& change) {
   // documents there may never be a <body> (since the parser won't always
   // insert one), so we resume here too. That does mean XHTML documents make
   // frames when there's only a <head>, but such documents are pretty rare.
-  if (document_element_ && !IsHTMLDocument())
+  if (document_element_ && !IsA<HTMLDocument>(this))
     BeginLifecycleUpdatesIfRenderingReady();
 }
 
@@ -1421,7 +1434,7 @@ bool Document::IsInMainFrame() const {
 }
 
 AtomicString Document::ConvertLocalName(const AtomicString& name) {
-  return IsHTMLDocument() ? name.LowerASCII() : name;
+  return IsA<HTMLDocument>(this) ? name.LowerASCII() : name;
 }
 
 // Just creates an element with specified qualified name without any
@@ -1480,7 +1493,7 @@ Element* Document::CreateElementForBinding(const AtomicString& name,
     return nullptr;
   }
 
-  if (IsXHTMLDocument() || IsHTMLDocument()) {
+  if (IsXHTMLDocument() || IsA<HTMLDocument>(this)) {
     // 2. If the context object is an HTML document, let localName be
     // converted to ASCII lowercase.
     AtomicString local_name = ConvertLocalName(name);
@@ -1545,7 +1558,7 @@ Element* Document::CreateElementForBinding(
   // 2. localName converted to ASCII lowercase
   const AtomicString& converted_local_name = ConvertLocalName(local_name);
   QualifiedName q_name(g_null_atom, converted_local_name,
-                       IsXHTMLDocument() || IsHTMLDocument()
+                       IsXHTMLDocument() || IsA<HTMLDocument>(this)
                            ? html_names::xhtmlNamespaceURI
                            : g_null_atom);
 
@@ -1789,7 +1802,7 @@ Comment* Document::createComment(const String& data) {
 
 CDATASection* Document::createCDATASection(const String& data,
                                            ExceptionState& exception_state) {
-  if (IsHTMLDocument()) {
+  if (IsA<HTMLDocument>(this)) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kNotSupportedError,
         "This operation is not supported for HTML documents.");
@@ -1821,7 +1834,7 @@ ProcessingInstruction* Document::createProcessingInstruction(
         "The data provided ('" + data + "') contains '?>'.");
     return nullptr;
   }
-  if (IsHTMLDocument()) {
+  if (IsA<HTMLDocument>(this)) {
     UseCounter::Count(*this,
                       WebFeature::kHTMLDocumentCreateProcessingInstruction);
   }
@@ -2049,7 +2062,7 @@ String Document::SuggestedMIMEType() const {
   }
   if (xmlStandalone())
     return "text/xml";
-  if (IsHTMLDocument())
+  if (IsA<HTMLDocument>(this))
     return "text/html";
 
   if (DocumentLoader* document_loader = Loader())
@@ -2247,7 +2260,7 @@ void Document::RemoveTitle(Element* title_element) {
   title_element_ = nullptr;
 
   // Update title based on first title element in the document, if one exists.
-  if (IsHTMLDocument() || IsXHTMLDocument()) {
+  if (IsA<HTMLDocument>(this) || IsXHTMLDocument()) {
     if (HTMLTitleElement* title =
             Traversal<HTMLTitleElement>::FirstWithin(*this))
       SetTitleElement(title);
@@ -3035,12 +3048,14 @@ void Document::ApplyScrollRestorationLogic() {
   View()->InvokeFragmentAnchor();
 
   auto& frame_loader = GetFrame()->Loader();
-  auto& document_loader = *frame_loader.GetDocumentLoader();
+  auto* document_loader = frame_loader.GetDocumentLoader();
+  if (!document_loader)
+    return;
   if (frame_->IsLoading() &&
-      !FrameLoader::NeedsHistoryItemRestore(document_loader.LoadType()))
+      !FrameLoader::NeedsHistoryItemRestore(document_loader->LoadType()))
     return;
 
-  auto* history_item = frame_loader.GetDocumentLoader()->GetHistoryItem();
+  auto* history_item = document_loader->GetHistoryItem();
 
   if (!history_item || !history_item->GetViewState())
     return;
@@ -3062,18 +3077,14 @@ void Document::ApplyScrollRestorationLogic() {
       scroll_offset;
 
   bool can_restore_without_annoying_user =
-      !document_loader.GetInitialScrollState().was_scrolled_by_user &&
+      !document_loader->GetInitialScrollState().was_scrolled_by_user &&
       (can_restore_without_clamping || !frame_->IsLoading() ||
        !should_restore_scroll);
   if (!can_restore_without_annoying_user)
     return;
 
   frame_loader.RestoreScrollPositionAndViewState();
-  if (View()->GetScrollableArea()->ApplyPendingHistoryRestoreScrollOffset()) {
-    if (ScrollingCoordinator* scrolling_coordinator =
-            View()->GetFrame().GetPage()->GetScrollingCoordinator())
-      scrolling_coordinator->FrameViewRootLayerDidChange(View());
-  }
+  View()->GetScrollableArea()->ApplyPendingHistoryRestoreScrollOffset();
 }
 
 void Document::UpdateStyleAndLayout(ForcedLayoutStatus status) {
@@ -3107,6 +3118,7 @@ void Document::UpdateStyleAndLayout(ForcedLayoutStatus status) {
 
   if (LocalFrameView* frame_view_anchored = View())
     frame_view_anchored->PerformScrollAnchoringAdjustments();
+  PerformScrollSnappingTasks();
 
   if (status == IsForcedLayout && frame_view)
     frame_view->DidFinishForcedLayout();
@@ -3260,7 +3272,7 @@ void Document::SetIsImmersiveArOverlay(bool val) {
     return;
 
   if (val != is_immersive_ar_overlay_) {
-    DCHECK(RuntimeEnabledFeatures::WebXRARDOMOverlayEnabled(this));
+    DCHECK(RuntimeEnabledFeatures::WebXRIncubationsEnabled(this));
     is_immersive_ar_overlay_ = val;
 
     // If the property has changed, apply the pseudo-style change to the root
@@ -3620,8 +3632,8 @@ CanvasFontCache* Document::GetCanvasFontCache() {
 }
 
 DocumentParser* Document::CreateParser() {
-  if (IsHTMLDocument()) {
-    return MakeGarbageCollected<HTMLDocumentParser>(ToHTMLDocument(*this),
+  if (auto* html_document = DynamicTo<HTMLDocument>(this)) {
+    return MakeGarbageCollected<HTMLDocumentParser>(*html_document,
                                                     parser_sync_policy_);
   }
   // FIXME: this should probably pass the frame instead
@@ -3629,7 +3641,7 @@ DocumentParser* Document::CreateParser() {
 }
 
 bool Document::IsFrameSet() const {
-  if (!IsHTMLDocument())
+  if (!IsA<HTMLDocument>(this))
     return false;
   return IsA<HTMLFrameSetElement>(body());
 }
@@ -3682,7 +3694,7 @@ void Document::open(Document* entered_document,
 
   // If |document| is an XML document, then throw an "InvalidStateError"
   // DOMException exception.
-  if (!IsHTMLDocument()) {
+  if (!IsA<HTMLDocument>(this)) {
     exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
                                       "Only HTML documents support open().");
     return;
@@ -4014,7 +4026,7 @@ void Document::close(ExceptionState& exception_state) {
 
   // If the Document object is an XML document, then throw an
   // "InvalidStateError" DOMException.
-  if (!IsHTMLDocument()) {
+  if (!IsA<HTMLDocument>(this)) {
     exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
                                       "Only HTML documents support close().");
     return;
@@ -4177,17 +4189,6 @@ bool Document::CheckCompletedInternal() {
       return false;
   }
 
-  if (frame_ && frame_->Client()->GetRemoteNavigationAssociatedInterfaces()) {
-    ukm_binding_ = std::make_unique<
-        mojo::AssociatedRemote<mojom::blink::UkmSourceIdFrameHost>>();
-    frame_->Client()->GetRemoteNavigationAssociatedInterfaces()->GetInterface(
-        ukm_binding_.get());
-    DCHECK(ukm_binding_->is_bound());
-    auto callback =
-        WTF::Bind(&Document::SetNavigationSourceId, WrapPersistent(this));
-    (*ukm_binding_.get())->GetNavigationSourceId(std::move(callback));
-  }
-
   // OK, completed. Fire load completion events as needed.
   SetReadyState(kComplete);
   if (LoadEventStillNeeded())
@@ -4214,8 +4215,11 @@ bool Document::CheckCompletedInternal() {
 
     // Send the source ID of the document to the browser.
     if (frame_->Client()->GetRemoteNavigationAssociatedInterfaces()) {
-      DCHECK(ukm_binding_->is_bound());
-      (*ukm_binding_.get())->SetDocumentSourceId(ukm_source_id_);
+      mojo::AssociatedRemote<mojom::blink::UkmSourceIdFrameHost> ukm_binding;
+      frame_->Client()->GetRemoteNavigationAssociatedInterfaces()->GetInterface(
+          &ukm_binding);
+      DCHECK(ukm_binding.is_bound());
+      ukm_binding->SetDocumentSourceId(ukm_source_id_);
     }
 
     frame_->GetFrameScheduler()->RegisterStickyFeature(
@@ -4499,7 +4503,7 @@ void Document::write(const String& text,
     return;
   }
 
-  if (!IsHTMLDocument()) {
+  if (!IsA<HTMLDocument>(this)) {
     exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
                                       "Only HTML documents support write().");
     return;
@@ -4878,11 +4882,11 @@ void Document::DidLoadAllScriptBlockingResources() {
       WTF::Bind(&Document::ExecuteScriptsWaitingForResources,
                 WrapWeakPersistent(this)));
 
-  if (IsHTMLDocument() && body()) {
+  if (IsA<HTMLDocument>(this) && body()) {
     // For HTML if we have no more stylesheets to load and we're past the body
     // tag, we should have something to paint so resume.
     BeginLifecycleUpdatesIfRenderingReady();
-  } else if (!IsHTMLDocument() && documentElement()) {
+  } else if (!IsA<HTMLDocument>(this) && documentElement()) {
     // For non-HTML there is no body so resume as soon as the sheets are loaded.
     BeginLifecycleUpdatesIfRenderingReady();
   }
@@ -5805,13 +5809,15 @@ void Document::EnqueueMediaQueryChangeListeners(
 }
 
 void Document::EnqueueVisualViewportScrollEvent() {
-  VisualViewportScrollEvent* event = VisualViewportScrollEvent::Create();
+  VisualViewportScrollEvent* event =
+      MakeGarbageCollected<VisualViewportScrollEvent>();
   event->SetTarget(domWindow()->visualViewport());
   scripted_animation_controller_->EnqueuePerFrameEvent(event);
 }
 
 void Document::EnqueueVisualViewportResizeEvent() {
-  VisualViewportResizeEvent* event = VisualViewportResizeEvent::Create();
+  VisualViewportResizeEvent* event =
+      MakeGarbageCollected<VisualViewportResizeEvent>();
   event->SetTarget(domWindow()->visualViewport());
   scripted_animation_controller_->EnqueuePerFrameEvent(event);
 }
@@ -6172,7 +6178,7 @@ scoped_refptr<const SecurityOrigin> Document::TopFrameOrigin() const {
   return GetFrame()->Tree().Top().GetSecurityContext()->GetSecurityOrigin();
 }
 
-const KURL Document::SiteForCookies() const {
+net::SiteForCookies Document::SiteForCookies() const {
   // TODO(mkwst): This doesn't properly handle HTML Import documents.
 
   // If this is an imported document, grab its master document's first-party:
@@ -6180,44 +6186,34 @@ const KURL Document::SiteForCookies() const {
     return ImportsController()->Master()->SiteForCookies();
 
   if (!GetFrame())
-    return NullURL();
+    return net::SiteForCookies();
 
   Frame& top = GetFrame()->Tree().Top();
   const SecurityOrigin* origin = top.GetSecurityContext()->GetSecurityOrigin();
   // TODO(yhirano): Ideally |origin| should not be null here.
   if (!origin)
-    return NullURL();
+    return net::SiteForCookies();
+
+  net::SiteForCookies candidate =
+      net::SiteForCookies::FromOrigin(origin->ToUrlOrigin());
 
   if (SchemeRegistry::ShouldTreatURLSchemeAsFirstPartyWhenTopLevel(
           origin->Protocol())) {
-    return origin->IsOpaque() ? NullURL() : KURL(origin->ToRawString());
+    return candidate;
   }
-
-  OriginAccessEntry access_entry(
-      *origin, network::mojom::CorsDomainMatchMode::kAllowRegistrableDomains);
 
   const Frame* current_frame = GetFrame();
   while (current_frame) {
     const SecurityOrigin* cur_security_origin =
         current_frame->GetSecurityContext()->GetSecurityOrigin();
-    // We use 'matchesDomain' here, as it turns out that some folks embed HTTPS
-    // login forms into HTTP pages; we should allow this kind of upgrade.
-    //
-    // The second clause bypasses strange permissiveness of OriginAccessEntry on
-    // empty domain names. See the beginning of OriginAccessEntry::MatchesDomain
-    // in services/network/public/cpp/cors/origin_access_entry.cc
-    if (access_entry.MatchesDomain(*cur_security_origin) ==
-            network::cors::OriginAccessEntry::kDoesNotMatchOrigin ||
-        (origin->Domain().IsEmpty() != cur_security_origin->Host().IsEmpty())) {
-      return NullURL();
+    if (!candidate.IsEquivalent(net::SiteForCookies::FromOrigin(
+            cur_security_origin->ToUrlOrigin()))) {
+      return net::SiteForCookies();
     }
-
     current_frame = current_frame->Tree().Parent();
   }
 
-  // Note: don't want origin->ToString() here since that may mess up file:///,
-  // depending on AllowFileAccessFromFileURLs setting.
-  return origin->IsOpaque() ? NullURL() : KURL(origin->ToRawString());
+  return candidate;
 }
 
 ScriptPromise Document::hasStorageAccess(ScriptState* script_state) const {
@@ -7535,11 +7531,11 @@ Node* EventTargetNodeForDocument(Document* doc) {
   if (!doc)
     return nullptr;
   Node* node = doc->FocusedElement();
-  if (!node && doc->IsPluginDocument()) {
-    PluginDocument* plugin_document = ToPluginDocument(doc);
+  auto* plugin_document = DynamicTo<PluginDocument>(doc);
+  if (plugin_document && !node) {
     node = plugin_document->PluginNode();
   }
-  if (!node && doc->IsHTMLDocument())
+  if (!node && IsA<HTMLDocument>(doc))
     node = doc->body();
   if (!node)
     node = doc->documentElement();
@@ -7579,6 +7575,13 @@ SnapCoordinator& Document::GetSnapCoordinator() {
     snap_coordinator_ = MakeGarbageCollected<SnapCoordinator>();
 
   return *snap_coordinator_;
+}
+
+void Document::PerformScrollSnappingTasks() {
+  SnapCoordinator& snap_coordinator = GetSnapCoordinator();
+  snap_coordinator.UpdateAllSnapContainerDataIfNeeded();
+  if (RuntimeEnabledFeatures::ScrollSnapAfterLayoutEnabled())
+    snap_coordinator.ResnapAllContainersIfNeeded();
 }
 
 void Document::SetContextFeatures(ContextFeatures& features) {
@@ -7751,7 +7754,7 @@ Document& Document::EnsureTemplateDocument() {
   if (template_document_)
     return *template_document_;
 
-  if (IsHTMLDocument()) {
+  if (IsA<HTMLDocument>(this)) {
     template_document_ = MakeGarbageCollected<HTMLDocument>(
         DocumentInit::Create()
             .WithContextDocument(ContextDocument())
@@ -8351,9 +8354,8 @@ void Document::NavigateLocalAdsFrames() {
        child = child->Tree().TraverseNext(frame_)) {
     if (auto* child_local_frame = DynamicTo<LocalFrame>(child)) {
       if (child_local_frame->IsAdSubframe()) {
-        child_local_frame->Navigate(
-            FrameLoadRequest(this, ResourceRequest(BlankURL())),
-            WebFrameLoadType::kStandard);
+        FrameLoadRequest request(this, ResourceRequest(BlankURL()));
+        child_local_frame->Navigate(request, WebFrameLoadType::kStandard);
       }
     }
     // TODO(yuzus): Once AdsTracker for remote frames is implemented and OOPIF
@@ -8544,12 +8546,24 @@ IntersectionObserver& Document::EnsureDisplayLockActivationObserver() {
 void Document::ProcessDisplayLockActivationObservation(
     const HeapVector<Member<IntersectionObserverEntry>>& entries) {
   for (auto& entry : entries) {
+    auto* context = entry->target()->GetDisplayLockContext();
+    DCHECK(context);
     if (entry->isIntersecting()) {
-      auto* context = entry->target()->GetDisplayLockContext();
-      DCHECK(context);
+      if (!context->IsLocked())
+        continue;
       DCHECK(context->ShouldCommitForActivation(
           DisplayLockActivationReason::kViewportIntersection));
       context->CommitForActivationWithSignal(entry->target());
+    } else if (!DisplayLockContext::IsAttributeVersion(context)) {
+      // In a CSS version, if we're not visible, but are observing viewport
+      // intersections, it means that we're either locked (in which case we
+      // should remain locked), or we've been activated (in which case we should
+      // relock).
+      DCHECK(context->IsLocked() || context->IsActivated());
+      if (context->IsLocked())
+        continue;
+      context->ClearActivated();
+      context->StartAcquire();
     }
   }
 }
@@ -8658,15 +8672,24 @@ bool Document::RequireTrustedTypes() const {
 }
 
 void Document::ColorSchemeChanged() {
+  UpdateForcedColors();
   GetStyleEngine().ColorSchemeChanged();
   MediaQueryAffectingValueChanged();
 }
 
+void Document::UpdateForcedColors() {
+  auto* web_theme_engine =
+      RuntimeEnabledFeatures::ForcedColorsEnabled() && Platform::Current()
+          ? Platform::Current()->ThemeEngine()
+          : nullptr;
+  ForcedColors forced_colors = web_theme_engine
+                                   ? web_theme_engine->GetForcedColors()
+                                   : ForcedColors::kNone;
+  in_forced_colors_mode_ = forced_colors != ForcedColors::kNone;
+}
+
 bool Document::InForcedColorsMode() const {
-  return RuntimeEnabledFeatures::ForcedColorsEnabled() && Platform::Current() &&
-         Platform::Current()->ThemeEngine() &&
-         Platform::Current()->ThemeEngine()->GetForcedColors() !=
-             ForcedColors::kNone;
+  return in_forced_colors_mode_ && !Printing();
 }
 
 bool Document::IsCrossSiteSubframe() const {
@@ -8691,104 +8714,6 @@ void Document::CountUse(mojom::WebFeature feature) {
   if (DocumentLoader* loader = Loader()) {
     loader->CountUse(feature);
   }
-}
-
-void Document::RecordCallInDetachedWindow(
-    v8::Isolate::UseCounterFeature reason) {
-  // Emit each reason only once (max twice, in the case explained below).
-  // We're mainly interested if this kind of call occurred in a page or not.
-  // It would be nice to count how many times, but that would flood the UKM
-  // infrastructure with too many events.
-  if (calls_in_detached_window_emitted_.Contains(reason))
-    return;
-
-  if (navigation_source_id_ == ukm::kInvalidSourceId) {
-    // It's possible that navigation_source_id_ isn't set yet. Emit the event
-    // with invalid ID (at most once) so that we could potentially make use of
-    // it in combination with DocumentCreated event, using document's source ID.
-    // However, save it to give it a chance to be emitted again with valid
-    // navigation_source_id_.
-    if (calls_in_detached_window_orphaned_.Contains(reason))
-      return;
-    calls_in_detached_window_orphaned_.insert(reason);
-  }
-
-  HashSet<v8::Isolate::UseCounterFeature> reasons;
-  reasons.insert(reason);
-  EmitDetachedWindowsUkmEvent(reasons);
-}
-
-void Document::SetNavigationSourceId(int64_t source_id) {
-  navigation_source_id_ = source_id;
-  if (navigation_source_id_ != ukm::kInvalidSourceId) {
-    // Now that a valid navigation_source_id_ is set, re-emit the DetacheWindows
-    // event for cases that were emitted with invalid ID.
-    EmitDetachedWindowsUkmEvent(calls_in_detached_window_orphaned_);
-    calls_in_detached_window_orphaned_.clear();
-  }
-}
-
-void Document::EmitDetachedWindowsUkmEvent(
-    const HashSet<v8::Isolate::UseCounterFeature>& reasons) {
-  if (reasons.IsEmpty())
-    return;
-
-  DCHECK_NE(ukm_source_id_, ukm::kInvalidSourceId);
-  ukm::builders::DetachedWindows_Experimental builder(ukm_source_id_);
-  // Invalid ID should be 0 to take advantage of the protobuf default.
-  DCHECK_EQ(ukm::kInvalidSourceId, 0);
-  if (navigation_source_id_ != ukm::kInvalidSourceId)
-    builder.SetNavigationSourceId(navigation_source_id_);
-  for (auto reason : reasons) {
-    if (navigation_source_id_ != ukm::kInvalidSourceId)
-      calls_in_detached_window_emitted_.insert(reason);
-
-    switch (reason) {
-      case v8::Isolate::kCallInDetachedWindowByNavigation:
-        builder.SetNumberOfCallsInDetachedWindowByNavigation(1);
-        break;
-      case v8::Isolate::kCallInDetachedWindowByNavigationAfter10s:
-        builder
-            .SetNumberOfCallsInDetachedWindowByNavigation_After10sSinceDetaching(
-                1);
-        break;
-      case v8::Isolate::kCallInDetachedWindowByNavigationAfter1min:
-        builder
-            .SetNumberOfCallsInDetachedWindowByNavigation_After1minSinceDetaching(
-                1);
-        break;
-      case v8::Isolate::kCallInDetachedWindowByClosing:
-        builder.SetNumberOfCallsInDetachedWindowByClosing(1);
-        break;
-      case v8::Isolate::kCallInDetachedWindowByClosingAfter10s:
-        builder
-            .SetNumberOfCallsInDetachedWindowByClosing_After10sSinceDetaching(
-                1);
-        break;
-      case v8::Isolate::kCallInDetachedWindowByClosingAfter1min:
-        builder
-            .SetNumberOfCallsInDetachedWindowByClosing_After1minSinceDetaching(
-                1);
-        break;
-      case v8::Isolate::kCallInDetachedWindowByOtherReason:
-        builder.SetNumberOfCallsInDetachedWindowByOtherReason(1);
-        break;
-      case v8::Isolate::kCallInDetachedWindowByOtherReasonAfter10s:
-        builder
-            .SetNumberOfCallsInDetachedWindowByOtherReason_After10sSinceDetaching(
-                1);
-        break;
-      case v8::Isolate::kCallInDetachedWindowByOtherReasonAfter1min:
-        builder
-            .SetNumberOfCallsInDetachedWindowByOtherReason_After1minSinceDetaching(
-                1);
-        break;
-      default:
-        LOG(DFATAL) << "Use counter not related to detached windows: "
-                    << reason;
-    }
-  }
-  builder.Record(UkmRecorder());
 }
 
 void Document::CountDeprecation(mojom::WebFeature feature) {

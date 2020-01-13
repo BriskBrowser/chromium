@@ -24,6 +24,15 @@
     width: calc(var(--content-width) + 12px);
   }
 
+  #addShortCutIcon {
+    -webkit-mask-image: url(chrome://resources/images/add.svg);
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-size: 100%;
+    background-color: var(--tile-title-color);
+    height: 24px;
+    width: 24px;
+  }
+
   .tile,
   #addShortcut {
     -webkit-tap-highlight-color: transparent;
@@ -69,7 +78,6 @@
 
   .tile-title {
     color: var(--tile-title-color);
-    direction: ltr;
     font-weight: 500;
     margin-top:  16px;
     overflow: hidden;
@@ -77,6 +85,14 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     width: 88px;
+  }
+
+  .title-rtl {
+    direction: rtl;
+  }
+
+  .title-ltr {
+    direction: ltr;
   }
 
   .tile.dragging {
@@ -108,7 +124,8 @@
   }
 
   :host(:not([reordering_])) cr-icon-button:active,
-  :host(:not([reordering_])) cr-icon-button:focus,
+  :host-context(.focus-outline-visible):host(:not([reordering_]))
+      cr-icon-button:focus,
   :host(:not([reordering_])) cr-icon-button:hover {
     --cr-icon-button-fill-color: var(--icon-button-color-active);
     opacity: 1;
@@ -138,22 +155,25 @@
         <div class="tile-icon">
           <img src$="[[getFaviconUrl_(item.url)]]" draggable="false"></img>
         </div>
-        <div class="tile-title">[[item.title]]</div>
+        <div class$="tile-title [[getTileTitleDirectionClass_(item)]]">
+          [[item.title]]
+        </div>
       </a>
     </template>
   </dom-repeat>
   <a id="addShortcut" tabindex="0" on-click="onAdd_" hidden$="[[!showAdd_]]"
       title="$i18n{addLinkTitle}" on-keydown="onAddShortcutKeyDown_">
     <div class="tile-icon">
-      <img src="chrome://resources/images/add.svg" draggable="false"></img>
+      <div id="addShortCutIcon" draggable="false"></div>
     </div>
     <div class="tile-title">$i18n{addLinkTitle}</div>
   </a>
   <cr-dialog id="dialog" on-close="onDialogClose_">
     <div slot="title">[[dialogTitle_]]</div>
     <div slot="body">
-      <cr-input id="dialogInputName" label="$i18n{nameField}"
-          value="{{dialogTileTitle_}}" autofocus spellcheck="false"></cr-input>
+      <cr-input id="dialogInputName" class$="[[dialogTileTitleDirectionClass_]]"
+          label="$i18n{nameField}" value="{{dialogTileTitle_}}"
+          spellcheck="false" autofocus></cr-input>
       <cr-input id="dialogInputUrl" label="$i18n{urlField}"
           value="{{dialogTileUrl_}}" invalid="[[dialogTileUrlInvalid_]]"
           error-message="$i18n{invalidUrl}" spellcheck="false" type="url">

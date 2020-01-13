@@ -4,8 +4,8 @@
 
 from __future__ import print_function
 
-import os
 import collections
+import os
 
 from core import path_util
 from core import perf_benchmark
@@ -14,6 +14,7 @@ from page_sets import webgl_supported_shared_state
 
 from telemetry import benchmark
 from telemetry import page as page_module
+from telemetry.core import memory_cache_http_server
 from telemetry.page import legacy_page_test
 from telemetry.page import shared_page_state
 from telemetry import story
@@ -393,6 +394,40 @@ class BlinkPerfBindings(_BlinkPerfBenchmark):
     return 'blink_perf.bindings'
 
 
+class ServiceWorkerRequestHandler(
+    memory_cache_http_server.MemoryCacheDynamicHTTPRequestHandler):
+  """This handler returns dynamic responses for service worker perf tests.
+  """
+  _SIZE_10K = 10240
+  _SIZE_1M = 1048576
+
+  def ResponseFromHandler(self, path):
+    if path.endswith('/service_worker/resources/data/10K.txt'):
+      return self.MakeResponse('c' * self._SIZE_10K, 'text/plain', False)
+    elif path.endswith('/service_worker/resources/data/1M.txt'):
+      return self.MakeResponse('c' * self._SIZE_1M, 'text/plain', False)
+    return None
+
+
+@benchmark.Info(
+    component='Blink>ServiceWorker',
+    emails=[
+        'shimazu@chromium.org', 'falken@chromium.org', 'ting.shao@intel.com'
+    ],
+    documentation_url='https://bit.ly/blink-perf-benchmarks')
+class BlinkPerfServiceWorker(_BlinkPerfBenchmark):
+  SUBDIR = 'service_worker'
+
+  @classmethod
+  def Name(cls):
+    return 'UNSCHEDULED_blink_perf.service_worker'
+
+  def CreateStorySet(self, options):
+    story_set = super(BlinkPerfServiceWorker, self).CreateStorySet(options)
+    story_set.SetRequestHandlerClass(ServiceWorkerRequestHandler)
+    return story_set
+
+
 @benchmark.Info(emails=['futhark@chromium.org', 'andruud@chromium.org'],
                 documentation_url='https://bit.ly/blink-perf-benchmarks',
                 component='Blink>CSS')
@@ -475,9 +510,10 @@ class BlinkPerfImageDecoder(_BlinkPerfBenchmark):
     ])
 
 
-@benchmark.Info(emails=['eae@chromium.org'],
-                component='Blink>Layout',
-                documentation_url='https://bit.ly/blink-perf-benchmarks')
+@benchmark.Info(
+    emails=['ikilpatrick@chromium.org', 'kojii@chromium.org'],
+    component='Blink>Layout',
+    documentation_url='https://bit.ly/blink-perf-benchmarks')
 class BlinkPerfLayout(_BlinkPerfBenchmark):
   SUBDIR = 'layout'
   TAGS = _BlinkPerfBenchmark.TAGS + ['all']

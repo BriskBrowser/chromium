@@ -59,6 +59,7 @@
 #include "third_party/blink/renderer/core/html/html_html_element.h"
 #include "third_party/blink/renderer/core/html/html_table_cell_element.h"
 #include "third_party/blink/renderer/core/html/html_table_element.h"
+#include "third_party/blink/renderer/core/html/image_document.h"
 #include "third_party/blink/renderer/core/input/event_handler.h"
 #include "third_party/blink/renderer/core/layout/geometry/transform_state.h"
 #include "third_party/blink/renderer/core/layout/hit_test_result.h"
@@ -237,11 +238,10 @@ LayoutObject* LayoutObject::CreateObject(Element* element,
     case EDisplay::kBlock:
     case EDisplay::kFlowRoot:
     case EDisplay::kInlineBlock:
+    case EDisplay::kListItem:
     case EDisplay::kMath:
     case EDisplay::kInlineMath:
       return LayoutObjectFactory::CreateBlockFlow(*element, style, legacy);
-    case EDisplay::kListItem:
-      return LayoutObjectFactory::CreateListItem(*element, style, legacy);
     case EDisplay::kTable:
     case EDisplay::kInlineTable:
       return new LayoutTable(element);
@@ -1131,9 +1131,11 @@ static inline bool NGKeepInvalidatingBeyond(LayoutObject* o) {
   // next block container.
   // Atomic inlines do not have this problem as they are treated like blocks
   // in this context.
+  // There's a similar issue for flow thread objects, as they are invisible to
+  // LayoutNG.
   if (!RuntimeEnabledFeatures::LayoutNGEnabled())
     return false;
-  if (o->IsLayoutInline() || o->IsText())
+  if (o->IsLayoutInline() || o->IsText() || o->IsLayoutFlowThread())
     return true;
   return false;
 }
@@ -2060,14 +2062,9 @@ void LayoutObject::SetStyle(scoped_refptr<const ComputedStyle> style,
       container->SetNeedsOverflowRecalc();
   }
 
-  if (diff.NeedsRecomputeOverflow() && !NeedsLayout()) {
-    // TODO(rhogan): Make inlines capable of recomputing overflow too.
-    if (IsLayoutBlock()) {
-      SetNeedsOverflowRecalc();
-    } else {
-      SetNeedsLayoutAndPrefWidthsRecalc(
-          layout_invalidation_reason::kStyleChange);
-    }
+  if (diff.NeedsRecomputeVisualOverflow()) {
+    PaintingLayer()->SetNeedsVisualOverflowRecalc();
+    SetShouldCheckForPaintInvalidation();
   }
 
   if (diff.NeedsPaintInvalidationSubtree() ||

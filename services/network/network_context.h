@@ -99,6 +99,7 @@ class P2PSocketManager;
 class ProxyLookupRequest;
 class ResourceScheduler;
 class ResourceSchedulerClient;
+class QuicTransport;
 class WebSocketFactory;
 
 namespace cors {
@@ -190,7 +191,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
       mojo::PendingReceiver<mojom::RestrictedCookieManager> receiver,
       mojom::RestrictedCookieManagerRole role,
       const url::Origin& origin,
-      const GURL& site_for_cookies,
+      const net::SiteForCookies& site_for_cookies,
       const url::Origin& top_frame_origin,
       bool is_service_worker,
       int32_t process_id,
@@ -286,7 +287,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
   void CreateWebSocket(
       const GURL& url,
       const std::vector<std::string>& requested_protocols,
-      const GURL& site_for_cookies,
+      const net::SiteForCookies& site_for_cookies,
       const net::NetworkIsolationKey& network_isolation_key,
       std::vector<mojom::HttpHeaderPtr> additional_headers,
       int32_t process_id,
@@ -404,6 +405,9 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
   // no open pipes.
   void DestroyURLLoaderFactory(cors::CorsURLLoaderFactory* url_loader_factory);
 
+  // Removes |transport| and destroys it.
+  void Remove(QuicTransport* transport);
+
   // The following methods are used to track the number of requests per process
   // and ensure it doesn't go over a reasonable limit.
   void LoaderCreated(uint32_t process_id);
@@ -462,6 +466,8 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
           http_auth_dynamic_network_service_params);
 
   const net::HttpAuthPreferences* GetHttpAuthPreferences() const;
+
+  size_t NumOpenQuicTransports() const;
 
  private:
   URLRequestContextOwner MakeURLRequestContext(
@@ -565,6 +571,9 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
   std::set<std::unique_ptr<cors::CorsURLLoaderFactory>,
            base::UniquePtrComparator>
       url_loader_factories_;
+
+  std::set<std::unique_ptr<QuicTransport>, base::UniquePtrComparator>
+      quic_transports_;
 
   // A count of outstanding requests per initiating process.
   std::map<uint32_t, uint32_t> loader_count_per_process_;

@@ -776,9 +776,7 @@ void FragmentPaintPropertyTreeBuilder::UpdateTransform() {
           style.IsRunningTransformAnimationOnCompositor();
       auto effective_change_type = properties_->UpdateTransform(
           *context_.current.transform, std::move(state), animation_state);
-      // TODO(crbug.com/953322): We need to fix this to work with CAP as well.
-      if (!RuntimeEnabledFeatures::CompositeAfterPaintEnabled() &&
-          effective_change_type ==
+      if (effective_change_type ==
               PaintPropertyChangeType::kChangedOnlySimpleValues &&
           properties_->Transform()->HasDirectCompositingReasons()) {
         if (auto* paint_artifact_compositor =
@@ -1077,9 +1075,7 @@ void FragmentPaintPropertyTreeBuilder::UpdateEffect() {
       // If we have simple value change, which means opacity, we should try to
       // directly update it on the PaintArtifactCompositor in order to avoid
       // doing a full rebuild.
-      // TODO(crbug.com/953322): We need to fix this to work with CAP as well.
-      if (!RuntimeEnabledFeatures::CompositeAfterPaintEnabled() &&
-          effective_change_type ==
+      if (effective_change_type ==
               PaintPropertyChangeType::kChangedOnlySimpleValues &&
           properties_->Effect()->HasDirectCompositingReasons()) {
         if (auto* paint_artifact_compositor =
@@ -1685,14 +1681,6 @@ void FragmentPaintPropertyTreeBuilder::UpdatePerspective() {
   }
 }
 
-static bool ImageWasTransposed(const LayoutImage& layout_image,
-                               const Image& image) {
-  return LayoutObject::ShouldRespectImageOrientation(&layout_image) ==
-             kRespectImageOrientation &&
-         image.IsBitmapImage() &&
-         ToBitmapImage(image).CurrentFrameOrientation().UsesWidthAsHeight();
-}
-
 static AffineTransform RectToRect(const FloatRect& src_rect,
                                   const FloatRect& dst_rect) {
   float x_scale = dst_rect.Width() / src_rect.Width();
@@ -1721,9 +1709,9 @@ void FragmentPaintPropertyTreeBuilder::UpdateReplacedContentTransform() {
       scoped_refptr<Image> image =
           layout_image.ImageResource()->GetImage(replaced_rect.Size());
       if (image && !image->IsNull()) {
-        IntRect src_rect = image->Rect();
-        if (ImageWasTransposed(layout_image, *image))
-          src_rect = src_rect.TransposedRect();
+        IntRect src_rect(
+            IntPoint(), image->Size(LayoutObject::ShouldRespectImageOrientation(
+                            &layout_image)));
         content_to_parent_space =
             RectToRect(FloatRect(src_rect), FloatRect(replaced_rect));
       }

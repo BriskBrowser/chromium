@@ -36,6 +36,7 @@
 #include "third_party/blink/renderer/core/fileapi/blob.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer_view.h"
+#include "third_party/blink/renderer/modules/peerconnection/rtc_error_event.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_peer_connection_handler_platform.h"
@@ -233,7 +234,7 @@ RTCDataChannel::RTCDataChannel(
   // thread. Done in a single synchronous call to the signaling thread to ensure
   // channel state consistency.
   peer_connection_handler->RunSynchronousOnceClosureOnSignalingThread(
-      ConvertToBaseOnceCallback(CrossThreadBindOnce(
+      CrossThreadBindOnce(
           [](scoped_refptr<RTCDataChannel::Observer> observer,
              webrtc::DataChannelInterface::DataState current_state) {
             scoped_refptr<webrtc::DataChannelInterface> channel =
@@ -243,7 +244,7 @@ RTCDataChannel::RTCDataChannel(
               observer->OnStateChange();
             }
           },
-          observer_, state_)),
+          observer_, state_),
       "RegisterObserverAndGetStateUpdate");
 
   IncrementCounters(*channel.get());
@@ -509,6 +510,10 @@ void RTCDataChannel::OnStateChange(
       ScheduleDispatchEvent(Event::Create(event_type_names::kOpen));
       break;
     case webrtc::DataChannelInterface::kClosed:
+      if (!channel()->error().ok()) {
+        ScheduleDispatchEvent(MakeGarbageCollected<RTCErrorEvent>(
+            event_type_names::kError, channel()->error()));
+      }
       ScheduleDispatchEvent(Event::Create(event_type_names::kClose));
       break;
     default:

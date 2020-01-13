@@ -294,7 +294,7 @@ webrtc::RtpEncodingParameters ToRtpEncodingParameters(
 }
 
 RTCRtpHeaderExtensionParameters* ToRtpHeaderExtensionParameters(
-    const webrtc::RtpHeaderExtensionParameters& webrtc_header) {
+    const webrtc::RtpExtension& webrtc_header) {
   RTCRtpHeaderExtensionParameters* header =
       RTCRtpHeaderExtensionParameters::Create();
   header->setUri(webrtc_header.uri.c_str());
@@ -394,7 +394,7 @@ RTCRtpSendParameters* RTCRtpSender::getParameters() {
     // TODO(orphis): Forward missing fields from the WebRTC library:
     // codecPayloadType, dtx, ptime, maxFramerate, scaleResolutionDownBy.
     RTCRtpEncodingParameters* encoding = RTCRtpEncodingParameters::Create();
-    encoding->setRid(WebString::FromUTF8(webrtc_encoding.rid));
+    encoding->setRid(String::FromUTF8(webrtc_encoding.rid));
     encoding->setActive(webrtc_encoding.active);
     if (webrtc_encoding.max_bitrate_bps) {
       encoding->setMaxBitrate(webrtc_encoding.max_bitrate_bps.value());
@@ -580,7 +580,7 @@ RTCRtpCapabilities* RTCRtpSender::getCapabilities(const String& kind) {
 
   std::unique_ptr<webrtc::RtpCapabilities> rtc_capabilities =
       PeerConnectionDependencyFactory::GetInstance()->GetSenderCapabilities(
-          kind.Utf8());
+          kind);
 
   HeapVector<Member<RTCRtpCodecCapability>> codecs;
   codecs.ReserveInitialCapacity(

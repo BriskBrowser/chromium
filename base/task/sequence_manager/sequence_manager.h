@@ -144,8 +144,7 @@ class BASE_EXPORT SequenceManager {
 
   // Returns the task runner the current task was posted on. Returns null if no
   // task is currently running. Must be called on the bound thread.
-  virtual const scoped_refptr<SequencedTaskRunner>&
-  GetTaskRunnerForCurrentTask() = 0;
+  virtual scoped_refptr<SequencedTaskRunner> GetTaskRunnerForCurrentTask() = 0;
 
   // Finishes the initialization for a SequenceManager created via
   // CreateUnboundSequenceManager(). Must not be called in any other
@@ -332,12 +331,6 @@ CreateSequenceManagerOnCurrentThreadWithPump(
 // initialized on the current thread and then needs to be bound and initialized
 // on the target thread by calling one of the Bind*() methods.
 BASE_EXPORT std::unique_ptr<SequenceManager> CreateUnboundSequenceManager(
-    SequenceManager::Settings settings = SequenceManager::Settings());
-
-// Create a SequenceManager that runs on top of |task_runner|.
-// TODO(alexclarke): Change |task_runner| to a SequencedTaskRunner.
-BASE_EXPORT std::unique_ptr<SequenceManager> CreateFunneledSequenceManager(
-    scoped_refptr<SingleThreadTaskRunner> task_runner,
     SequenceManager::Settings settings = SequenceManager::Settings());
 
 }  // namespace sequence_manager

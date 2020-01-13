@@ -10,11 +10,21 @@
 #include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
+#include "base/optional.h"
+#include "base/unguessable_token.h"
+#include "build/build_config.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/paint_preview/browser/file_manager.h"
+#include "components/paint_preview/browser/paint_preview_policy.h"
 #include "components/paint_preview/common/mojom/paint_preview_recorder.mojom.h"
 #include "components/paint_preview/common/proto/paint_preview.pb.h"
+#include "components/paint_preview/public/paint_preview_compositor_service.h"
 #include "content/public/browser/web_contents.h"
+#if defined(OS_ANDROID)
+#include "base/android/jni_android.h"
+#include "base/android/scoped_java_ref.h"
+#endif  // defined(OS_ANDROID)
 
 namespace paint_preview {
 
@@ -33,6 +43,7 @@ class PaintPreviewBaseService : public KeyedService {
  public:
   enum CaptureStatus {
     kOk = 0,
+    kContentUnsupported,
     kClientCreationFailed,
     kCaptureFailed,
   };
@@ -44,9 +55,12 @@ class PaintPreviewBaseService : public KeyedService {
   // Creates a service instance for a feature. Artifacts produced will live in
   // |profile_dir|/paint_preview/|ascii_feature_name|. Implementers of the
   // factory can also elect their factory to not construct services in the event
-  // a profile |is_off_the_record|.
+  // a profile |is_off_the_record|. The |policy| object is responsible for
+  // determining whether or not a given WebContents is amenable to paint
+  // preview. If nullptr is passed as |policy| all content is deemed amenable.
   PaintPreviewBaseService(const base::FilePath& profile_dir,
                           const std::string& ascii_feature_name,
+                          std::unique_ptr<PaintPreviewPolicy> policy,
                           bool is_off_the_record);
   ~PaintPreviewBaseService() override;
 
@@ -55,6 +69,12 @@ class PaintPreviewBaseService : public KeyedService {
 
   // Returns whether the created service is off the record.
   bool IsOffTheRecord() const { return is_off_the_record_; }
+
+  // Returns the PaintPreviewProto that is associated with |url|. Implementers
+  // of this class should override this function as it returns base::nullopt by
+  // default.
+  virtual base::Optional<PaintPreviewProto> GetCapturedPaintPreviewProto(
+      const GURL& url);
 
   // The following methods both capture a Paint Preview; however, their behavior
   // and intended use is different. The first method is intended for capturing
@@ -69,7 +89,6 @@ class PaintPreviewBaseService : public KeyedService {
   // if a capture fails the service implementation is responsible for
   // implementing this management and tracking the directories in existence.
   // Data in a directory will contain:
-  // - paint_preview.pb (the metadata proto)
   // - a number of SKPs listed as <guid>.skp (one per frame)
   //
   // Captures the main frame of |web_contents| (an observer for capturing Paint
@@ -89,18 +108,35 @@ class PaintPreviewBaseService : public KeyedService {
                            gfx::Rect clip_rect,
                            OnCapturedCallback callback);
 
+  // Starts the compositor service in a utility process.
+  std::unique_ptr<PaintPreviewCompositorService> StartCompositorService(
+      base::OnceClosure disconnect_handler);
+
+#if defined(OS_ANDROID)
+  base::android::ScopedJavaGlobalRef<jobject> GetJavaObject() {
+    return java_ref_;
+  }
+#endif  // defined(OS_ANDROID)
+
  private:
   void OnCaptured(OnCapturedCallback callback,
                   base::UnguessableToken guid,
                   mojom::PaintPreviewStatus status,
                   std::unique_ptr<PaintPreviewProto> proto);
 
+  std::unique_ptr<PaintPreviewPolicy> policy_ = nullptr;
   FileManager file_manager_;
   bool is_off_the_record_;
 
+#if defined(OS_ANDROID)
+  // Points to the Java reference.
+  base::android::ScopedJavaGlobalRef<jobject> java_ref_;
+#endif  // defined(OS_ANDROID)
+
   base::WeakPtrFactory<PaintPreviewBaseService> weak_ptr_factory_{this};
 
-  DISALLOW_COPY_AND_ASSIGN(PaintPreviewBaseService);
+  PaintPreviewBaseService(const PaintPreviewBaseService&) = delete;
+  PaintPreviewBaseService& operator=(const PaintPreviewBaseService&) = delete;
 };
 
 }  // namespace paint_preview

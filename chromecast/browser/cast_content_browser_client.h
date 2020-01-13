@@ -168,10 +168,6 @@ class CastContentBrowserClient
   std::string GetApplicationLocale() override;
   scoped_refptr<content::QuotaPermissionContext> CreateQuotaPermissionContext()
       override;
-  void GetQuotaSettings(
-      content::BrowserContext* context,
-      content::StoragePartition* partition,
-      storage::OptionalQuotaSettingsCallback callback) override;
   void AllowCertificateError(
       content::WebContents* web_contents,
       int cert_error,
@@ -299,8 +295,8 @@ class CastContentBrowserClient
       int render_process_id,
       int render_frame_id,
       scoped_refptr<base::SequencedTaskRunner> original_runner,
-      const base::Callback<void(scoped_refptr<net::X509Certificate>,
-                                scoped_refptr<net::SSLPrivateKey>)>&
+      base::OnceCallback<void(scoped_refptr<net::X509Certificate>,
+                              scoped_refptr<net::SSLPrivateKey>)>
           continue_callback);
 
 #if !defined(OS_FUCHSIA)

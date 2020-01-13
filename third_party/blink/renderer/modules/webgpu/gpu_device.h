@@ -8,6 +8,7 @@
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_property.h"
+#include "third_party/blink/renderer/bindings/modules/v8/gpu_buffer_or_array_buffer.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/modules/webgpu/dawn_callback.h"
@@ -68,13 +69,9 @@ class GPUDevice final : public EventTargetWithInlineData,
   GPUQueue* defaultQueue();
 
   GPUBuffer* createBuffer(const GPUBufferDescriptor* descriptor);
-  HeapVector<ScriptValue> createBufferMapped(
-      ScriptState* script_state,
+  HeapVector<GPUBufferOrArrayBuffer> createBufferMapped(
       const GPUBufferDescriptor* descriptor,
       ExceptionState& exception_state);
-  ScriptPromise createBufferMappedAsync(ScriptState* script_state,
-                                        const GPUBufferDescriptor* descriptor,
-                                        ExceptionState& exception_state);
   GPUTexture* createTexture(const GPUTextureDescriptor* descriptor,
                             ExceptionState& exception_state);
   GPUSampler* createSampler(const GPUSamplerDescriptor* descriptor);

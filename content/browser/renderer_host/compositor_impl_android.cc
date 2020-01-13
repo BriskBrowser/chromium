@@ -80,7 +80,6 @@
 #include "ui/display/screen.h"
 #include "ui/gfx/ca_layer_params.h"
 #include "ui/gfx/swap_result.h"
-#include "ui/gl/color_space_utils.h"
 #include "ui/latency/latency_tracker.h"
 
 namespace content {
@@ -269,7 +268,6 @@ CompositorImpl::CompositorImpl(CompositorClient* client,
       needs_animate_(false),
       pending_frames_(0U),
       layer_tree_frame_sink_request_pending_(false) {
-  CHECK(features::IsVizDisplayCompositorEnabled());
   DCHECK(client);
 
   SetRootWindow(root_window);

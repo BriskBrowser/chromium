@@ -628,8 +628,7 @@ void WebURLLoaderImpl::Context::Start(const WebURLRequest& request,
 
   resource_request->method = method;
   resource_request->url = url_;
-  resource_request->site_for_cookies =
-      net::SiteForCookies::FromUrl(request.SiteForCookies());
+  resource_request->site_for_cookies = request.SiteForCookies();
   resource_request->upgrade_if_insecure = request.UpgradeIfInsecure();
   resource_request->is_revalidating = request.IsRevalidating();
   if (!request.RequestorOrigin().IsNull()) {
@@ -852,7 +851,7 @@ bool WebURLLoaderImpl::Context::OnReceivedRedirect(
 
   url_ = WebURL(redirect_info.new_url);
   return client_->WillFollowRedirect(
-      url_, redirect_info.new_site_for_cookies.RepresentativeUrl(),
+      url_, redirect_info.new_site_for_cookies,
       WebString::FromUTF8(redirect_info.new_referrer),
       Referrer::NetReferrerPolicyToBlinkReferrerPolicy(
           redirect_info.new_referrer_policy),
@@ -1022,6 +1021,7 @@ void WebURLLoaderImpl::PopulateURLResponse(
       net::IsCertStatusError(head.cert_status));
   response->SetCTPolicyCompliance(head.ct_policy_compliance);
   response->SetIsLegacyTLSVersion(head.is_legacy_tls_version);
+  response->SetTimingAllowPassed(head.timing_allow_passed);
   response->SetAppCacheID(head.appcache_id);
   response->SetAppCacheManifestURL(head.appcache_manifest_url);
   response->SetWasCached(!head.load_timing.request_start_time.is_null() &&
@@ -1141,7 +1141,7 @@ WebURLError WebURLLoaderImpl::PopulateURLError(
   if (status.cors_error_status)
     return WebURLError(*status.cors_error_status, has_copy_in_cache, url);
   return WebURLError(status.error_code, status.extended_error_code,
-                     has_copy_in_cache,
+                     status.resolve_error_info, has_copy_in_cache,
                      WebURLError::IsWebSecurityViolation::kFalse, url);
 }
 
@@ -1178,6 +1178,7 @@ void WebURLLoaderImpl::LoadSynchronously(
               ? WebURLError::IsWebSecurityViolation::kTrue
               : WebURLError::IsWebSecurityViolation::kFalse;
       error = WebURLError(error_code, sync_load_response.extended_error_code,
+                          sync_load_response.resolve_error_info,
                           WebURLError::HasCopyInCache::kFalse,
                           is_web_security_violation, final_url);
     }

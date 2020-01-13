@@ -53,6 +53,9 @@
 // Loads |URL| as if it was opened from an external application.
 + (void)openURLFromExternalApp:(NSString*)URL;
 
+// Programmatically dismisses settings screen.
++ (void)dismissSettings;
+
 #pragma mark - Tab Utilities (EG2)
 
 // Selects tab with given index in current mode (incognito or main
@@ -354,9 +357,6 @@
 // Returns YES if WebPaymentsModifiers feature is enabled.
 + (BOOL)isWebPaymentsModifiersEnabled WARN_UNUSED_RESULT;
 
-// Returns YES if SettingsAddPaymentMethod feature is enabled.
-+ (BOOL)isSettingsAddPaymentMethodEnabled WARN_UNUSED_RESULT;
-
 // Returns YES if CreditCardScanner feature is enabled.
 + (BOOL)isCreditCardScannerEnabled WARN_UNUSED_RESULT;
 
@@ -394,6 +394,14 @@
 
 // The count of key commands registered with the currently active BVC.
 + (NSInteger)registeredKeyCommandCount;
+
+// Simulates a physical keyboard event.
+// The input is similar to UIKeyCommand parameters, and is designed for testing
+// keyboard shortcuts.
+// Accepts any strings and also UIKeyInput{Up|Down|Left|Right}Arrow and
+// UIKeyInputEscape constants as |input|.
++ (void)simulatePhysicalKeyboardEvent:(NSString*)input
+                                flags:(UIKeyModifierFlags)flags;
 
 @end
 

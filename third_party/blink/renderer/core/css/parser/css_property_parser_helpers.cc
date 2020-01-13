@@ -31,6 +31,7 @@
 #include "third_party/blink/renderer/core/css/style_color.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/style_property_shorthand.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 
@@ -193,34 +194,30 @@ class MathFunctionParser {
                               ValueRange value_range = kValueRangeAll)
       : source_range_(range), range_(range) {
     const CSSParserToken& token = range.Peek();
-    if (token.FunctionId() == CSSValueID::kCalc ||
-        token.FunctionId() == CSSValueID::kWebkitCalc) {
-      calc_value_ = CSSMathFunctionValue::Create(
-          CSSMathExpressionNode::ParseCalc(ConsumeFunction(range_)),
-          value_range);
-      return;
-    }
-
-    if (RuntimeEnabledFeatures::CSSComparisonFunctionsEnabled()) {
-      switch (token.FunctionId()) {
-        case CSSValueID::kMin:
-          calc_value_ = CSSMathFunctionValue::Create(
-              CSSMathExpressionNode::ParseMin(ConsumeFunction(range_)),
-              value_range);
-          return;
-        case CSSValueID::kMax:
-          calc_value_ = CSSMathFunctionValue::Create(
-              CSSMathExpressionNode::ParseMax(ConsumeFunction(range_)),
-              value_range);
-          return;
-        case CSSValueID::kClamp:
-          calc_value_ = CSSMathFunctionValue::Create(
-              CSSMathExpressionNode::ParseClamp(ConsumeFunction(range_)),
-              value_range);
-          return;
-        default:
-          break;
-      }
+    switch (token.FunctionId()) {
+      case CSSValueID::kCalc:
+      case CSSValueID::kWebkitCalc:
+        calc_value_ = CSSMathFunctionValue::Create(
+            CSSMathExpressionNode::ParseCalc(ConsumeFunction(range_)),
+            value_range);
+        return;
+      case CSSValueID::kMin:
+        calc_value_ = CSSMathFunctionValue::Create(
+            CSSMathExpressionNode::ParseMin(ConsumeFunction(range_)),
+            value_range);
+        return;
+      case CSSValueID::kMax:
+        calc_value_ = CSSMathFunctionValue::Create(
+            CSSMathExpressionNode::ParseMax(ConsumeFunction(range_)),
+            value_range);
+        return;
+      case CSSValueID::kClamp:
+        calc_value_ = CSSMathFunctionValue::Create(
+            CSSMathExpressionNode::ParseClamp(ConsumeFunction(range_)),
+            value_range);
+        return;
+      default:
+        break;
     }
   }
 
@@ -1605,7 +1602,7 @@ static CSSValue* ConsumeConicGradient(CSSParserTokenRange& args,
     return nullptr;
   }
 
-  cssvalue::CSSGradientValue* result = cssvalue::CSSConicGradientValue::Create(
+  auto* result = MakeGarbageCollected<cssvalue::CSSConicGradientValue>(
       center_x, center_y, from_angle, repeating);
   return ConsumeGradientColorStops(args, context, result,
                                    ConsumeGradientAngleOrPercent)

@@ -1,6 +1,7 @@
 include_rules = [
   "+apps",
   "+cc/paint",
+  "+chrome/android/native_j_unittests_jni_headers",
   "+chrome/android/chrome_jni_headers",
   "+chrome/android/features/autofill_assistant/jni_headers",
   "+chrome/android/features/dev_ui",
@@ -166,6 +167,9 @@ include_rules = [
   "+components/ownership",
   "+components/page_load_metrics/browser",
   "+components/page_load_metrics/common",
+  "+components/paint_preview/buildflags",
+  "+components/paint_preview/features",
+  "+components/paint_preview/browser",
   "+components/password_manager/content/browser",
   "+components/password_manager/core/browser",
   "+components/password_manager/core/common",
@@ -212,6 +216,7 @@ include_rules = [
   "+components/services/patch/public",
   "+components/services/pdf_compositor/public",
   "+components/services/quarantine",
+  '+components/services/storage/public',
   "+components/services/unzip",
   "+components/session_manager",
   "+components/sessions/content",
@@ -452,5 +457,8 @@ specific_include_rules = {
   ],
   "chrome_authenticator_request_delegate_unittest\.cc": [
     "+third_party/microsoft_webauthn/webauthn.h",
+  ],
+  "chrome_find_request_manager_browsertest\.cc": [
+    "+pdf/document_loader_impl.h",
   ],
 }

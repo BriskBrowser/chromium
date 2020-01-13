@@ -136,7 +136,7 @@ class CORE_EXPORT LocalFrame final : public Frame,
   // Frame overrides:
   ~LocalFrame() override;
   void Trace(blink::Visitor*) override;
-  void Navigate(const FrameLoadRequest&, WebFrameLoadType) override;
+  void Navigate(FrameLoadRequest&, WebFrameLoadType) override;
   bool ShouldClose() override;
   const SecurityContext* GetSecurityContext() const override;
   void PrintNavigationErrorMessage(const Frame&, const char* reason);
@@ -150,9 +150,10 @@ class CORE_EXPORT LocalFrame final : public Frame,
   // subtree, updating the inert bit on all descendant frames.
   void SetIsInert(bool) override;
   void SetInheritedEffectiveTouchAction(TouchAction) override;
-  bool BubbleLogicalScrollFromChildFrame(ScrollDirection direction,
-                                         ScrollGranularity granularity,
-                                         Frame* child) override;
+  bool BubbleLogicalScrollFromChildFrame(
+      mojom::blink::ScrollDirection direction,
+      ScrollGranularity granularity,
+      Frame* child) override;
   void DidFocus() override;
 
   void DidChangeThemeColor();
@@ -347,6 +348,9 @@ class CORE_EXPORT LocalFrame final : public Frame,
   IntRect RemoteViewportIntersection() const {
     return intersection_state_.viewport_intersection;
   }
+  IntRect RemoteMainFrameDocumentIntersection() const {
+    return intersection_state_.main_frame_document_intersection;
+  }
   FrameOcclusionState GetOcclusionState() const;
   bool NeedsOcclusionTracking() const;
 
@@ -397,7 +401,8 @@ class CORE_EXPORT LocalFrame final : public Frame,
   const mojo::Remote<mojom::blink::ReportingServiceProxy>& GetReportingService()
       const;
 
-  // Returns the frame host ptr.
+  // Returns the frame host ptr. The interface returned is backed by an
+  // associated interface with the legacy Chrome IPC channel.
   mojom::blink::LocalFrameHost& GetLocalFrameHostRemote();
 
   // Overlays a color on top of this LocalFrameView if it is associated with

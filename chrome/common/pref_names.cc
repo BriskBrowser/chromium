@@ -959,6 +959,11 @@ const char kParentAccessCodeConfig[] = "child_user.parent_access_code.config";
 // user. Controlled by PerAppTimeLimits policy.
 const char kPerAppTimeLimitsPolicy[] = "child_user.per_app_time_limits.policy";
 
+// Dictionary pref containing the whitelisted urls, schemes and applications
+// that would not be blocked by per app time limits.
+const char kPerAppTimeLimitsWhitelistPolicy[] =
+    "child_user.per_app_time_limits.whitelist";
+
 // List of preconfigured network file shares.
 const char kNetworkFileSharesPreconfiguredShares[] =
     "network_file_shares.preconfigured_shares";
@@ -1000,6 +1005,14 @@ const char kStartupBrowserWindowLaunchSuppressed[] =
 // chrome.login API.
 const char kLoginExtensionApiDataForNextLoginAttempt[] =
     "extensions_api.login.data_for_next_login_attempt";
+
+// A string user profile pref containing the ID of the extension which launched
+// the current Managed Guest Session using the chrome.login extension API. A
+// non-empty ID indicates that the current Managed Guest Session is lockable,
+// and can only be unlocked by the specified extension using the chrome.login
+// extension API.
+const char kLoginExtensionApiLaunchExtensionId[] =
+    "extensions_api.login.launch_extension_id";
 
 // String containing last RSU lookup key uploaded. Empty until first upload.
 const char kLastRsuDeviceIdUploaded[] = "rsu.last_rsu_device_id_uploaded";
@@ -1401,8 +1414,10 @@ const char kMessageCenterDisabledExtensionIds[] =
 // platforms.
 const char kFullscreenAllowed[] = "fullscreen.allowed";
 
-// Enable the local discovery UI (chrome://devices) which shows discoverable
-// devices near the user as well as cloud devices registered to them.
+// Enable controllable features in the local discovery UI (chrome://devices).
+// The UI shows discoverable devices near the user and registered cloud devices,
+// and allow users to add printers to cloud print when not on Chrome OS
+// devices .
 const char kLocalDiscoveryEnabled[] = "local_discovery.enabled";
 
 // Enable notifications for new devices on the local network that can be

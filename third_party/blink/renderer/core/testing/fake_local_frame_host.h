@@ -47,6 +47,13 @@ class FakeLocalFrameHost : public mojom::blink::LocalFrameHost {
       bool present,
       blink::mojom::SuddenTerminationDisablerType disabler_type) override;
   void HadStickyUserActivationBeforeNavigationChanged(bool value) override;
+  void BubbleLogicalScrollInParentFrame(
+      blink::mojom::blink::ScrollDirection direction,
+      ui::input_types::ScrollGranularity granularity) override;
+  void DidAccessInitialDocument() override;
+  void DidBlockNavigation(const KURL& blocked_url,
+                          const KURL& initiator_url,
+                          mojom::NavigationBlockedReason reason) override;
 
  private:
   void BindFrameHostReceiver(mojo::ScopedInterfaceEndpointHandle handle);

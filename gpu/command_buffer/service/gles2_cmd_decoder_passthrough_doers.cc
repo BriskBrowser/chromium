@@ -434,13 +434,9 @@ error::Error GLES2DecoderPassthroughImpl::DoBindFramebuffer(
     GLenum target,
     GLuint framebuffer) {
   CheckErrorCallbackState();
-  if (feature_info_->workarounds().do_extra_flush_around_bindframebuffer)
-    api()->glFlushFn();
   api()->glBindFramebufferEXTFn(
       target, GetFramebufferServiceID(api(), framebuffer, &framebuffer_id_map_,
                                       bind_generates_resource_));
-  if (feature_info_->workarounds().do_extra_flush_around_bindframebuffer)
-    api()->glFlushFn();
   if (CheckErrorCallbackState()) {
     return error::kNoError;
   }
@@ -3896,11 +3892,12 @@ error::Error GLES2DecoderPassthroughImpl::DoUnmapBuffer(GLenum target) {
   return error::kNoError;
 }
 
-error::Error GLES2DecoderPassthroughImpl::DoResizeCHROMIUM(GLuint width,
-                                                           GLuint height,
-                                                           GLfloat scale_factor,
-                                                           GLenum color_space,
-                                                           GLboolean alpha) {
+error::Error GLES2DecoderPassthroughImpl::DoResizeCHROMIUM(
+    GLuint width,
+    GLuint height,
+    GLfloat scale_factor,
+    gfx::ColorSpace color_space,
+    GLboolean alpha) {
   // gfx::Size uses integers, make sure width and height do not overflow
   static_assert(sizeof(GLuint) >= sizeof(int), "Unexpected GLuint size.");
   static const GLuint kMaxDimension =
@@ -3914,31 +3911,7 @@ error::Error GLES2DecoderPassthroughImpl::DoResizeCHROMIUM(GLuint width,
       return error::kLostContext;
     }
   } else {
-    gl::GLSurface::ColorSpace surface_color_space =
-        gl::GLSurface::ColorSpace::UNSPECIFIED;
-    switch (color_space) {
-      case GL_COLOR_SPACE_UNSPECIFIED_CHROMIUM:
-        surface_color_space = gl::GLSurface::ColorSpace::UNSPECIFIED;
-        break;
-      case GL_COLOR_SPACE_SCRGB_LINEAR_CHROMIUM:
-        surface_color_space = gl::GLSurface::ColorSpace::SCRGB_LINEAR;
-        break;
-      case GL_COLOR_SPACE_HDR10_CHROMIUM:
-        surface_color_space = gl::GLSurface::ColorSpace::HDR10;
-        break;
-      case GL_COLOR_SPACE_SRGB_CHROMIUM:
-        surface_color_space = gl::GLSurface::ColorSpace::SRGB;
-        break;
-      case GL_COLOR_SPACE_DISPLAY_P3_CHROMIUM:
-        surface_color_space = gl::GLSurface::ColorSpace::DISPLAY_P3;
-        break;
-      default:
-        LOG(ERROR) << "GLES2DecoderPassthroughImpl: Context lost because "
-                      "specified color space was invalid.";
-        return error::kLostContext;
-    }
-    if (!surface_->Resize(safe_size, scale_factor, surface_color_space,
-                          !!alpha)) {
+    if (!surface_->Resize(safe_size, scale_factor, color_space, !!alpha)) {
       LOG(ERROR)
           << "GLES2DecoderPassthroughImpl: Context lost because resize failed.";
       return error::kLostContext;

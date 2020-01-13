@@ -182,10 +182,6 @@ using testing::_;
 
 namespace blink {
 
-::std::ostream& operator<<(::std::ostream& os, const WebFloatSize& size) {
-  return os << "WebFloatSize: [" << size.width << ", " << size.height << "]";
-}
-
 namespace {
 
 template <typename Function>
@@ -6701,13 +6697,12 @@ TEST_F(WebFrameTest, SpellcheckResultsSavedInDocument) {
             document->Markers().Markers()[0]->GetType());
 }
 
-class TestAccessInitialDocumentWebFrameClient
-    : public frame_test_helpers::TestWebFrameClient {
+class TestAccessInitialDocumentLocalFrameHost : public FakeLocalFrameHost {
  public:
-  TestAccessInitialDocumentWebFrameClient() = default;
-  ~TestAccessInitialDocumentWebFrameClient() override = default;
+  TestAccessInitialDocumentLocalFrameHost() = default;
+  ~TestAccessInitialDocumentLocalFrameHost() override = default;
 
-  // frame_test_helpers::TestWebFrameClient:
+  // FakeLocalFrameHost:
   void DidAccessInitialDocument() override { ++did_access_initial_document_; }
 
   // !!!!!!!!!!!!!!!!!! IMPORTANT !!!!!!!!!!!!!!!!!!
@@ -6720,153 +6715,169 @@ class TestAccessInitialDocumentWebFrameClient
 };
 
 TEST_F(WebFrameTest, DidAccessInitialDocumentBody) {
-  TestAccessInitialDocumentWebFrameClient web_frame_client;
+  TestAccessInitialDocumentLocalFrameHost frame_host;
+  frame_test_helpers::TestWebFrameClient web_frame_client;
+  frame_host.Init(web_frame_client.GetRemoteNavigationAssociatedInterfaces());
   frame_test_helpers::WebViewHelper web_view_helper;
   web_view_helper.Initialize(&web_frame_client);
   RunPendingTasks();
-  EXPECT_EQ(0, web_frame_client.did_access_initial_document_);
+  EXPECT_EQ(0, frame_host.did_access_initial_document_);
 
   // Create another window that will try to access it.
   frame_test_helpers::WebViewHelper new_web_view_helper;
   WebViewImpl* new_view = new_web_view_helper.InitializeWithOpener(
       web_view_helper.GetWebView()->MainFrame());
   RunPendingTasks();
-  EXPECT_EQ(0, web_frame_client.did_access_initial_document_);
+  EXPECT_EQ(0, frame_host.did_access_initial_document_);
 
   // Access the initial document by modifying the body.
   new_view->MainFrameImpl()->ExecuteScript(
       WebScriptSource("window.opener.document.body.innerHTML += 'Modified';"));
   RunPendingTasks();
-  EXPECT_EQ(1, web_frame_client.did_access_initial_document_);
+  EXPECT_EQ(1, frame_host.did_access_initial_document_);
 
   web_view_helper.Reset();
 }
 
 TEST_F(WebFrameTest, DidAccessInitialDocumentOpen) {
-  TestAccessInitialDocumentWebFrameClient web_frame_client;
+  TestAccessInitialDocumentLocalFrameHost frame_host;
+  frame_test_helpers::TestWebFrameClient web_frame_client;
+  frame_host.Init(web_frame_client.GetRemoteNavigationAssociatedInterfaces());
   frame_test_helpers::WebViewHelper web_view_helper;
   web_view_helper.Initialize(&web_frame_client);
   RunPendingTasks();
-  EXPECT_EQ(0, web_frame_client.did_access_initial_document_);
+  EXPECT_EQ(0, frame_host.did_access_initial_document_);
 
   // Create another window that will try to access it.
   frame_test_helpers::WebViewHelper new_web_view_helper;
   WebViewImpl* new_view = new_web_view_helper.InitializeWithOpener(
       web_view_helper.GetWebView()->MainFrame());
   RunPendingTasks();
-  EXPECT_EQ(0, web_frame_client.did_access_initial_document_);
+  EXPECT_EQ(0, frame_host.did_access_initial_document_);
 
   // Access the initial document by calling document.open(), which allows
   // arbitrary modification of the initial document.
   new_view->MainFrameImpl()->ExecuteScript(
       WebScriptSource("window.opener.document.open();"));
   RunPendingTasks();
-  EXPECT_EQ(1, web_frame_client.did_access_initial_document_);
+  EXPECT_EQ(1, frame_host.did_access_initial_document_);
 
   web_view_helper.Reset();
 }
 
 TEST_F(WebFrameTest, DidAccessInitialDocumentNavigator) {
-  TestAccessInitialDocumentWebFrameClient web_frame_client;
+  TestAccessInitialDocumentLocalFrameHost frame_host;
+  frame_test_helpers::TestWebFrameClient web_frame_client;
+  frame_host.Init(web_frame_client.GetRemoteNavigationAssociatedInterfaces());
   frame_test_helpers::WebViewHelper web_view_helper;
   web_view_helper.Initialize(&web_frame_client);
   RunPendingTasks();
-  EXPECT_EQ(0, web_frame_client.did_access_initial_document_);
+  EXPECT_EQ(0, frame_host.did_access_initial_document_);
 
   // Create another window that will try to access it.
   frame_test_helpers::WebViewHelper new_web_view_helper;
   WebViewImpl* new_view = new_web_view_helper.InitializeWithOpener(
       web_view_helper.GetWebView()->MainFrame());
   RunPendingTasks();
-  EXPECT_EQ(0, web_frame_client.did_access_initial_document_);
+  EXPECT_EQ(0, frame_host.did_access_initial_document_);
 
   // Access the initial document to get to the navigator object.
   new_view->MainFrameImpl()->ExecuteScript(
       WebScriptSource("console.log(window.opener.navigator);"));
   RunPendingTasks();
-  EXPECT_EQ(1, web_frame_client.did_access_initial_document_);
+  EXPECT_EQ(1, frame_host.did_access_initial_document_);
 
   web_view_helper.Reset();
 }
 
 TEST_F(WebFrameTest, DidAccessInitialDocumentViaJavascriptUrl) {
-  TestAccessInitialDocumentWebFrameClient web_frame_client;
+  TestAccessInitialDocumentLocalFrameHost frame_host;
+  frame_test_helpers::TestWebFrameClient web_frame_client;
+  frame_host.Init(web_frame_client.GetRemoteNavigationAssociatedInterfaces());
   frame_test_helpers::WebViewHelper web_view_helper;
   web_view_helper.Initialize(&web_frame_client);
   RunPendingTasks();
-  EXPECT_EQ(0, web_frame_client.did_access_initial_document_);
+  EXPECT_EQ(0, frame_host.did_access_initial_document_);
 
   // Access the initial document from a javascript: URL.
   frame_test_helpers::LoadFrame(web_view_helper.GetWebView()->MainFrameImpl(),
                                 "javascript:document.body.appendChild(document."
                                 "createTextNode('Modified'))");
-  EXPECT_EQ(1, web_frame_client.did_access_initial_document_);
+  EXPECT_EQ(1, frame_host.did_access_initial_document_);
 
   web_view_helper.Reset();
 }
 
 TEST_F(WebFrameTest, DidAccessInitialDocumentBodyBeforeModalDialog) {
-  TestAccessInitialDocumentWebFrameClient web_frame_client;
+  TestAccessInitialDocumentLocalFrameHost frame_host;
+  frame_test_helpers::TestWebFrameClient web_frame_client;
+  frame_host.Init(web_frame_client.GetRemoteNavigationAssociatedInterfaces());
   frame_test_helpers::WebViewHelper web_view_helper;
   web_view_helper.Initialize(&web_frame_client);
   RunPendingTasks();
-  EXPECT_EQ(0, web_frame_client.did_access_initial_document_);
+  EXPECT_EQ(0, frame_host.did_access_initial_document_);
 
   // Create another window that will try to access it.
   frame_test_helpers::WebViewHelper new_web_view_helper;
   WebViewImpl* new_view = new_web_view_helper.InitializeWithOpener(
       web_view_helper.GetWebView()->MainFrame());
   RunPendingTasks();
-  EXPECT_EQ(0, web_frame_client.did_access_initial_document_);
+  EXPECT_EQ(0, frame_host.did_access_initial_document_);
 
   // Access the initial document by modifying the body.
   new_view->MainFrameImpl()->ExecuteScript(
       WebScriptSource("window.opener.document.body.innerHTML += 'Modified';"));
-  EXPECT_EQ(1, web_frame_client.did_access_initial_document_);
+  RunPendingTasks();
+  EXPECT_EQ(1, frame_host.did_access_initial_document_);
 
   // Run a modal dialog, which used to run a nested run loop and require
   // a special case for notifying about the access.
   new_view->MainFrameImpl()->ExecuteScript(
       WebScriptSource("window.opener.confirm('Modal');"));
-  EXPECT_EQ(2, web_frame_client.did_access_initial_document_);
+  RunPendingTasks();
+  EXPECT_EQ(1, frame_host.did_access_initial_document_);
 
   // Ensure that we don't notify again later.
   RunPendingTasks();
-  EXPECT_EQ(2, web_frame_client.did_access_initial_document_);
+  EXPECT_EQ(1, frame_host.did_access_initial_document_);
 
   web_view_helper.Reset();
 }
 
 TEST_F(WebFrameTest, DidWriteToInitialDocumentBeforeModalDialog) {
-  TestAccessInitialDocumentWebFrameClient web_frame_client;
+  TestAccessInitialDocumentLocalFrameHost frame_host;
+  frame_test_helpers::TestWebFrameClient web_frame_client;
+  frame_host.Init(web_frame_client.GetRemoteNavigationAssociatedInterfaces());
   frame_test_helpers::WebViewHelper web_view_helper;
   web_view_helper.Initialize(&web_frame_client);
   RunPendingTasks();
-  EXPECT_EQ(0, web_frame_client.did_access_initial_document_);
+  EXPECT_EQ(0, frame_host.did_access_initial_document_);
 
   // Create another window that will try to access it.
   frame_test_helpers::WebViewHelper new_web_view_helper;
   WebViewImpl* new_view = new_web_view_helper.InitializeWithOpener(
       web_view_helper.GetWebView()->MainFrame());
   RunPendingTasks();
-  EXPECT_EQ(0, web_frame_client.did_access_initial_document_);
+  EXPECT_EQ(0, frame_host.did_access_initial_document_);
 
   // Access the initial document with document.write, which moves us past the
   // initial empty document state of the state machine.
   new_view->MainFrameImpl()->ExecuteScript(
       WebScriptSource("window.opener.document.write('Modified'); "
                       "window.opener.document.close();"));
-  EXPECT_EQ(1, web_frame_client.did_access_initial_document_);
+  RunPendingTasks();
+  EXPECT_EQ(1, frame_host.did_access_initial_document_);
 
   // Run a modal dialog, which used to run a nested run loop and require
   // a special case for notifying about the access.
   new_view->MainFrameImpl()->ExecuteScript(
       WebScriptSource("window.opener.confirm('Modal');"));
-  EXPECT_EQ(1, web_frame_client.did_access_initial_document_);
+  RunPendingTasks();
+  EXPECT_EQ(1, frame_host.did_access_initial_document_);
 
   // Ensure that we don't notify again later.
   RunPendingTasks();
-  EXPECT_EQ(1, web_frame_client.did_access_initial_document_);
+  EXPECT_EQ(1, frame_host.did_access_initial_document_);
 
   web_view_helper.Reset();
 }
@@ -6992,11 +7003,12 @@ TEST_F(WebFrameTest, SiteForCookiesForRedirect) {
 
   frame_test_helpers::WebViewHelper web_view_helper;
   web_view_helper.InitializeAndLoad(base_url_ + "first_party_redirect.html");
-  EXPECT_TRUE(SecurityOrigin::AreSameOrigin(web_view_helper.GetWebView()
-                                                ->MainFrameImpl()
-                                                ->GetDocument()
-                                                .SiteForCookies(),
-                                            redirect_url));
+  EXPECT_TRUE(
+      web_view_helper.GetWebView()
+          ->MainFrameImpl()
+          ->GetDocument()
+          .SiteForCookies()
+          .IsEquivalent(net::SiteForCookies::FromUrl(ToKURL(redirect))));
 }
 
 class TestNewWindowWebViewClient
@@ -9951,11 +9963,11 @@ TEST_F(WebFrameTest, SiteForCookiesFromChildWithRemoteMainFrame) {
 
   RegisterMockedHttpURLLoad("foo.html");
   frame_test_helpers::LoadFrame(local_frame, base_url_ + "foo.html");
-  EXPECT_EQ(WebURL(NullURL()), local_frame->GetDocument().SiteForCookies());
+  EXPECT_TRUE(local_frame->GetDocument().SiteForCookies().IsNull());
 
   SchemeRegistry::RegisterURLSchemeAsFirstPartyWhenTopLevel("http");
-  EXPECT_EQ(WebURL(ToKURL(not_base_url_)),
-            local_frame->GetDocument().SiteForCookies());
+  EXPECT_TRUE(net::SiteForCookies::FromUrl(ToKURL(not_base_url_))
+                  .IsEquivalent(local_frame->GetDocument().SiteForCookies()));
   SchemeRegistry::RemoveURLSchemeAsFirstPartyWhenTopLevel("http");
 }
 
@@ -10167,8 +10179,8 @@ TEST_P(WebFrameOverscrollTest,
   // being run in a WebView without a size. This test should be fixed along with
   // the bug, crbug.com/589320.
   // Page scrolls vertically, but over-scrolls horizontally.
-  // EXPECT_CALL(client, didOverscroll(WebFloatSize(-100, 0), WebFloatSize(-100,
-  // 0), gfx::PointF(100, 100), WebFloatSize()));
+  // EXPECT_CALL(client, didOverscroll(gfx::Vector2dF(-100, 0),
+  // gfx::Vector2dF(-100, 0), gfx::PointF(100, 100), gfx::Vector2dF()));
   // ScrollUpdate(&webViewHelper, 100, 50);
   // Mock::VerifyAndClearExpectations(&client);
 
@@ -10178,8 +10190,8 @@ TEST_P(WebFrameOverscrollTest,
   // Mock::VerifyAndClearExpectations(&client);
 
   // Page scrolls horizontally, but over-scrolls vertically.
-  // EXPECT_CALL(client, didOverscroll(WebFloatSize(0, 100), WebFloatSize(0,
-  // 100), gfx::PointF(100, 100), WebFloatSize()));
+  // EXPECT_CALL(client, didOverscroll(gfx::Vector2dF(0, 100), gfx::Vector2dF(0,
+  // 100), gfx::PointF(100, 100), gfx::Vector2dF()));
   // ScrollUpdate(&webViewHelper, -100, -100);
   // Mock::VerifyAndClearExpectations(&client);
 }
@@ -10497,9 +10509,9 @@ TEST_F(WebFrameTest, ImageDocumentLoadResponseEnd) {
   Document* document = web_view->MainFrameImpl()->GetFrame()->GetDocument();
 
   EXPECT_TRUE(document);
-  EXPECT_TRUE(document->IsImageDocument());
+  EXPECT_TRUE(IsA<ImageDocument>(document));
 
-  ImageDocument* img_document = ToImageDocument(document);
+  auto* img_document = To<ImageDocument>(document);
   ImageResourceContent* image_content = img_document->CachedImage();
 
   EXPECT_TRUE(image_content);
@@ -10523,7 +10535,7 @@ TEST_F(WebFrameTest, CopyImageDocument) {
   Document* document = web_frame->GetFrame()->GetDocument();
 
   ASSERT_TRUE(document);
-  EXPECT_TRUE(document->IsImageDocument());
+  EXPECT_TRUE(IsA<ImageDocument>(document));
   EXPECT_TRUE(SystemClipboard::GetInstance().ReadAvailableTypes().IsEmpty());
 
   bool result = web_frame->ExecuteCommand("Copy");
@@ -11148,9 +11160,9 @@ TEST_F(WebFrameTest, ImageDocumentDecodeError) {
   Document* document =
       To<LocalFrame>(helper.GetWebView()->GetPage()->MainFrame())
           ->GetDocument();
-  EXPECT_TRUE(document->IsImageDocument());
+  EXPECT_TRUE(IsA<ImageDocument>(document));
   EXPECT_EQ(ResourceStatus::kDecodeError,
-            ToImageDocument(document)->CachedImage()->GetContentStatus());
+            To<ImageDocument>(document)->CachedImage()->GetContentStatus());
 }
 
 // Ensure that the root layer -- whose size is ordinarily derived from the
@@ -12948,7 +12960,7 @@ TEST_F(WebFrameTest, MediaQueriesInLocalFrameInsideRemote) {
   helper.Reset();
 }
 
-TEST_F(WebFrameTest, RemoteViewportIntersection) {
+TEST_F(WebFrameTest, RemoteViewportAndMainframeIntersections) {
   frame_test_helpers::WebViewHelper helper;
   helper.InitializeRemote();
   WebLocalFrameImpl* local_frame = frame_test_helpers::CreateLocalChild(
@@ -12975,32 +12987,46 @@ TEST_F(WebFrameTest, RemoteViewportIntersection) {
 
   // Simulate the local child frame being positioned at (7, -11) in the parent's
   // viewport, indicating that the top 11px of the child's content is clipped
-  // by the parent.
+  // by the parent. Let the local child frame be at (7, 40) in the parent
+  // element.
   WebFrameWidget* widget = local_frame->FrameWidget();
   ASSERT_TRUE(widget);
   WebPoint viewport_offset(7, -11);
   WebRect viewport_intersection(0, 11, 200, 89);
+  WebRect mainframe_intersection(0, 0, 200, 140);
   FrameOcclusionState occlusion_state = FrameOcclusionState::kUnknown;
-  widget->SetRemoteViewportIntersection({viewport_offset, viewport_intersection,
-                                         viewport_intersection,
-                                         occlusion_state});
+  widget->SetRemoteViewportIntersection(
+      {viewport_offset, viewport_intersection, mainframe_intersection,
+       viewport_intersection, occlusion_state});
 
   // The viewport intersection should be applied by the layout geometry mapping
   // code when these flags are used.
-  int flags = kTraverseDocumentBoundaries | kApplyRemoteRootFrameOffset;
+  int viewport_intersection_flags =
+      kTraverseDocumentBoundaries | kApplyRemoteRootFrameOffset;
 
   // Expectation is: (target location) + (viewport offset) = (20, 10) + (7, -11)
-  PhysicalOffset offset =
-      target->GetLayoutObject()->LocalToAbsolutePoint(PhysicalOffset(), flags);
+  PhysicalOffset offset = target->GetLayoutObject()->LocalToAbsolutePoint(
+      PhysicalOffset(), viewport_intersection_flags);
   EXPECT_EQ(PhysicalOffset(27, -1), offset);
 
   PhysicalRect rect(0, 0, 25, 35);
   local_frame->GetFrame()
       ->GetDocument()
       ->GetLayoutView()
-      ->MapToVisualRectInAncestorSpace(nullptr, rect, flags,
-                                       kDefaultVisualRectFlags);
+      ->MapToVisualRectInAncestorSpace(
+          nullptr, rect, viewport_intersection_flags, kDefaultVisualRectFlags);
   EXPECT_EQ(PhysicalRect(7, 0, 25, 24), rect);
+
+  // Without the main frame overflow clip the rect should not be clipped and the
+  // coordinates returned are the rects coordinates in the viewport space.
+  PhysicalRect mainframe_rect(0, 0, 25, 35);
+  local_frame->GetFrame()
+      ->GetDocument()
+      ->GetLayoutView()
+      ->MapToVisualRectInAncestorSpace(nullptr, mainframe_rect,
+                                       viewport_intersection_flags,
+                                       kDontApplyMainFrameOverflowClip);
+  EXPECT_EQ(PhysicalRect(7, -11, 25, 35), mainframe_rect);
 }
 
 }  // namespace blink

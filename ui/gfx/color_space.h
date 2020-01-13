@@ -21,10 +21,18 @@
 // These forward declarations are used to give IPC code friend access to private
 // fields of gfx::ColorSpace for the purpose of serialization and
 // deserialization.
+namespace IPC {
+template <class P>
+struct ParamTraits;
+}  // namespace IPC
+
 namespace mojo {
 template <class T, class U>
 struct StructTraits;
 }  // namespace mojo
+
+// Used to serialize a gfx::ColorSpace through the GPU command buffer.
+struct _GLcolorSpace;
 
 namespace gfx {
 
@@ -84,18 +92,16 @@ class COLOR_SPACE_EXPORT ColorSpace {
     SMPTEST2084,
     SMPTEST428_1,
     ARIB_STD_B67,  // AKA hybrid-log gamma, HLG.
-    // This is an ad-hoc transfer function that decodes SMPTE 2084 content
-    // into a [0, 1] range more or less suitable for viewing on a non-hdr
-    // display.
-    SMPTEST2084_NON_HDR,
     // The same as IEC61966_2_1 on the interval [0, 1], with the nonlinear
     // segment continuing beyond 1 and point symmetry defining values below 0.
     IEC61966_2_1_HDR,
     // The same as LINEAR but is defined for all real values.
     LINEAR_HDR,
-    // A parametric transfer function defined by |custom_transfer_params_|.
+    // A parametric transfer function defined by |transfer_params_|.
     CUSTOM,
-    LAST = CUSTOM,
+    // An HDR parametric transfer function defined by |transfer_params_|.
+    CUSTOM_HDR,
+    LAST = CUSTOM_HDR,
   };
 
   enum class MatrixID : uint8_t {
@@ -181,10 +187,7 @@ class COLOR_SPACE_EXPORT ColorSpace {
   }
 
   // HDR10 uses BT.2020 primaries with SMPTE ST 2084 PQ transfer function.
-  static constexpr ColorSpace CreateHDR10() {
-    return ColorSpace(PrimaryID::BT2020, TransferID::SMPTEST2084, MatrixID::RGB,
-                      RangeID::FULL);
-  }
+  static ColorSpace CreateHDR10(float sdr_white_point = 0.f);
 
   // TODO(ccameron): Remove these, and replace with more generic constructors.
   static constexpr ColorSpace CreateJpeg() {
@@ -248,6 +251,11 @@ class COLOR_SPACE_EXPORT ColorSpace {
   // range, and unspecified spaces.
   sk_sp<SkColorSpace> ToSkColorSpace() const;
 
+  // Return a GLcolorSpace value that is valid for the lifetime of |this|. This
+  // function is used to serialize ColorSpace objects across the GPU command
+  // buffer.
+  const _GLcolorSpace* AsGLColorSpace() const;
+
   // For YUV color spaces, return the closest SkYUVColorSpace.
   // Returns true if a close match is found.
   bool ToSkYUVColorSpace(SkYUVColorSpace* out) const;
@@ -256,6 +264,11 @@ class COLOR_SPACE_EXPORT ColorSpace {
   void GetPrimaryMatrix(SkMatrix44* to_XYZD50) const;
   bool GetTransferFunction(skcms_TransferFunction* fn) const;
   bool GetInverseTransferFunction(skcms_TransferFunction* fn) const;
+
+  // Returns the SDR white level specified for the PQ transfer function. If
+  // no value was specified, then use kDefaultSDRWhiteLevel. If the transfer
+  // function is not PQ then return false.
+  bool GetPQSDRWhiteLevel(float* sdr_white_level) const;
 
   // For most formats, this is the RGB to YUV matrix.
   void GetTransferMatrix(SkMatrix44* matrix) const;
@@ -283,6 +296,7 @@ class COLOR_SPACE_EXPORT ColorSpace {
  private:
   static void GetPrimaryMatrix(PrimaryID, skcms_Matrix3x3* to_XYZD50);
   static bool GetTransferFunction(TransferID, skcms_TransferFunction* fn);
+  static size_t TransferParamCount(TransferID);
 
   void SetCustomTransferFunction(const skcms_TransferFunction& fn);
   void SetCustomPrimaries(const skcms_Matrix3x3& to_XYZD50);
@@ -295,11 +309,15 @@ class COLOR_SPACE_EXPORT ColorSpace {
   // Only used if primaries_ is PrimaryID::CUSTOM.
   float custom_primary_matrix_[9] = {0, 0, 0, 0, 0, 0, 0, 0};
 
-  // Only used if transfer_ is TransferID::CUSTOM. This array consists of the A
-  // through G entries of the skcms_TransferFunction structure in alphabetical
-  // order.
-  float custom_transfer_params_[7] = {0, 0, 0, 0, 0, 0, 0};
+  // Parameters for the transfer function. The interpretation depends on
+  // |transfer_|. Only TransferParamCount() of these parameters are used, all
+  // others must be zero.
+  // - CUSTOM and CUSTOM_HDR: Entries A through G of the skcms_TransferFunction
+  //   structure in alphabetical order.
+  // - SMPTEST2084: SDR white point.
+  float transfer_params_[7] = {0, 0, 0, 0, 0, 0, 0};
 
+  friend struct IPC::ParamTraits<gfx::ColorSpace>;
   friend struct mojo::StructTraits<gfx::mojom::ColorSpaceDataView,
                                    gfx::ColorSpace>;
 };

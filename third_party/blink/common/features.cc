@@ -48,10 +48,6 @@ const base::Feature kFreezePurgeMemoryAllPagesFrozen{
 const base::Feature kFreezeUserAgent{"FreezeUserAgent",
                                      base::FEATURE_DISABLED_BY_DEFAULT};
 
-// When enabled, the compositing of trivial 3D transforms is disabled.
-const base::Feature kDoNotCompositeTrivial3D{"DoNotCompositeTrivial3D",
-                                             base::FEATURE_DISABLED_BY_DEFAULT};
-
 // When enabled, enter assumed-overlap mode in compositing overlap testing
 // anytime a fixed or sticky position element is encountered.
 const base::Feature kAssumeOverlapAfterFixedOrStickyPosition{
@@ -61,11 +57,6 @@ const base::Feature kAssumeOverlapAfterFixedOrStickyPosition{
 // Enable Display Locking JavaScript APIs.
 const base::Feature kDisplayLocking{"DisplayLocking",
                                     base::FEATURE_DISABLED_BY_DEFAULT};
-
-// Enable applying rounded corner masks via a GL shader rather than
-// a mask layer.
-const base::Feature kFastBorderRadius{"FastBorderRadius",
-                                      base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kJSONModules{"JSONModules",
                                  base::FEATURE_DISABLED_BY_DEFAULT};
@@ -189,9 +180,6 @@ const base::Feature kWebRtcH264WithOpenH264FFmpeg{
     "WebRTC-H264WithOpenH264FFmpeg", base::FEATURE_ENABLED_BY_DEFAULT};
 #endif  // BUILDFLAG(RTC_USE_H264) && BUILDFLAG(ENABLE_FFMPEG_VIDEO_DECODERS)
 
-const base::Feature kServiceWorkerImportedScriptUpdateCheck{
-    "ServiceWorkerImportedScriptUpdateCheck", base::FEATURE_ENABLED_BY_DEFAULT};
-
 // Experiment of the delay from navigation to starting an update of a service
 // worker's script.
 const base::Feature kServiceWorkerUpdateDelay{
@@ -244,6 +232,11 @@ const base::Feature kFileHandlingAPI{"FileHandlingAPI",
 const base::Feature kAllowSyncXHRInPageDismissal{
     "AllowSyncXHRInPageDismissal", base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Font enumeration and table access. https://crbug.com/535764 and
+// https://crbug.com/982054.
+const base::Feature kFontAccess{"FontAccess",
+                                base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Allows Web Components v0 to be re-enabled.
 const base::Feature kWebComponentsV0Enabled{"WebComponentsV0Enabled",
                                             base::FEATURE_DISABLED_BY_DEFAULT};
@@ -265,7 +258,7 @@ const base::Feature kDecodeJpeg420ImagesToYUV{
 // Decodes lossy WebP images to YUV instead of RGBX and stores in this format
 // in the image decode cache. See crbug.com/900264 for details on the feature.
 const base::Feature kDecodeLossyWebPImagesToYUV{
-    "DecodeLossyWebPImagesToYUV", base::FEATURE_DISABLED_BY_DEFAULT};
+    "DecodeLossyWebPImagesToYUV", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Enables cache-aware WebFonts loading. See https://crbug.com/570205.
 // The feature is disabled on Android for WebView API issue discussed at
@@ -398,10 +391,6 @@ const base::Feature kLowerJavaScriptPriorityWhenForceDeferred{
 
 const base::Feature kHtmlImportsRequestInitiatorLock{
     "HtmlImportsRequestInitiatorLock", base::FEATURE_ENABLED_BY_DEFAULT};
-
-// When 'enabled', directly compositing images is turned off.
-const base::Feature kDisableDirectlyCompositedImages{
-    "DisableDirectlyCompositedImages", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Enables redirecting subresources in the page to better compressed and
 // optimized versions to provide data savings.

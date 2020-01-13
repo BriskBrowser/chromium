@@ -126,9 +126,9 @@
 #include "chromecast/external_mojo/broker_service/broker_service.h"
 #endif
 
-#if BUILDFLAG(ENABLE_CAST_WAYLAND_SERVER)
+#if defined(OS_LINUX) && defined(USE_OZONE)
 #include "chromecast/browser/webview/webview_controller.h"
-#endif  // BUILDFLAG(ENABLE_CAST_WAYLAND_SERVER)
+#endif  // defined(OS_LINUX) && defined(USE_OZONE)
 
 #if BUILDFLAG(ENABLE_CAST_RENDERER)
 #include "base/sequenced_task_runner.h"
@@ -550,15 +550,6 @@ CastContentBrowserClient::CreateQuotaPermissionContext() {
   return new CastQuotaPermissionContext();
 }
 
-void CastContentBrowserClient::GetQuotaSettings(
-    content::BrowserContext* context,
-    content::StoragePartition* partition,
-    storage::OptionalQuotaSettingsCallback callback) {
-  storage::GetNominalDynamicSettings(
-      partition->GetPath(), context->IsOffTheRecord(),
-      storage::GetDefaultDeviceInfoHelper(), std::move(callback));
-}
-
 void CastContentBrowserClient::AllowCertificateError(
     content::WebContents* web_contents,
     int cert_error,
@@ -609,7 +600,7 @@ base::OnceClosure CastContentBrowserClient::SelectClientCertificate(
           web_contents->GetMainFrame()->GetProcess()->GetID(),
           web_contents->GetMainFrame()->GetRoutingID(),
           base::SequencedTaskRunnerHandle::Get(),
-          base::Bind(
+          base::BindOnce(
               &content::ClientCertificateDelegate::ContinueWithCertificate,
               base::Owned(delegate.release()))));
   return base::OnceClosure();
@@ -621,8 +612,8 @@ void CastContentBrowserClient::SelectClientCertificateOnIOThread(
     int render_process_id,
     int render_frame_id,
     scoped_refptr<base::SequencedTaskRunner> original_runner,
-    const base::Callback<void(scoped_refptr<net::X509Certificate>,
-                              scoped_refptr<net::SSLPrivateKey>)>&
+    base::OnceCallback<void(scoped_refptr<net::X509Certificate>,
+                            scoped_refptr<net::SSLPrivateKey>)>
         continue_callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   CastNetworkDelegate* network_delegate =
@@ -631,8 +622,8 @@ void CastContentBrowserClient::SelectClientCertificateOnIOThread(
                                       render_process_id, render_frame_id,
                                       false)) {
     original_runner->PostTask(
-        FROM_HERE,
-        base::BindOnce(continue_callback, DeviceCert(), DeviceKey()));
+        FROM_HERE, base::BindOnce(std::move(continue_callback), DeviceCert(),
+                                  DeviceKey()));
     return;
   } else {
     LOG(ERROR) << "Invalid host for client certificate request: "
@@ -641,7 +632,8 @@ void CastContentBrowserClient::SelectClientCertificateOnIOThread(
                << " and render_frame_id: " << render_frame_id;
   }
   original_runner->PostTask(
-      FROM_HERE, base::BindOnce(continue_callback, nullptr, nullptr));
+      FROM_HERE,
+      base::BindOnce(std::move(continue_callback), nullptr, nullptr));
 }
 
 bool CastContentBrowserClient::CanCreateWindow(
@@ -819,12 +811,12 @@ CastContentBrowserClient::CreateThrottlesForNavigation(
             handle, general_audience_browsing_service_.get()));
   }
 
-#if BUILDFLAG(ENABLE_CAST_WAYLAND_SERVER)
+#if defined(OS_LINUX) && defined(USE_OZONE)
   auto webview_throttle = WebviewController::MaybeGetNavigationThrottle(handle);
   if (webview_throttle) {
     throttles.push_back(std::move(webview_throttle));
   }
-#endif  // BUILDFLAG(ENABLE_CAST_WAYLAND_SERVER)
+#endif  // defined(OS_LINUX) && defined(USE_OZONE)
 
   return throttles;
 }

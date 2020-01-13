@@ -28,8 +28,8 @@
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/service_worker/service_worker_info.h"
 #include "content/browser/service_worker/service_worker_job_coordinator.h"
+#include "content/browser/service_worker/service_worker_offline_capability_checker.h"
 #include "content/browser/service_worker/service_worker_process_manager.h"
-#include "content/browser/service_worker/service_worker_provider_host.h"
 #include "content/browser/service_worker/service_worker_register_job.h"
 #include "content/browser/service_worker/service_worker_registration.h"
 #include "content/browser/service_worker/service_worker_version.h"
@@ -125,15 +125,18 @@ void SuccessReportingCallback(
 bool IsSameOriginClientContainerHost(
     const GURL& origin,
     bool allow_reserved_client,
+    bool allow_back_forward_cached_client,
     ServiceWorkerContainerHost* container_host) {
   DCHECK(container_host->IsContainerForClient());
   // If |container_host| is in BackForwardCache, it should be skipped in
   // iteration, because (1) hosts in BackForwardCache should never be exposed to
   // web as clients and (2) hosts could be in an unknown state after eviction
   // and before deletion.
-  if (IsBackForwardCacheEnabled()) {
-    if (container_host->IsInBackForwardCache())
-      return false;
+  // When |allow_back_forward_cached_client| is true, do not skip the cached
+  // client.
+  if (!allow_back_forward_cached_client &&
+      container_host->IsInBackForwardCache()) {
+    return false;
   }
   return container_host->url().GetOrigin() == origin &&
          (allow_reserved_client || container_host->is_execution_ready());
@@ -236,7 +239,7 @@ ServiceWorkerContextCore::ContainerHostIterator::~ContainerHostIterator() =
 ServiceWorkerContainerHost*
 ServiceWorkerContextCore::ContainerHostIterator::GetContainerHost() {
   DCHECK(!IsAtEnd());
-  return container_host_iterator_->second;
+  return container_host_iterator_->second.get();
 }
 
 void ServiceWorkerContextCore::ContainerHostIterator::Advance() {
@@ -280,13 +283,12 @@ ServiceWorkerContextCore::ServiceWorkerContextCore(
         observer_list,
     ServiceWorkerContextWrapper* wrapper)
     : wrapper_(wrapper),
-      providers_(std::make_unique<ProviderByIdMap>()),
       container_host_by_uuid_(std::make_unique<ContainerHostByClientUUIDMap>()),
-      storage_(ServiceWorkerStorage::Create(user_data_directory,
-                                            this,
-                                            std::move(database_task_runner),
-                                            quota_manager_proxy,
-                                            special_storage_policy)),
+      registry_(ServiceWorkerRegistry::Create(user_data_directory,
+                                              this,
+                                              std::move(database_task_runner),
+                                              quota_manager_proxy,
+                                              special_storage_policy)),
       job_coordinator_(std::make_unique<ServiceWorkerJobCoordinator>(this)),
       loader_factory_getter_(url_loader_factory_getter),
       force_update_on_page_load_(false),
@@ -304,9 +306,10 @@ ServiceWorkerContextCore::ServiceWorkerContextCore(
     ServiceWorkerContextCore* old_context,
     ServiceWorkerContextWrapper* wrapper)
     : wrapper_(wrapper),
-      providers_(old_context->providers_.release()),
       container_host_by_uuid_(old_context->container_host_by_uuid_.release()),
-      storage_(ServiceWorkerStorage::Create(this, old_context->storage())),
+      registry_(ServiceWorkerRegistry::CreateForDeleteAndStartOver(
+          this,
+          old_context->registry())),
       job_coordinator_(std::make_unique<ServiceWorkerJobCoordinator>(this)),
       loader_factory_getter_(old_context->loader_factory_getter()),
       loader_factory_bundle_for_update_check_(
@@ -317,34 +320,24 @@ ServiceWorkerContextCore::ServiceWorkerContextCore(
       next_embedded_worker_id_(old_context->next_embedded_worker_id_) {}
 
 ServiceWorkerContextCore::~ServiceWorkerContextCore() {
-  DCHECK(storage_);
+  DCHECK(registry_);
   for (const auto& it : live_versions_)
     it.second->RemoveObserver(this);
 
   job_coordinator_->ClearForShutdown();
 }
 
-void ServiceWorkerContextCore::AddProviderHost(
-    std::unique_ptr<ServiceWorkerProviderHost> host) {
-  DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
-  int provider_id = host->provider_id();
-  providers_->emplace(provider_id, std::move(host));
-}
-
-void ServiceWorkerContextCore::RemoveProviderHost(int provider_id) {
-  DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
-  providers_->erase(provider_id);
-}
-
 std::unique_ptr<ServiceWorkerContextCore::ContainerHostIterator>
 ServiceWorkerContextCore::GetClientContainerHostIterator(
     const GURL& origin,
-    bool include_reserved_clients) {
+    bool include_reserved_clients,
+    bool include_back_forward_cached_clients) {
   DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
   return base::WrapUnique(new ContainerHostIterator(
       container_host_by_uuid_.get(),
       base::BindRepeating(IsSameOriginClientContainerHost, origin,
-                          include_reserved_clients)));
+                          include_reserved_clients,
+                          include_back_forward_cached_clients)));
 }
 
 std::unique_ptr<ServiceWorkerContextCore::ContainerHostIterator>
@@ -399,16 +392,26 @@ void ServiceWorkerContextCore::HasMainFrameWindowClient(const GURL& origin,
 
 void ServiceWorkerContextCore::RegisterContainerHostByClientID(
     const std::string& client_uuid,
-    ServiceWorkerContainerHost* container_host) {
+    std::unique_ptr<ServiceWorkerContainerHost> container_host) {
   DCHECK(container_host->IsContainerForClient());
   DCHECK(!base::Contains(*container_host_by_uuid_, client_uuid));
-  (*container_host_by_uuid_)[client_uuid] = container_host;
+  container_host_by_uuid_->emplace(client_uuid, std::move(container_host));
 }
 
 void ServiceWorkerContextCore::UnregisterContainerHostByClientID(
     const std::string& client_uuid) {
   DCHECK(base::Contains(*container_host_by_uuid_, client_uuid));
   container_host_by_uuid_->erase(client_uuid);
+}
+
+void ServiceWorkerContextCore::UpdateContainerHostClientID(
+    const std::string& current_client_uuid,
+    const std::string& new_client_uuid) {
+  DCHECK(base::Contains(*container_host_by_uuid_, current_client_uuid));
+  std::unique_ptr<ServiceWorkerContainerHost> container_host =
+      std::move(container_host_by_uuid_->find(current_client_uuid)->second);
+  UnregisterContainerHostByClientID(current_client_uuid);
+  RegisterContainerHostByClientID(new_client_uuid, std::move(container_host));
 }
 
 ServiceWorkerContainerHost*
@@ -418,7 +421,7 @@ ServiceWorkerContextCore::GetContainerHostByClientID(
   if (found == container_host_by_uuid_->end())
     return nullptr;
   DCHECK(found->second->IsContainerForClient());
-  return found->second;
+  return found->second.get();
 }
 
 void ServiceWorkerContextCore::RegisterServiceWorker(
@@ -691,7 +694,7 @@ void ServiceWorkerContextCore::UnprotectVersion(int64_t version_id) {
 }
 
 void ServiceWorkerContextCore::ScheduleDeleteAndStartOver() const {
-  storage_->Disable();
+  storage()->Disable();
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::BindOnce(&ServiceWorkerContextWrapper::DeleteAndStartOver,
@@ -704,7 +707,7 @@ void ServiceWorkerContextCore::DeleteAndStartOver(StatusCallback callback) {
   observer_list_->Notify(
       FROM_HERE, &ServiceWorkerContextCoreObserver::OnDeleteAndStartOver);
 
-  storage_->DeleteAndStartOver(std::move(callback));
+  storage()->DeleteAndStartOver(std::move(callback));
 }
 
 void ServiceWorkerContextCore::ClearAllServiceWorkersForTest(
@@ -728,6 +731,23 @@ void ServiceWorkerContextCore::CheckHasServiceWorker(
       url, base::BindOnce(&ServiceWorkerContextCore::
                               DidFindRegistrationForCheckHasServiceWorker,
                           AsWeakPtr(), std::move(callback)));
+}
+
+void ServiceWorkerContextCore::CheckOfflineCapability(
+    const GURL& url,
+    ServiceWorkerContext::CheckOfflineCapabilityCallback callback) {
+  auto checker = std::make_unique<ServiceWorkerOfflineCapabilityChecker>(url);
+  ServiceWorkerOfflineCapabilityChecker* checker_rawptr = checker.get();
+  checker_rawptr->Start(
+      storage(),
+      // Bind unique_ptr to the |callback| so that
+      // ServiceWorkerOfflineCapabilityChecker outlives |callback| and is surely
+      // freed when |callback| is called.
+      base::BindOnce(
+          [](std::unique_ptr<ServiceWorkerOfflineCapabilityChecker> checker,
+             ServiceWorkerContext::CheckOfflineCapabilityCallback callback,
+             OfflineCapability result) { std::move(callback).Run(result); },
+          std::move(checker), std::move(callback)));
 }
 
 void ServiceWorkerContextCore::UpdateVersionFailureCount(
@@ -904,6 +924,10 @@ void ServiceWorkerContextCore::OnNoControllees(ServiceWorkerVersion* version) {
   observer_list_->Notify(FROM_HERE,
                          &ServiceWorkerContextCoreObserver::OnNoControllees,
                          version->version_id(), version->scope());
+}
+
+ServiceWorkerStorage* ServiceWorkerContextCore::storage() const {
+  return registry_->storage();
 }
 
 ServiceWorkerProcessManager* ServiceWorkerContextCore::process_manager() {

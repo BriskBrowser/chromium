@@ -20,17 +20,19 @@ OFFICIAL_BENCHMARKS = frozenset(
     if not b.Name().startswith('UNSCHEDULED_'))
 CONTRIB_BENCHMARKS = frozenset(benchmark_finders.GetContribBenchmarks())
 ALL_SCHEDULEABLE_BENCHMARKS = OFFICIAL_BENCHMARKS | CONTRIB_BENCHMARKS
+GTEST_STORY_NAME = '_gtest_'
+
 
 def _IsPlatformSupported(benchmark, platform):
-    supported = benchmark.GetSupportedPlatformNames(
-        benchmark.SUPPORTED_PLATFORMS)
-    return 'all' in supported or platform in supported
+  supported = benchmark.GetSupportedPlatformNames(benchmark.SUPPORTED_PLATFORMS)
+  return 'all' in supported or platform in supported
 
 
 class PerfPlatform(object):
   def __init__(self, name, description, benchmark_configs,
                num_shards, platform_os, is_fyi=False,
-               run_reference_build=True):
+               run_reference_build=True, executables=None):
+    benchmark_configs = benchmark_configs.Frozenset()
     self._name = name
     self._description = description
     self._platform_os = platform_os
@@ -38,6 +40,7 @@ class PerfPlatform(object):
     self._sort_key = name.lower().replace('-', ' ')
     self._is_fyi = is_fyi
     self.run_reference_build = run_reference_build
+    self.executables = executables or frozenset()
     assert num_shards
     self._num_shards = num_shards
     # pylint: disable=redefined-outer-name
@@ -119,6 +122,7 @@ class BenchmarkConfig(object):
     self.benchmark = benchmark
     self.abridged = abridged
     self._stories = None
+    self.is_telemetry = True
 
   @property
   def name(self):
@@ -143,6 +147,51 @@ class BenchmarkConfig(object):
       return self._stories
 
 
+class ExecutableConfig(object):
+  def __init__(self, name, path=None, flags=None, estimated_runtime=60):
+    self.name = name
+    self.path = path or name
+    self.flags = flags or []
+    self.estimated_runtime = estimated_runtime
+    self.abridged = False
+    self.stories = [GTEST_STORY_NAME]
+    self.is_telemetry = False
+    self.repeat = 1
+
+
+class PerfSuite(object):
+  def __init__(self, configs):
+    self._configs = dict()
+    self.Add(configs)
+
+  def Frozenset(self):
+    return frozenset(self._configs.values())
+
+  def Add(self, configs):
+    if isinstance(configs, PerfSuite):
+      configs = configs.Frozenset()
+    for config in configs:
+      if config.name in self._configs:
+        raise ValueError('Cannot have duplicate benchmarks/executables.')
+      self._configs[config.name] = config
+    return self
+
+  def Remove(self, configs):
+    for config in configs:
+      name = config
+      if isinstance(config, PerfSuite):
+        name = config.name
+      del self._configs[name]
+    return self
+
+  def Abridge(self, config_names):
+    for name in config_names:
+      del self._configs[name]
+      self._configs[name] = _GetBenchmarkConfig(
+          name, abridged=True)
+    return self
+
+
 # Global |benchmarks| is convenient way to keep BenchmarkConfig objects
 # unique, which allows us to use set subtraction below.
 benchmarks = {b.Name(): {True: BenchmarkConfig(b, abridged=True),
@@ -152,34 +201,114 @@ benchmarks = {b.Name(): {True: BenchmarkConfig(b, abridged=True),
 def _GetBenchmarkConfig(benchmark_name, abridged=False):
   return benchmarks[benchmark_name][abridged]
 
-OFFICIAL_BENCHMARK_CONFIGS = frozenset(
-    _GetBenchmarkConfig(b.Name()) for b in OFFICIAL_BENCHMARKS)
+OFFICIAL_BENCHMARK_CONFIGS = PerfSuite(
+    [_GetBenchmarkConfig(b.Name()) for b in OFFICIAL_BENCHMARKS])
 # TODO(crbug.com/965158): Remove OFFICIAL_BENCHMARK_NAMES once sharding
 # scripts are no longer using it.
 OFFICIAL_BENCHMARK_NAMES = frozenset(
-    b.name for b in OFFICIAL_BENCHMARK_CONFIGS)
-_DL_BENCHMARK_CONFIGS = frozenset([_GetBenchmarkConfig(
-    'blink_perf.display_locking')])
-_JETSTREAM2 = frozenset([_GetBenchmarkConfig('jetstream2')])
+    b.name for b in OFFICIAL_BENCHMARK_CONFIGS.Frozenset())
 
-_OFFICIAL_EXCEPT_DISPLAY_LOCKING = (
-    OFFICIAL_BENCHMARK_CONFIGS - _DL_BENCHMARK_CONFIGS)
-_OFFICIAL_EXCEPT_JETSTREAM2 = (
-    OFFICIAL_BENCHMARK_CONFIGS - _JETSTREAM2)
-_OFFICIAL_EXCEPT_DISPLAY_LOCKING_JETSTREAM2 = (
-    OFFICIAL_BENCHMARK_CONFIGS - _DL_BENCHMARK_CONFIGS - _JETSTREAM2)
+_OFFICIAL_EXCEPT_DISPLAY_LOCKING = PerfSuite(OFFICIAL_BENCHMARK_CONFIGS).Remove(
+    ['blink_perf.display_locking'])
+_OFFICIAL_EXCEPT_JETSTREAM2 = PerfSuite(OFFICIAL_BENCHMARK_CONFIGS).Remove(
+    ['jetstream2'])
+_OFFICIAL_EXCEPT_DISPLAY_LOCKING_JETSTREAM2 = PerfSuite(
+    OFFICIAL_BENCHMARK_CONFIGS).Remove(
+        ['blink_perf.display_locking', 'jetstream2'])
+
+_TRACING_PERFTESTS = ExecutableConfig('tracing_perftests', estimated_runtime=50)
+_COMPONENTS_PERFTESTS = ExecutableConfig(
+    'components_perftests', flags=[
+        '--xvfb',
+    ], estimated_runtime=110,)
+_GPU_PERFTESTS = ExecutableConfig('gpu_perftests', estimated_runtime=60)
+_LOAD_LIBRARY_PERF_TESTS = ExecutableConfig(
+    'load_library_perf_tests', estimated_runtime=3)
+_MEDIA_PERFTESTS = ExecutableConfig(
+    'media_perftests', flags=[
+        '--single-process-tests', '--test-launcher-retry-limit=0',
+        '--isolated-script-test-filter=*::-*_unoptimized::*_unaligned::'
+        '*unoptimized_aligned',
+    ], estimated_runtime=16)
+_ANGLE_PERFTESTS = ExecutableConfig(
+    'angle_perftests', flags=[
+        '--test-launcher-retry-limit=0',
+        '--test-launcher-jobs=1',
+    ], estimated_runtime=1988)
+_PASSTHROUGH_COMMAND_BUFFER_PERFTESTS = ExecutableConfig(
+    'passthrough_command_buffer_perftests',
+    path='command_buffer_perftests',
+    flags=[
+        '--use-cmd-decoder=passthrough',
+        '--use-angle=gl-null',
+    ], estimated_runtime=30)
+_VALIDATING_COMMAND_BUFFER_PERFTESTS = ExecutableConfig(
+    'validating_command_buffer_perftests',
+    path='command_buffer_perftests',
+    flags=[
+        '--use-cmd-decoder=validating',
+        '--use-stub',
+    ], estimated_runtime=23)
+_VIEWS_PERFTESTS = ExecutableConfig(
+    'views_perftests', flags=[
+        '--xvfb'
+    ], estimated_runtime=7)
+_BASE_PERFTESTS = ExecutableConfig(
+    'base_perftests', flags=[
+        '--test-launcher-jobs=1',
+        '--test-launcher-retry-limit=0'
+    ], estimated_runtime=270)
+_NET_PERFTESTS = ExecutableConfig('net_perftests', estimated_runtime=60)
+_DAWN_PERF_TESTS = ExecutableConfig(
+    'dawn_perf_tests', flags=[
+        '--test-launcher-jobs=1',
+        '--test-launcher-retry-limit=0'
+    ], estimated_runtime=270)
+_PERFORMANCE_BROWSER_TESTS = ExecutableConfig(
+    'performance_browser_tests',
+    flags=[
+        '--full-performance-run',
+        '--test-launcher-jobs=1',
+        '--test-launcher-retry-limit=0',
+        # Allow the full performance runs to take up to 60 seconds (rather than
+        # the default of 30 for normal CQ browser test runs).
+        '--ui-test-action-timeout=60000',
+        '--ui-test-action-max-timeout=60000',
+        '--test-launcher-timeout=60000',
+        '--gtest_filter=*/TabCapturePerformanceTest.*:'
+        '*/CastV2PerformanceTest.*',
+    ],
+    estimated_runtime=67)
 
 _LINUX_BENCHMARK_CONFIGS = _OFFICIAL_EXCEPT_DISPLAY_LOCKING
 _MAC_HIGH_END_BENCHMARK_CONFIGS = _OFFICIAL_EXCEPT_DISPLAY_LOCKING
+_MAC_HIGH_END_EXECUTABLE_CONFIGS = frozenset([
+    _DAWN_PERF_TESTS,
+    # TODO(crbug.com/1039019): Figure out how to get performance_browser_tests
+    # working on from the shard maps.
+    #_PERFORMANCE_BROWSER_TESTS,
+    _NET_PERFTESTS,
+    _MEDIA_PERFTESTS,
+    _BASE_PERFTESTS
+])
 _MAC_LOW_END_BENCHMARK_CONFIGS = _OFFICIAL_EXCEPT_JETSTREAM2
 _WIN_10_BENCHMARK_CONFIGS = _OFFICIAL_EXCEPT_DISPLAY_LOCKING
+_WIN_10_EXECUTABLE_CONFIGS = frozenset([
+    _ANGLE_PERFTESTS, _MEDIA_PERFTESTS, _COMPONENTS_PERFTESTS, _VIEWS_PERFTESTS,
+    _BASE_PERFTESTS, _DAWN_PERF_TESTS])
 _WIN_10_LOW_END_BENCHMARK_CONFIGS = _OFFICIAL_EXCEPT_DISPLAY_LOCKING
-_WIN_10_LOW_END_HP_CANDIDATE_BENCHMARK_CONFIGS = frozenset([
-    _GetBenchmarkConfig('v8.browsing_desktop')])
-_WIN_7_BENCHMARK_CONFIGS = (_OFFICIAL_EXCEPT_DISPLAY_LOCKING_JETSTREAM2 -
-                          frozenset([_GetBenchmarkConfig('rendering.desktop')]))
+_WIN_10_LOW_END_HP_CANDIDATE_BENCHMARK_CONFIGS = PerfSuite(
+    [_GetBenchmarkConfig('v8.browsing_desktop')])
+_WIN_7_BENCHMARK_CONFIGS = PerfSuite(
+    _OFFICIAL_EXCEPT_DISPLAY_LOCKING_JETSTREAM2).Remove(['rendering.desktop'])
+_WIN_7_EXECUTABLE_CONFIGS = frozenset([
+    _LOAD_LIBRARY_PERF_TESTS, _COMPONENTS_PERFTESTS, _MEDIA_PERFTESTS])
 _WIN_7_GPU_BENCHMARK_CONFIGS = _OFFICIAL_EXCEPT_DISPLAY_LOCKING_JETSTREAM2
-_ANDROID_GO_BENCHMARK_CONFIGS = frozenset([
+_WIN_7_GPU_EXECUTABLE_CONFIGS = frozenset([
+    _LOAD_LIBRARY_PERF_TESTS, _ANGLE_PERFTESTS, _MEDIA_PERFTESTS,
+    _PASSTHROUGH_COMMAND_BUFFER_PERFTESTS,
+    _VALIDATING_COMMAND_BUFFER_PERFTESTS])
+_ANDROID_GO_BENCHMARK_CONFIGS = PerfSuite([
     _GetBenchmarkConfig('system_health.memory_mobile'),
     _GetBenchmarkConfig('system_health.common_mobile'),
     _GetBenchmarkConfig('startup.mobile'),
@@ -188,34 +317,46 @@ _ANDROID_GO_BENCHMARK_CONFIGS = frozenset([
     _GetBenchmarkConfig('speedometer'),
     _GetBenchmarkConfig('speedometer2')])
 _ANDROID_GO_WEBVIEW_BENCHMARK_CONFIGS = _ANDROID_GO_BENCHMARK_CONFIGS
-_ANDROID_NEXUS_5_BENCHMARK_CONFIGS = _OFFICIAL_EXCEPT_DISPLAY_LOCKING_JETSTREAM2
-_ANDROID_NEXUS_5X_BENCHMARK_CONFIGS = (
-    (((_OFFICIAL_EXCEPT_JETSTREAM2
-    # Remove unabridged rendering benchmark and replace with abridged benchmark.
-     - frozenset([_GetBenchmarkConfig('rendering.mobile')]))
-     | frozenset([_GetBenchmarkConfig('rendering.mobile', True)]))
-    # Remove unabridged system health memory benchmark and replace with abridged
-    # benchmark: crbug.com/1030788
-     - frozenset([_GetBenchmarkConfig('system_health.memory_mobile')]))
-    | frozenset([_GetBenchmarkConfig('system_health.memory_mobile', True)]))
+# Note that Nexus 5 bot capacity is very low, so we must severely limit
+# the benchmarks that we run on it and abridge large benchmarks in order
+# to run them on it. See crbug.com/1030840 for details.
+_ANDROID_NEXUS_5_BENCHMARK_CONFIGS = PerfSuite(
+    OFFICIAL_BENCHMARK_CONFIGS
+).Remove([
+    'blink_perf.display_locking', 'jetstream2', 'blink_perf.layout'
+]).Abridge([
+    'rendering.mobile',
+    # TODO(crbug.com/1039851): Abridge common_mobile after we make
+    # a better abridged story set for it:
+    #'system_health.common_mobile',
+    'system_health.memory_mobile',
+    'v8.browsing_mobile'
+])
+_ANDROID_NEXUS_5_EXECUTABLE_CONFIGS = frozenset([
+    _TRACING_PERFTESTS, _COMPONENTS_PERFTESTS, _GPU_PERFTESTS])
+_ANDROID_NEXUS_5X_BENCHMARK_CONFIGS = PerfSuite(
+    _OFFICIAL_EXCEPT_JETSTREAM2).Abridge(
+        ['rendering.mobile', 'system_health.memory_mobile'])
 _ANDROID_NEXUS_5X_WEBVIEW_BENCHMARK_CONFIGS = (
     _OFFICIAL_EXCEPT_DISPLAY_LOCKING_JETSTREAM2)
 _ANDROID_NEXUS_6_WEBVIEW_BENCHMARK_CONFIGS = (
     _OFFICIAL_EXCEPT_DISPLAY_LOCKING_JETSTREAM2)
 _ANDROID_PIXEL2_BENCHMARK_CONFIGS = _OFFICIAL_EXCEPT_DISPLAY_LOCKING
+_ANDROID_PIXEL2_EXECUTABLE_CONFIGS = frozenset([
+    _COMPONENTS_PERFTESTS, _MEDIA_PERFTESTS])
 _ANDROID_PIXEL2_WEBVIEW_BENCHMARK_CONFIGS = (
     _OFFICIAL_EXCEPT_DISPLAY_LOCKING_JETSTREAM2)
-_ANDROID_PIXEL2_WEBLAYER_BENCHMARK_CONFIGS = frozenset([
+_ANDROID_PIXEL2_WEBLAYER_BENCHMARK_CONFIGS = PerfSuite([
     _GetBenchmarkConfig('system_health.common_mobile', True),
     _GetBenchmarkConfig('system_health.memory_mobile', True),
     _GetBenchmarkConfig('startup.mobile')])
-_ANDROID_NEXUS5X_FYI_BENCHMARK_CONFIGS = frozenset([
+_ANDROID_NEXUS5X_FYI_BENCHMARK_CONFIGS = PerfSuite([
      # Running a sample benchmark to help testing out the work on
      # trace_processor_shell: crbug.com/1028612
     _GetBenchmarkConfig('tracing.tracing_with_background_memory_infra')])
-_ANDROID_PIXEL2_AAB_FYI_BENCHMARK_CONFIGS = frozenset([
-    _GetBenchmarkConfig('rendering.mobile', True)])
-_ANDROID_PIXEL2_FYI_BENCHMARK_CONFIGS = frozenset([
+_ANDROID_PIXEL2_AAB_FYI_BENCHMARK_CONFIGS = PerfSuite(
+    [_GetBenchmarkConfig('startup.mobile')])
+_ANDROID_PIXEL2_FYI_BENCHMARK_CONFIGS = PerfSuite([
     _GetBenchmarkConfig('v8.browsing_mobile'),
     _GetBenchmarkConfig('system_health.memory_mobile'),
     _GetBenchmarkConfig('system_health.common_mobile'),
@@ -223,9 +364,9 @@ _ANDROID_PIXEL2_FYI_BENCHMARK_CONFIGS = frozenset([
     _GetBenchmarkConfig('speedometer2'),
     _GetBenchmarkConfig('octane'),
     _GetBenchmarkConfig('jetstream')])
-_CHROMEOS_KEVIN_FYI_BENCHMARK_CONFIGS = frozenset([
+_CHROMEOS_KEVIN_FYI_BENCHMARK_CONFIGS = PerfSuite([
     _GetBenchmarkConfig('rendering.desktop')])
-_LINUX_PERF_FYI_BENCHMARK_CONFIGS = frozenset([
+_LINUX_PERF_FYI_BENCHMARK_CONFIGS = PerfSuite([
     _GetBenchmarkConfig('power.desktop')])
 
 
@@ -238,7 +379,10 @@ LINUX = PerfPlatform(
 MAC_HIGH_END = PerfPlatform(
     'mac-10_13_laptop_high_end-perf',
     'MacBook Pro, Core i7 2.8 GHz, 16GB RAM, 256GB SSD, Radeon 55',
-    _MAC_HIGH_END_BENCHMARK_CONFIGS, 26, 'mac')
+    _MAC_HIGH_END_BENCHMARK_CONFIGS,
+    26,
+    'mac',
+    executables=_MAC_HIGH_END_EXECUTABLE_CONFIGS)
 MAC_LOW_END = PerfPlatform(
     'mac-10_12_laptop_low_end-perf',
     'MacBook Air, Core i5 1.8 GHz, 8GB RAM, 128GB SSD, HD Graphics',
@@ -257,13 +401,13 @@ WIN_10 = PerfPlatform(
     'win-10-perf',
     'Windows Intel HD 630 towers, Core i7-7700 3.6 GHz, 16GB RAM,'
     ' Intel Kaby Lake HD Graphics 630', _WIN_10_BENCHMARK_CONFIGS,
-    26, 'win')
+    26, 'win')#, executables=_WIN_10_EXECUTABLE_CONFIGS) crbug.com/1039019
 WIN_7 = PerfPlatform(
     'Win 7 Perf', 'N/A', _WIN_7_BENCHMARK_CONFIGS,
-    5, 'win')
+    4, 'win')#, executables=_WIN_7_EXECUTABLE_CONFIGS) crbug.com/1039019
 WIN_7_GPU = PerfPlatform(
     'Win 7 Nvidia GPU Perf', 'N/A', _WIN_7_GPU_BENCHMARK_CONFIGS,
-    5, 'win')
+    4, 'win')#, executables=_WIN_7_GPU_EXECUTABLE_CONFIGS) crbug.com/1039019
 
 # Android
 ANDROID_GO = PerfPlatform(
@@ -275,7 +419,7 @@ ANDROID_GO_WEBVIEW = PerfPlatform(
     run_reference_build=False)
 ANDROID_NEXUS_5 = PerfPlatform(
     'Android Nexus5 Perf', 'Android KOT49H', _ANDROID_NEXUS_5_BENCHMARK_CONFIGS,
-    16, 'android')
+    16, 'android', executables=_ANDROID_NEXUS_5_EXECUTABLE_CONFIGS)
 ANDROID_NEXUS_5X = PerfPlatform(
     'android-nexus5x-perf', 'Android MMB29Q',
     _ANDROID_NEXUS_5X_BENCHMARK_CONFIGS,
@@ -292,7 +436,8 @@ ANDROID_NEXUS_6_WEBVIEW = PerfPlatform(
     'android', run_reference_build=False)
 ANDROID_PIXEL2 = PerfPlatform(
     'android-pixel2-perf', 'Android OPM1.171019.021',
-    _ANDROID_PIXEL2_BENCHMARK_CONFIGS, 35, 'android')
+    _ANDROID_PIXEL2_BENCHMARK_CONFIGS, 35, 'android',
+    executables=_ANDROID_PIXEL2_EXECUTABLE_CONFIGS)
 ANDROID_PIXEL2_WEBVIEW = PerfPlatform(
     'android-pixel2_webview-perf', 'Android OPM1.171019.021',
     _ANDROID_PIXEL2_WEBVIEW_BENCHMARK_CONFIGS, 21, 'android',

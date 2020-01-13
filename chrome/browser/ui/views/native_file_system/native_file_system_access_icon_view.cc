@@ -22,8 +22,12 @@ const base::Feature kNativeFileSystemReadOnlyUsageIndicatorFeature{
     base::FEATURE_DISABLED_BY_DEFAULT};
 
 NativeFileSystemAccessIconView::NativeFileSystemAccessIconView(
-    Delegate* delegate)
-    : PageActionIconView(nullptr, 0, delegate) {
+    IconLabelBubbleView::Delegate* icon_label_bubble_delegate,
+    PageActionIconView::Delegate* page_action_icon_delegate)
+    : PageActionIconView(nullptr,
+                         0,
+                         icon_label_bubble_delegate,
+                         page_action_icon_delegate) {
   SetVisible(false);
 }
 
@@ -100,4 +104,8 @@ void NativeFileSystemAccessIconView::OnExecuting(ExecuteSource execute_source) {
 const gfx::VectorIcon& NativeFileSystemAccessIconView::GetVectorIcon() const {
   return has_write_access_ ? kSaveOriginalFileIcon
                            : vector_icons::kInsertDriveFileOutlineIcon;
+}
+
+const char* NativeFileSystemAccessIconView::GetClassName() const {
+  return "NativeFileSystemAccessIconView";
 }

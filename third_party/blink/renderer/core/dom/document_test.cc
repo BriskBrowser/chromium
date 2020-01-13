@@ -37,6 +37,7 @@
 #include "services/network/public/mojom/referrer_policy.mojom-blink.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/isolated_world_csp.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
@@ -1204,36 +1205,37 @@ TEST_F(DocumentTest, DocumentPolicyFeaturePolicyCoexist) {
       blink::mojom::FeaturePolicyFeature::kSyncScript;
   const auto report_option = blink::ReportOptions::kReportOnFailure;
 
-  // When document_policy is not initialized, feature_policy should
-  // be sufficient to determine the result.
-  NavigateTo(KURL("https://www.example.com/"), "font-display-late-swap 'none'",
-             "");
-  EXPECT_FALSE(GetDocument().IsFeatureEnabled(test_feature, report_option));
-
-  NavigateTo(KURL("https://www.example.com/"), "font-display-late-swap *", "");
-  EXPECT_TRUE(GetDocument().IsFeatureEnabled(test_feature, report_option));
+  // When document_policy is not specified in response header, default values
+  // are used for document policy.
+  NavigateTo(KURL("https://www.example.com/"), "", "");
+  GetDocument().GetSecurityContext().SetDocumentPolicyForTesting(
+      DocumentPolicy::CreateWithHeaderPolicy({}));
+  EXPECT_EQ(
+      DocumentPolicy::GetFeatureDefaults().at(test_feature),
+      GetDocument().GetSecurityContext().GetDocumentPolicy()->GetFeatureValue(
+          test_feature));
 
   // When document_policy is specified, both feature_policy and
   // document_policy need to return true for the feature to be
   // enabled.
   NavigateTo(KURL("https://www.example.com/"), "font-display-late-swap *", "");
   GetDocument().GetSecurityContext().SetDocumentPolicyForTesting(
-      DocumentPolicy::CreateWithRequiredPolicy(
+      DocumentPolicy::CreateWithHeaderPolicy(
           {{test_feature, blink::PolicyValue(true)}}));
   EXPECT_TRUE(GetDocument().IsFeatureEnabled(test_feature, report_option));
   GetDocument().GetSecurityContext().SetDocumentPolicyForTesting(
-      DocumentPolicy::CreateWithRequiredPolicy(
+      DocumentPolicy::CreateWithHeaderPolicy(
           {{test_feature, blink::PolicyValue(false)}}));
   EXPECT_FALSE(GetDocument().IsFeatureEnabled(test_feature, report_option));
 
   NavigateTo(KURL("https://www.example.com/"), "font-display-late-swap 'none'",
              "");
   GetDocument().GetSecurityContext().SetDocumentPolicyForTesting(
-      DocumentPolicy::CreateWithRequiredPolicy(
+      DocumentPolicy::CreateWithHeaderPolicy(
           {{test_feature, blink::PolicyValue(true)}}));
   EXPECT_FALSE(GetDocument().IsFeatureEnabled(test_feature, report_option));
   GetDocument().GetSecurityContext().SetDocumentPolicyForTesting(
-      DocumentPolicy::CreateWithRequiredPolicy(
+      DocumentPolicy::CreateWithHeaderPolicy(
           {{test_feature, blink::PolicyValue(false)}}));
   EXPECT_FALSE(GetDocument().IsFeatureEnabled(test_feature, report_option));
 
@@ -1243,7 +1245,7 @@ TEST_F(DocumentTest, DocumentPolicyFeaturePolicyCoexist) {
   EXPECT_TRUE(
       GetDocument().IsFeatureEnabled(unsupported_feature, report_option));
   GetDocument().GetSecurityContext().SetDocumentPolicyForTesting(
-      DocumentPolicy::CreateWithRequiredPolicy(
+      DocumentPolicy::CreateWithHeaderPolicy(
           {{test_feature, blink::PolicyValue(true)}}));
   ASSERT_FALSE(GetDocument()
                    .GetSecurityContext()

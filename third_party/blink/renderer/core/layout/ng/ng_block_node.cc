@@ -896,7 +896,9 @@ void NGBlockNode::CopyFragmentDataToLayoutBox(
 
     // |ComputeOverflow()| below calls |AddVisualOverflowFromChildren()|, which
     // computes visual overflow from |RootInlineBox| if |ChildrenInline()|
-    block->SetNeedsVisualOverflowAndPaintInvalidation();
+    // TODO(rego): This causes that ChildNeedsLayoutOverflowRecalc flags are not
+    // cleared after layout (see https://crbug.com/941180).
+    block->SetNeedsOverflowRecalc();
     block->ComputeLayoutOverflow(intrinsic_block_size - borders.block_end -
                                  scrollbars.block_end);
   }
@@ -1134,8 +1136,8 @@ bool NGBlockNode::IsCustomLayoutLoaded() const {
 scoped_refptr<const NGLayoutResult> NGBlockNode::LayoutAtomicInline(
     const NGConstraintSpace& parent_constraint_space,
     const ComputedStyle& parent_style,
-    FontBaseline baseline_type,
-    bool use_first_line_style) {
+    bool use_first_line_style,
+    NGBaselineAlgorithmType baseline_algorithm_type) {
   NGConstraintSpaceBuilder builder(
       parent_constraint_space, Style().GetWritingMode(), /* is_new_fc */ true);
   SetOrthogonalFallbackInlineSizeIfNeeded(parent_style, *this, &builder);
@@ -1143,13 +1145,8 @@ scoped_refptr<const NGLayoutResult> NGBlockNode::LayoutAtomicInline(
   builder.SetIsPaintedAtomically(true);
   builder.SetUseFirstLineStyle(use_first_line_style);
 
-  // Request to compute baseline during the layout, except when we know the box
-  // would synthesize box-baseline.
-  LayoutBox* layout_box = GetLayoutBox();
-  if (NGBaseline::ShouldPropagateBaselines(layout_box)) {
-    builder.AddBaselineRequest(
-        {NGBaselineAlgorithmType::kAtomicInline, baseline_type});
-  }
+  builder.SetNeedsBaseline(true);
+  builder.SetBaselineAlgorithmType(baseline_algorithm_type);
 
   builder.SetIsShrinkToFit(Style().LogicalWidth().IsAuto());
   builder.SetAvailableSize(parent_constraint_space.AvailableSize());
@@ -1163,7 +1160,7 @@ scoped_refptr<const NGLayoutResult> NGBlockNode::LayoutAtomicInline(
   // TODO(kojii): Investigate why ClearNeedsLayout() isn't called automatically
   // when it's being laid out.
   if (!constraint_space.IsIntermediateLayout())
-    layout_box->ClearNeedsLayout();
+    GetLayoutBox()->ClearNeedsLayout();
   return result;
 }
 
@@ -1294,34 +1291,32 @@ scoped_refptr<const NGLayoutResult> NGBlockNode::RunSimplifiedLayout(
 void NGBlockNode::CopyBaselinesFromLegacyLayout(
     const NGConstraintSpace& constraint_space,
     NGBoxFragmentBuilder* builder) {
-  const NGBaselineRequestList requests = constraint_space.BaselineRequests();
-  if (requests.IsEmpty())
+  // As the calls to query baselines from legacy layout are potentially
+  // expensive we only ask for them if needed.
+  // TODO(layout-dev): Once we have flexbox, and editing switched over to
+  // LayoutNG we should be able to safely remove this flag without a
+  // performance penalty.
+  if (!constraint_space.NeedsBaseline())
     return;
 
-  if (UNLIKELY(constraint_space.GetWritingMode() != Style().GetWritingMode()))
-    return;
-
-  for (const auto& request : requests) {
-    switch (request.AlgorithmType()) {
-      case NGBaselineAlgorithmType::kAtomicInline: {
-        LayoutUnit position =
-            AtomicInlineBaselineFromLegacyLayout(request, constraint_space);
-        if (position != -1)
-          builder->AddBaseline(request, position);
-        break;
-      }
-      case NGBaselineAlgorithmType::kFirstLine: {
-        LayoutUnit position = box_->FirstLineBoxBaseline();
-        if (position != -1)
-          builder->AddBaseline(request, position);
-        break;
-      }
+  switch (constraint_space.BaselineAlgorithmType()) {
+    case NGBaselineAlgorithmType::kFirstLine: {
+      LayoutUnit position = box_->FirstLineBoxBaseline();
+      if (position != -1)
+        builder->SetBaseline(position);
+      break;
+    }
+    case NGBaselineAlgorithmType::kInlineBlock: {
+      LayoutUnit position =
+          AtomicInlineBaselineFromLegacyLayout(constraint_space);
+      if (position != -1)
+        builder->SetBaseline(position);
+      break;
     }
   }
 }
 
 LayoutUnit NGBlockNode::AtomicInlineBaselineFromLegacyLayout(
-    const NGBaselineRequest& request,
     const NGConstraintSpace& constraint_space) {
   LineDirectionMode line_direction = box_->IsHorizontalWritingMode()
                                          ? LineDirectionMode::kHorizontalLine
@@ -1331,13 +1326,16 @@ LayoutUnit NGBlockNode::AtomicInlineBaselineFromLegacyLayout(
   // classes override it assuming inline layout calls |BaselinePosition()|.
   if (box_->IsInline()) {
     LayoutUnit position = LayoutUnit(box_->BaselinePosition(
-        request.BaselineType(), constraint_space.UseFirstLineStyle(),
+        box_->Style()->GetFontBaseline(), constraint_space.UseFirstLineStyle(),
         line_direction, kPositionOnContainingLine));
 
     // BaselinePosition() uses margin edge for atomic inlines. Subtract
     // margin-over so that the position is relative to the border box.
     if (box_->IsAtomicInlineLevel())
       position -= box_->MarginOver();
+
+    if (IsFlippedLinesWritingMode(constraint_space.GetWritingMode()))
+      return box_->Size().Width() - position;
 
     return position;
   }
@@ -1383,6 +1381,10 @@ void NGBlockNode::StoreMargins(const NGConstraintSpace& constraint_space,
     return;
   NGPhysicalBoxStrut physical_margins = margins.ConvertToPhysical(
       constraint_space.GetWritingMode(), constraint_space.Direction());
+  box_->SetMargin(physical_margins);
+}
+
+void NGBlockNode::StoreMargins(const NGPhysicalBoxStrut& physical_margins) {
   box_->SetMargin(physical_margins);
 }
 

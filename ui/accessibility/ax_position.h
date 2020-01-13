@@ -52,6 +52,20 @@ enum class AXBoundaryBehavior {
   StopAtLastAnchorBoundary
 };
 
+// Describes in further detail what type of boundary a current position is on.
+// For complex boundaries such as format boundaries, it can be useful to know
+// why a particular boundary was chosen.
+enum class AXBoundaryType {
+  // Not at a unit boundary.
+  kNone,
+  // At a unit boundary (e.g. a format boundary).
+  kUnitBoundary,
+  // At the start of a document.
+  kDocumentStart,
+  // At the end of a document.
+  kDocumentEnd
+};
+
 // When converting to an unignored position, determines how to adjust the new
 // position in order to make it valid, either moving backwards or forwards in
 // the accessibility tree.
@@ -75,6 +89,26 @@ enum class AXRangeExpandBehavior {
   // starting point to find the boundary to the left.
   kRightFirst
 };
+
+// Some platforms require empty objects to be represented by a replacement
+// character in order for text navigation to work correctly. This enum controls
+// whether a replacement character will be exposed for such objects.
+//
+// When an embedded object is replaced by a real character, the expectations
+// are the same with this character as with other ordinary characters.
+// For example, with UIA on Windows, we need to be able to navigate inside and
+// outside of this character as if it was an ordinary character, using the
+// AXPlatformNodeTextRangeProvider methods. Since an embedded object character
+// is the only character in a node, we also treat this character as a word.
+enum class AXEmbeddedObjectBehavior {
+  kExposeCharacter,
+  kSuppressCharacter,
+};
+
+// Controls whether embedded objects are represented by a replacement
+// character. This is initialized to a per-platform default but can be
+// overridden for testing.
+AX_EXPORT extern AXEmbeddedObjectBehavior g_ax_embedded_object_behavior;
 
 // Forward declarations.
 template <class AXPositionType, class AXNodeType>
@@ -134,6 +168,13 @@ class AXPosition {
   static const int BEFORE_TEXT = -1;
   static const int INVALID_INDEX = -2;
   static const int INVALID_OFFSET = -1;
+
+  // Replacement character used to represent an empty object. See
+  // AXEmbeddedObjectBehavior for more information.
+  //
+  // Duplicate of AXPlatformNodeBase::kEmbeddedCharacter because we don't want
+  // to include platform specific code in here.
+  static constexpr base::char16 kEmbeddedCharacter = L'\xfffc';
 
   static AXPositionInstance CreateNullPosition() {
     AXPositionInstance new_position(new AXPositionType());
@@ -253,18 +294,20 @@ class AXPosition {
     if (!IsTextPosition() || text_offset_ > MaxTextOffset())
       return str;
 
-    std::string text = base::UTF16ToUTF8(GetText());
+    base::string16 text = GetText();
     DCHECK_GE(text_offset_, 0);
-    DCHECK_LE(text_offset_, int{text.length()});
-    std::string annotated_text;
-    if (text_offset_ == MaxTextOffset()) {
-      annotated_text = text + "<>";
+    int max_text_offset = MaxTextOffset();
+    DCHECK_LE(text_offset_, max_text_offset);
+    base::string16 annotated_text;
+    if (text_offset_ == max_text_offset) {
+      annotated_text = text + base::WideToUTF16(L"<>");
     } else {
-      annotated_text = text.substr(0, text_offset_) + "<" + text[text_offset_] +
-                       ">" + text.substr(text_offset_ + 1);
+      annotated_text = text.substr(0, text_offset_) + base::WideToUTF16(L"<") +
+                       text[text_offset_] + base::WideToUTF16(L">") +
+                       text.substr(text_offset_ + 1);
     }
 
-    return str + " annotated_text=" + annotated_text;
+    return str + " annotated_text=" + base::UTF16ToUTF8(annotated_text);
   }
 
   AXTreeID tree_id() const { return tree_id_; }
@@ -706,38 +749,62 @@ class AXPosition {
     }
   }
 
-  bool AtStartOfFormat() const {
+  AXBoundaryType GetFormatStartBoundaryType() const {
     // Since formats are stored on text anchors, the start of a format boundary
     // must be at the start of an anchor.
     if (IsNullPosition() || !AtStartOfAnchor())
-      return false;
+      return AXBoundaryType::kNone;
 
     // Treat the first iterable node as a format boundary.
     if (CreatePreviousLeafTreePosition()->IsNullPosition())
-      return true;
+      return AXBoundaryType::kDocumentStart;
+
+    // Ignored positions cannot be format boundaries.
+    if (IsIgnored())
+      return AXBoundaryType::kNone;
 
     // Iterate over anchors until a format boundary is found. This will return a
     // null position upon crossing a boundary.
     AXPositionInstance previous_position = CreatePreviousLeafTreePosition(
         base::BindRepeating(&AbortMoveAtFormatBoundary));
-    return previous_position->IsNullPosition();
+
+    if (previous_position->IsNullPosition())
+      return AXBoundaryType::kUnitBoundary;
+
+    return AXBoundaryType::kNone;
   }
 
-  bool AtEndOfFormat() const {
+  bool AtStartOfFormat() const {
+    return GetFormatStartBoundaryType() != AXBoundaryType::kNone;
+  }
+
+  AXBoundaryType GetFormatEndBoundaryType() const {
     // Since formats are stored on text anchors, the end of a format break must
     // be at the end of an anchor.
     if (IsNullPosition() || !AtEndOfAnchor())
-      return false;
+      return AXBoundaryType::kNone;
 
     // Treat the last iterable node as a format boundary
     if (CreateNextLeafTreePosition()->IsNullPosition())
-      return true;
+      return AXBoundaryType::kDocumentEnd;
+
+    // Ignored positions cannot be format boundaries.
+    if (IsIgnored())
+      return AXBoundaryType::kNone;
 
     // Iterate over anchors until a format boundary is found. This will return a
     // null position upon crossing a boundary.
     AXPositionInstance next_position = CreateNextLeafTreePosition(
         base::BindRepeating(&AbortMoveAtFormatBoundary));
-    return next_position->IsNullPosition();
+
+    if (next_position->IsNullPosition())
+      return AXBoundaryType::kUnitBoundary;
+
+    return AXBoundaryType::kNone;
+  }
+
+  bool AtEndOfFormat() const {
+    return GetFormatEndBoundaryType() != AXBoundaryType::kNone;
   }
 
   bool AtStartOfInlineBlock() const {
@@ -1968,12 +2035,11 @@ class AXPosition {
     if (IsNullPosition())
       return Clone();
 
-    // AtStartOfFormat() always returns true if we are at the first iterable
-    // position, i.e. CreatePreviousLeafTreePosition()->IsNullPosition().
-    if (AtStartOfFormat()) {
+    AXBoundaryType boundary_type = GetFormatStartBoundaryType();
+    if (boundary_type != AXBoundaryType::kNone) {
       if (boundary_behavior == AXBoundaryBehavior::StopIfAlreadyAtBoundary ||
           (boundary_behavior == AXBoundaryBehavior::StopAtLastAnchorBoundary &&
-           CreatePreviousLeafTreePosition()->IsNullPosition())) {
+           boundary_type == AXBoundaryType::kDocumentStart)) {
         AXPositionInstance clone = Clone();
         // In order to make equality checks simpler, affinity should be reset so
         // that we would get consistent output from this function regardless of
@@ -1981,7 +2047,7 @@ class AXPosition {
         clone->affinity_ = ax::mojom::TextAffinity::kDownstream;
         return clone;
       } else if (boundary_behavior == AXBoundaryBehavior::CrossBoundary &&
-                 CreatePreviousLeafTreePosition()->IsNullPosition()) {
+                 boundary_type == AXBoundaryType::kDocumentStart) {
         // If we're at a format boundary and there are no more text positions
         // to traverse, return a null position for cross-boundary moves.
         return CreateNullPosition();
@@ -2004,7 +2070,8 @@ class AXPosition {
 
     // The first position in the document is also a format start boundary, so we
     // should not return NullPosition unless we started from that location.
-    while (!previous_tree_position->IsNullPosition() &&
+    while (boundary_type != AXBoundaryType::kDocumentStart &&
+           !previous_tree_position->IsNullPosition() &&
            !tree_position->AtStartOfFormat()) {
       tree_position = std::move(previous_tree_position);
       previous_tree_position = tree_position->CreatePreviousLeafTreePosition();
@@ -2031,12 +2098,11 @@ class AXPosition {
     if (IsNullPosition())
       return Clone();
 
-    // AtEndOfFormat() always returns true if we are at the last iterable
-    // position, i.e. CreateNextLeafTreePosition()->IsNullPosition().
-    if (AtEndOfFormat()) {
+    AXBoundaryType boundary_type = GetFormatEndBoundaryType();
+    if (boundary_type != AXBoundaryType::kNone) {
       if (boundary_behavior == AXBoundaryBehavior::StopIfAlreadyAtBoundary ||
           (boundary_behavior == AXBoundaryBehavior::StopAtLastAnchorBoundary &&
-           CreateNextLeafTreePosition()->IsNullPosition())) {
+           boundary_type == AXBoundaryType::kDocumentEnd)) {
         AXPositionInstance clone = Clone();
         // In order to make equality checks simpler, affinity should be reset so
         // that we would get consistent output from this function regardless of
@@ -2044,7 +2110,7 @@ class AXPosition {
         clone->affinity_ = ax::mojom::TextAffinity::kDownstream;
         return clone;
       } else if (boundary_behavior == AXBoundaryBehavior::CrossBoundary &&
-                 CreateNextLeafTreePosition()->IsNullPosition()) {
+                 boundary_type == AXBoundaryType::kDocumentEnd) {
         // If we're at a format boundary and there are no more text positions
         // to traverse, return a null position for cross-boundary moves.
         return CreateNullPosition();
@@ -2068,7 +2134,8 @@ class AXPosition {
 
     // The last position in the document is also a format end boundary, so we
     // should not return NullPosition unless we started from that location.
-    while (!next_tree_position->IsNullPosition() &&
+    while (boundary_type != AXBoundaryType::kDocumentEnd &&
+           !next_tree_position->IsNullPosition() &&
            !tree_position->AtEndOfFormat()) {
       tree_position = std::move(next_tree_position);
       next_tree_position = tree_position->CreateNextLeafTreePosition()
@@ -2561,6 +2628,22 @@ class AXPosition {
                                other_tree_position_ancestor->child_index());
   }
 
+  // Returns true if this position is on an empty object node that needs to
+  // be represented by an empty object replacement character. It does when
+  // the node has no child, is not a text object and we are on a platform that
+  // enables this feature.
+  bool IsEmptyObjectReplacedByCharacter() const {
+    if (g_ax_embedded_object_behavior ==
+            AXEmbeddedObjectBehavior::kSuppressCharacter ||
+        AnchorChildCount()) {
+      return false;
+    }
+    // All unignored leaf nodes in the AXTree except the document and the text
+    // nodes should be replaced by the embedded object character.
+    return !IsIgnored() && !IsDocument(GetRole()) &&
+           !GetAnchor()->IsTextOnlyObject();
+  }
+
   void swap(AXPosition& other) {
     std::swap(kind_, other.kind_);
     std::swap(tree_id_, other.tree_id_);
@@ -2577,8 +2660,8 @@ class AXPosition {
 
   // Returns the text that is present inside the anchor node, including any text
   // found in descendant text nodes, based on the platform's text
-  // representation. Some platforms use an embedded object character that
-  // replaces the text coming from each child node.
+  // representation. Some platforms use an embedded object replacement character
+  // that replaces the text coming from each child node.
   virtual base::string16 GetText() const = 0;
 
   // Determines if the anchor containing this position is a <br> or a text
@@ -2990,30 +3073,17 @@ class AXPosition {
     if (move_from.IsNullPosition() || move_to.IsNullPosition())
       return true;
 
-    // Treat moving to a leaf with different tags as a format break.
-    if ((move_to.AnchorChildCount() == 0) &&
-        move_from.GetAnchor()->GetStringAttribute(
-            ax::mojom::StringAttribute::kHtmlTag) !=
-            move_to.GetAnchor()->GetStringAttribute(
-                ax::mojom::StringAttribute::kHtmlTag)) {
-      return true;
-    }
-
-    // Treat moving to a different role as a format break
-    ax::mojom::Role current_role = move_from.GetRole();
-    ax::mojom::Role next_role = move_to.GetRole();
-    if (current_role != next_role) {
-      // Limit role breaks to headings only to emphasize text-style differences
-      // over role differences
-      if (current_role == ax::mojom::Role::kHeading ||
-          next_role == ax::mojom::Role::kHeading) {
+    // Treat moving into or out of nodes with certain roles as a format break.
+    ax::mojom::Role from_role = move_from.GetRole();
+    ax::mojom::Role to_role = move_to.GetRole();
+    if (from_role != to_role) {
+      if (IsFormatBoundary(from_role) || IsFormatBoundary(to_role))
         return true;
-      }
     }
 
     // Stop moving when text styles differ.
-    return move_from.AsLeafTextPosition()->GetTextStyles() !=
-           move_to.AsLeafTextPosition()->GetTextStyles();
+    return move_from.AsLeafTreePosition()->GetTextStyles() !=
+           move_to.AsLeafTreePosition()->GetTextStyles();
   }
 
   // AbortMovePredicate function used to detect paragraph boundaries.

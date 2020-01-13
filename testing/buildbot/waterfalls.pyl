@@ -12,6 +12,16 @@
   {
     'name': 'chrome',
     'machines': {
+      'chromeos-arm-generic-cfi-thin-lto-chrome': {
+        'additional_compile_targets': [
+          'chromiumos_preflight',
+        ],
+      },
+      'chromeos-betty-cfi-thin-lto-chrome': {
+        'additional_compile_targets': [
+          'chromiumos_preflight',
+        ],
+      },
       'chromeos-betty-chrome': {
         'additional_compile_targets': [
           'chromiumos_preflight',
@@ -664,29 +674,30 @@
   {
     'name': 'chromium.android.fyi',
     'machines': {
+      'Android WebView P Blink-CORS FYI (rel)': {
+        'mixins': [
+          'pie_fleet',
+          'walleye',
+        ],
+        'test_suites': {
+          'gtest_tests': 'webview_bot_blink_cors_gtests',
+          'isolated_scripts': 'android_wpt_scripts',
+        },
+        'args': [
+          '--disable-features=OutOfBlinkCors',
+        ],
+        'use_swarming': True,
+        'os_type': 'android',
+      },
       'Android WebView P FYI (rel)': {
         'mixins': [
           'pie_fleet',
           'walleye',
         ],
         'test_suites': {
+          'gtest_tests': 'webview_bot_instrumentation_test_apk_gtest',
           'isolated_scripts': 'android_wpt_scripts',
         },
-        'use_swarming': True,
-        'os_type': 'android',
-      },
-      'Android WebView P OOR-CORS FYI (rel)': {
-        'mixins': [
-          'pie_fleet',
-          'walleye',
-        ],
-        'test_suites': {
-          'gtest_tests': 'webview_bot_oor_cors_gtests',
-          'isolated_scripts': 'android_wpt_scripts',
-        },
-        'args': [
-          '--enable-features=OutOfBlinkCors',
-        ],
         'use_swarming': True,
         'os_type': 'android',
       },
@@ -1842,6 +1853,15 @@
           'isolated_scripts': 'chromium_webkit_isolated_scripts',
         },
       },
+      'linux-blink-cors-rel': {
+        'mixins': [
+          'linux-xenial'
+        ],
+        'test_suites': {
+          'gtest_tests': 'blink_cors_gtests',
+          'isolated_scripts': 'chromium_webkit_isolated_scripts'
+        }
+      },
       'linux-blink-heap-concurrent-marking-tsan-rel': {
         'mixins': [
           'linux-xenial',
@@ -1917,15 +1937,6 @@
         'test_suites': {
           'gtest_tests': 'fieldtrial_browser_tests',
         },
-      },
-      'linux-oor-cors-rel': {
-        'mixins': [
-          'linux-xenial'
-        ],
-        'test_suites': {
-          'gtest_tests': 'oor_cors_gtests',
-          'isolated_scripts': 'chromium_webkit_isolated_scripts'
-        }
       },
       'linux-wpt-fyi-rel': {
         'mixins': [
@@ -3475,6 +3486,7 @@
           'all',
         ],
         'mixins': [
+          'fuchsia_aemu',
           'linux-xenial',
         ],
         'swarming': {
@@ -4529,6 +4541,14 @@
     'name': 'tryserver.devtools-frontend',
     'machines': {
       'devtools_frontend_linux_blink_light_rel': {
+        'mixins': [
+          'linux-xenial',
+        ],
+        'test_suites': {
+          'isolated_scripts': 'devtools_webkit_isolated_scripts',
+        },
+      },
+      'devtools_frontend_linux_blink_rel': {
         'mixins': [
           'linux-xenial',
         ],

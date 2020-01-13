@@ -15,7 +15,6 @@
 <translation id="1111673857033749125">Digər cihazlarınızda yadda saxlanmış əlfəcinlər burada görünəcək.</translation>
 <translation id="1113597929977215864">Sadə görüntüyə baxın</translation>
 <translation id="1122278879166832009">İstənilən yerdən əsas səhifəyə cəld giriş imkanı əldə etmək üçün bura toxunun</translation>
-<translation id="1124772482545689468">İstifadəçi</translation>
 <translation id="1129510026454351943">Detallar: <ph name="ERROR_DESCRIPTION" /></translation>
 <translation id="1141800923049248244">{FILE_COUNT,plural, =1{1 endirmə gözlənilir.}other{# endirmə gözlənilir.}}</translation>
 <translation id="1145536944570833626">Mövcud datanı silin.</translation>
@@ -24,7 +23,6 @@
 <translation id="1171770572613082465">"Popluyar saytlar" seçiminə klikləyin və məşhur saytlara baxın</translation>
 <translation id="1173894706177603556">Adını dəyişin</translation>
 <translation id="1178581264944972037">Durdurun</translation>
-<translation id="1181037720776840403">Silin</translation>
 <translation id="1188239144602654184">AR-ə başlayın</translation>
 <translation id="1197267115302279827">Əlfəcinləri köçürün</translation>
 <translation id="119944043368869598">Hamısını silin</translation>
@@ -85,7 +83,6 @@
 <translation id="1571304935088121812">İstifadəçi adını kopyalayın</translation>
 <translation id="1612196535745283361">Chrome, cihazları skan etmək üçün məkana giriş tələb edir. Məkan girişi <ph name="BEGIN_LINK" />bu cihaz üçün deaktiv edilib<ph name="END_LINK" />.</translation>
 <translation id="1620510694547887537">Kamera</translation>
-<translation id="1623104350909869708">Bu səhifədə əlavə dialoqlar yaranmasın</translation>
 <translation id="1628019612362412531">{NUM_SELECTED,plural, =1{Seçilmiş 1 elementi silin}other{Seçilmiş # elementi silin}}</translation>
 <translation id="164269334534774161"><ph name="CREATION_TIME" /> tarixində yaradılmış səhifənin oflayn nüsxəsini görürsünüz</translation>
 <translation id="1644574205037202324">Tarixçə</translation>
@@ -96,7 +93,6 @@
 <translation id="1672586136351118594">Daha göstərməyin</translation>
 <translation id="1692118695553449118">Sinxronizasiya aktivdir</translation>
 <translation id="169515064810179024">Saytların hərəkət sensorlarına girişini blok edin</translation>
-<translation id="1711267867945983636">Davam etmək üçün telefonunuzda NFC'ni aktiv edin</translation>
 <translation id="1717218214683051432">Hərəkət sensorları</translation>
 <translation id="1718835860248848330">Son saat</translation>
 <translation id="1736419249208073774">Araşdırın</translation>
@@ -149,7 +145,6 @@
 <translation id="2056878612599315956">Sayt dayandırıldı</translation>
 <translation id="2063713494490388661">Axtarış etmək üçün klikləyin</translation>
 <translation id="2067805253194386918">mətn</translation>
-<translation id="2079545284768500474">Geri qaytarın</translation>
 <translation id="2082238445998314030"><ph name="TOTAL_RESULTS" /> nəticədən <ph name="RESULT_NUMBER" /></translation>
 <translation id="2091887806945687916">Səs</translation>
 <translation id="2096012225669085171">Cihazlarda sinxronizaisya edin və fərdiləşdirin</translation>
@@ -164,7 +159,6 @@
 <translation id="213279576345780926"><ph name="TAB_TITLE" /> qapadıldı</translation>
 <translation id="2139186145475833000">Ev ekranına əlavə edin</translation>
 <translation id="2146738493024040262">Ani tətbiqi açın</translation>
-<translation id="2148716181193084225">Bu gün</translation>
 <translation id="2154484045852737596">Kartı redaktə edin</translation>
 <translation id="2154710561487035718">Linki Kopyalayın</translation>
 <translation id="2156074688469523661">Qalan saytlar (<ph name="NUMBER_OF_SITES" />)</translation>
@@ -186,7 +180,6 @@
 <translation id="2328985652426384049">Daxil olmaq mümkün deyil</translation>
 <translation id="2349710944427398404">Hesablar, əlfəcinlər və yadda saxlanılan ayarlar daxil olmaqla, Chrome tərəfindən istifadə olunmuş ümumi data</translation>
 <translation id="2353636109065292463">İnternet bağlantısının yoxlanması</translation>
-<translation id="2359808026110333948">Davam edin</translation>
 <translation id="2369533728426058518">panelləri açın</translation>
 <translation id="2387895666653383613">Mətn miqyası</translation>
 <translation id="2394602618534698961">Endirdiyiniz fayllar burada görünəcək</translation>
@@ -233,9 +226,6 @@
 <translation id="2647434099613338025">Dil əlavə edin</translation>
 <translation id="2650751991977523696">Fayl yenidən endirilsin?</translation>
 <translation id="2651091186440431324">{FILE_COUNT,plural, =1{# Audio fayl}other{# Audio fayl}}</translation>
-<translation id="2653659639078652383">Təqdim edin</translation>
-<translation id="2677748264148917807">Tərk edin</translation>
-<translation id="2704606927547763573">Kopyalandı</translation>
 <translation id="2707726405694321444">Səhifəni yeniləyin</translation>
 <translation id="2709516037105925701">Avtomatik doldurma</translation>
 <translation id="2717722538473713889">E-poçt ünvanları</translation>
@@ -289,7 +279,6 @@
 <translation id="3058498974290601450">Sinxronizasiyanı istənilən vaxt ayarlarda deaktiv edə bilərsiniz</translation>
 <translation id="3060635849835183725">{BOOKMARKS_COUNT,plural, =1{<ph name="BOOKMARKS_COUNT_ONE" /> əlfəcin}other{<ph name="BOOKMARKS_COUNT_MANY" /> əlfəcin}}</translation>
 <translation id="3089395242580810162">Gizli tabda açın</translation>
-<translation id="3115898365077584848">Məlumatı göstərin</translation>
 <translation id="3123473560110926937">Bəzi saytlarda bloklandı</translation>
 <translation id="3137521801621304719">Gizli rejimdən çıxın</translation>
 <translation id="3143515551205905069">Sinxronizasiyanı ləğv edin</translation>
@@ -315,7 +304,6 @@
 <translation id="3288003805934695103">Səhifə təkrar yüklənir</translation>
 <translation id="32895400574683172">Bildirişlər aktivdir</translation>
 <translation id="3295530008794733555">Daha sürətli axtarış edin. Daha az data istifadə edin.</translation>
-<translation id="3295602654194328831">Məlumatı gizlədin</translation>
 <translation id="3298243779924642547">Xəbərdarlıq</translation>
 <translation id="3303414029551471755">Kontentin endirilməsinə davam etmək istəyirsiniz?</translation>
 <translation id="3306398118552023113">Bu tətbiq Chrome'da işləyir</translation>
@@ -337,7 +325,6 @@
 <translation id="3443221991560634068">Cari səhifəni yenidən yükləyin</translation>
 <translation id="3445014427084483498">İndicə</translation>
 <translation id="3478363558367712427">Axtarış maşınını seçə bilərsiniz</translation>
-<translation id="3479552764303398839">İndi yox</translation>
 <translation id="3492207499832628349">Yeni gizli panel</translation>
 <translation id="3493531032208478708">Təklif məzmunu haqqında <ph name="BEGIN_LINK" />daha ətraflı<ph name="END_LINK" /></translation>
 <translation id="3513704683820682405">Artırılmış Reallıq</translation>
@@ -379,7 +366,7 @@
 <translation id="381841723434055211">Telefon nömrələri</translation>
 <translation id="3819178904835489326"><ph name="NUMBER_OF_DOWNLOADS" /> endirmə silindi</translation>
 <translation id="3822502789641063741">Sayt yaddaşı silinsin?</translation>
-<translation id="385051799172605136">Geri</translation>
+<translation id="3853625385350850937">Davam etmək üçün cihazınızda NFC'ni aktiv edin</translation>
 <translation id="3859306556332390985">İrəli axtarın</translation>
 <translation id="388596076286380598">Oflayn və ya bağlantınız zəif olduqda belə, bəyəndiyiniz saytlardan məqalələr, videolar və digər məzmunu əldə edin.</translation>
 <translation id="3894427358181296146">Qovluq əlavə edin</translation>
@@ -402,7 +389,6 @@
 <translation id="3991845972263764475"><ph name="BYTES_DOWNLOADED_WITH_UNITS" /> / ?</translation>
 <translation id="3997476611815694295">Əhəmiyyətsiz yaddaş</translation>
 <translation id="4000212216660919741">Ev oflayndır</translation>
-<translation id="4002066346123236978">Başlıq</translation>
 <translation id="4008040567710660924">Xüsusi sayt üçün kukilərə icazə verin.</translation>
 <translation id="4034817413553209278">{HOURS,plural, =1{# saat}other{# saat}}</translation>
 <translation id="4046123991198612571">Növbəti trek</translation>
@@ -473,7 +459,6 @@ Axtarış terminini nizamlamaq üçün basıb saxlamaqla seçim edin. Axtarış�
 <translation id="4558311620361989323">Veb səhifə qısayolları</translation>
 <translation id="4561979708150884304">Bağlantı yoxdur</translation>
 <translation id="4565377596337484307">Parolu gizlədin</translation>
-<translation id="4570913071927164677">Ətraflı</translation>
 <translation id="4572422548854449519">İdarə olunan hesablara daxil olun</translation>
 <translation id="4574741712540401491">•  <ph name="LIST_ITEM_TEXT" /></translation>
 <translation id="4583164079174244168">{MINUTES,plural, =1{# dəqiqə öncə}other{# dəqiqə öncə}}</translation>
@@ -574,13 +559,10 @@ Ayarı dəyişmək üçün <ph name="BEGIN_LINK" />sinxronizasiyanı sıfırlay�
 <translation id="5271967389191913893">Endirilməli olan kontenti cihaz aça bilmir.</translation>
 <translation id="528192093759286357">Yuxarıdan sürüşdürün və tam ekrandan çıxmaq üçün geri düyməsinə basın.</translation>
 <translation id="5292796745632149097">Kimə</translation>
-<translation id="5300589172476337783">Göstərin</translation>
-<translation id="5301954838959518834">Ok, anladım</translation>
 <translation id="5304593522240415983">Bu hissə boş ola bilməz</translation>
 <translation id="5307446750509046227">Sayt yaddaşını silin</translation>
 <translation id="5308380583665731573">Qoşun</translation>
 <translation id="5313967007315987356">Sayt əlavə edin</translation>
-<translation id="5317780077021120954">Yadda saxlayın</translation>
 <translation id="5324858694974489420">Valideyn Ayarları</translation>
 <translation id="5327248766486351172">Ad</translation>
 <translation id="5335288049665977812">Saytlara JavaScript işlətməyə icazə verin (tövsiyə olunur)</translation>
@@ -620,7 +602,6 @@ Ayarı dəyişmək üçün <ph name="BEGIN_LINK" />sinxronizasiyanı sıfırlay�
 <translation id="5527111080432883924">Saytların buferdəki mətn və şəkillərə girişinə icazə vermədən öncə soruşun (məsləhətlidir)</translation>
 <translation id="5530766185686772672">Gizli panelləri bağlayın</translation>
 <translation id="5534640966246046842">Sayt kopyalandı</translation>
-<translation id="5556459405103347317">Yenidən yükləyin</translation>
 <translation id="5561549206367097665">Şəbəkə gözlənilir…</translation>
 <translation id="557283862590186398">Chrome bu sayt üçün mikrofona giriş icazəsi tələb edir.</translation>
 <translation id="55737423895878184">Məkan və bildirişlər aktivdir</translation>
@@ -664,7 +645,6 @@ Ayarı dəyişmək üçün <ph name="BEGIN_LINK" />sinxronizasiyanı sıfırlay�
 <translation id="5853623416121554550">dayandırıldı</translation>
 <translation id="5854790677617711513">30 gündən çox</translation>
 <translation id="5858741533101922242">Chrome Bluetooth adapterini aktivləşdirə bilmir</translation>
-<translation id="5860033963881614850">Deaktiv</translation>
 <translation id="5860491529813859533">Aktiv edin</translation>
 <translation id="5862731021271217234">Tabları digər cihazlarınızdan əldə etmək üçün sinxronizasiyanı aktiv edin</translation>
 <translation id="5864174910718532887">Məlumat: Sayt adına görə çeşidləndi</translation>
@@ -672,7 +652,6 @@ Ayarı dəyişmək üçün <ph name="BEGIN_LINK" />sinxronizasiyanı sıfırlay�
 <translation id="5865733239029070421">İstifadə statistikası və qəza raportlarını avtomatik Google'a göndərir</translation>
 <translation id="5869522115854928033">Saxlanılmış parollar</translation>
 <translation id="5902828464777634901">Bu sayt tərəfindən saxlanmış bütün lokal data silinəcək.</translation>
-<translation id="5916664084637901428">Aktiv</translation>
 <translation id="5919204609460789179">Sinxronizasiyanı başlatmaq üçün <ph name="PRODUCT_NAME" /> məhsulunu yeniləyin</translation>
 <translation id="5937580074298050696"><ph name="AMOUNT" /> istifadə edildi</translation>
 <translation id="5939518447894949180">Sıfırlayın</translation>
@@ -700,7 +679,6 @@ Ayarı dəyişmək üçün <ph name="BEGIN_LINK" />sinxronizasiyanı sıfırlay�
 <translation id="614940544461990577">Cəhd edin:</translation>
 <translation id="6154478581116148741">Bu cihazdan parolları eksport etmək üçün Ayarlarda ekran kilidini aktiv edin</translation>
 <translation id="6159335304067198720"><ph name="PERCENT" /> data qənaətləri</translation>
-<translation id="6165508094623778733">Ətraflı öyrənin</translation>
 <translation id="6177111841848151710">Cari axtarış sistemi üçün blok edildi</translation>
 <translation id="6181444274883918285">Sayt istisnası əlavə edin</translation>
 <translation id="6192333916571137726">Faylı endirin</translation>
@@ -750,7 +728,6 @@ Ayarı dəyişmək üçün <ph name="BEGIN_LINK" />sinxronizasiyanı sıfırlay�
 <translation id="6482749332252372425">Yadda az olduğu üçün <ph name="FILE_NAME" /> endirilə bilmədi.</translation>
 <translation id="6496823230996795692"><ph name="APP_NAME" /> tətbiqini ilk dəfə istifadə etmək üçün internetə qoşulun.</translation>
 <translation id="6508722015517270189">Chrome'u yenidən başladın</translation>
-<translation id="6527303717912515753">Paylaşın</translation>
 <translation id="6532866250404780454">Chrome'da girdiyiniz saytlar göstərilməyəcək. Bütün sayt taymerləri silinəcək.</translation>
 <translation id="6534565668554028783">Google cavab üçün çox vaxt aldı</translation>
 <translation id="6538442820324228105"><ph name="GBS" /> GB endirildi</translation>
@@ -789,7 +766,6 @@ Ayarı dəyişmək üçün <ph name="BEGIN_LINK" />sinxronizasiyanı sıfırlay�
 <translation id="6710213216561001401">Əvvəlki</translation>
 <translation id="671481426037969117"><ph name="FQDN" /> taymerinin vaxtı bitir. Sabah yenidən başlayacaq.</translation>
 <translation id="6738867403308150051">Endirilir...</translation>
-<translation id="6746124502594467657">Aşağı köçürün</translation>
 <translation id="6766622839693428701">Bağlamaq üçün aşağı sürüşdürün.</translation>
 <translation id="6766758767654711248">Sayta keçmək üçün klikləyin</translation>
 <translation id="6767294960381293877">Yarı hündürlükdə açılan tabı paylaşa biləcəyiniz cihazların siyahısı.</translation>
@@ -809,14 +785,12 @@ Ayarı dəyişmək üçün <ph name="BEGIN_LINK" />sinxronizasiyanı sıfırlay�
 <translation id="688738109438487280">Mövcud datanı <ph name="TO_ACCOUNT" /> hesabına əlavə edin.</translation>
 <translation id="6891726759199484455">Parolu kopyalamaq üçün kiliddən çıxarın</translation>
 <translation id="6896758677409633944">Kopyalayın</translation>
-<translation id="6910211073230771657">Silinib</translation>
 <translation id="6912998170423641340">Saytların buferdəki mətn və şəkillərə girişini blok edin</translation>
 <translation id="6914783257214138813">Eksport edilmiş faylı görən hər kəs parollarınızı görəcək.</translation>
 <translation id="6942665639005891494">Ayarlarda menyu seçimi ilə istənilən zaman defolt endirmə məkanını dəyişin</translation>
 <translation id="6945221475159498467">Seçin</translation>
 <translation id="6963642900430330478">Bu səhifə təhlükəlidir. Sayt barədə məlumat</translation>
 <translation id="6963766334940102469">Əlfəcinləri silin</translation>
-<translation id="6965382102122355670">OK</translation>
 <translation id="6979737339423435258">Hər zaman</translation>
 <translation id="6981982820502123353">Giriş İmkanı</translation>
 <translation id="6989267951144302301">Endirilmədi</translation>
@@ -858,7 +832,6 @@ Ayarı dəyişmək üçün <ph name="BEGIN_LINK" />sinxronizasiyanı sıfırlay�
 <translation id="729975465115245577">Cihazda parollar faylını saxlamaq üçün tətbiq yoxdur.</translation>
 <translation id="7302081693174882195">Məlumat: Yadda saxlanmış data həcminə görə çeşidlənib</translation>
 <translation id="7302486331832100261">Adətən bildirişləri bloklayırsınız. İcazə vermək üçün Detallar seçiminə toxunun.</translation>
-<translation id="7311441321349344333">NFC bu cihazda deaktivdir. <ph name="BEGIN_LINK" />Android Ayarlarında<ph name="END_LINK" /> NFC'ni aktiv edin.</translation>
 <translation id="7328017930301109123">Layt rejimində Chrome səhifələri daha tez yükləyir və dataya 60 faizədək qənaət edir.</translation>
 <translation id="7333031090786104871">Əvvəlki sayt hələ əlavə olunur</translation>
 <translation id="7352939065658542140">VİDEO</translation>
@@ -914,7 +887,6 @@ Bu sayt kameraya daxil olmur. Kamera şəkillərini yalnız Siz görürsünüz.<
 <translation id="7638584964844754484">Yanlış parol</translation>
 <translation id="7641339528570811325">Brauzinq datasını təmizləyin...</translation>
 <translation id="7648422057306047504">Parolları Google kredensialları ilə şifrləyin</translation>
-<translation id="7649070708921625228">Yardım</translation>
 <translation id="7658239707568436148">Ləğv edin</translation>
 <translation id="7665369617277396874">Hesab əlavə edin</translation>
 <translation id="766587987807204883">Məqalələr burada görünəcək. Onları oflayn olduqda belə oxuya bilərsiniz</translation>
@@ -930,7 +902,6 @@ Bu sayt kameraya daxil olmur. Kamera şəkillərini yalnız Siz görürsünüz.<
 <translation id="7772032839648071052">Parolu təsdiq edin</translation>
 <translation id="7772375229873196092"><ph name="APP_NAME" /> tətbiqini bağlayın</translation>
 <translation id="7774809984919390718">{PAYMENT_METHOD,plural, =1{<ph name="PAYMENT_METHOD_PREVIEW" />\u2026 və <ph name="NUMBER_OF_ADDITIONAL_PAYMENT_METHODS" /> digəri}other{<ph name="PAYMENT_METHOD_PREVIEW" />\u2026 və <ph name="NUMBER_OF_ADDITIONAL_PAYMENT_METHODS" /> digəri}}</translation>
-<translation id="7781829728241885113">Dünən</translation>
 <translation id="7791543448312431591">Əlavə etmək</translation>
 <translation id="780301667611848630">Yox, çox sağ olun</translation>
 <translation id="7810647596859435254">Bununla açın...</translation>
@@ -982,7 +953,6 @@ Bu sayt kameraya daxil olmur. Kamera şəkillərini yalnız Siz görürsünüz.<
 <translation id="8110087112193408731">Digital Sağlamlıqda Chrome fəaliyyəti göstərilsin?</translation>
 <translation id="8116925261070264013">Səssiz</translation>
 <translation id="813082847718468539">Sayt məlumatına baxın</translation>
-<translation id="8131740175452115882">Təsdiq edin</translation>
 <translation id="8156139159503939589">Hansı dilləri oxuyursunuz?</translation>
 <translation id="8168435359814927499">Kontent</translation>
 <translation id="8186512483418048923"><ph name="FILES" /> fayl qalır</translation>
@@ -992,7 +962,6 @@ Bu sayt kameraya daxil olmur. Kamera şəkillərini yalnız Siz görürsünüz.<
 <translation id="8218622182176210845">Hesabınızı idarə edin</translation>
 <translation id="8224471946457685718">Wi-Fi ilə məqalələr endirin</translation>
 <translation id="8232956427053453090">Datanı saxlayın</translation>
-<translation id="8249310407154411074">Ən yuxarı</translation>
 <translation id="8250920743982581267">Sənədlər</translation>
 <translation id="825412236959742607">Bu səhifə həddindən artıq çox yaddaşdan istifadə edir, buna görə də Chrome kontentin bir hissəsini silib.</translation>
 <translation id="8260126382462817229">Yenidən daxil olmağa cəhd edin</translation>
@@ -1026,7 +995,7 @@ Bu sayt kameraya daxil olmur. Kamera şəkillərini yalnız Siz görürsünüz.<
 <translation id="8487700953926739672">Oflayn olaraq əlçatan</translation>
 <translation id="8489271220582375723">Tarixçə səhifəsini açın</translation>
 <translation id="8493948351860045254">Yaddaşı boşaldın</translation>
-<translation id="8497726226069778601">Burada baxmağa heçnə yoxdur... hələki</translation>
+<translation id="8497726226069778601">Hələ ki, burada baxılası heç nə yoxdur.</translation>
 <translation id="8503559462189395349">Chrome Parolları</translation>
 <translation id="8503813439785031346">İstifadəçi adı</translation>
 <translation id="8514477925623180633">Chrome'da saxlanılan parolları eksport edin</translation>
@@ -1043,7 +1012,6 @@ Bu sayt kameraya daxil olmur. Kamera şəkillərini yalnız Siz görürsünüz.<
 <translation id="857943718398505171">İcazə verilib (tövsiyə olunur)</translation>
 <translation id="8583805026567836021">Hesab datası silinir</translation>
 <translation id="860043288473659153">Kart sahibinin adı</translation>
-<translation id="8609465669617005112">Yuxarı köçürün</translation>
 <translation id="8616006591992756292"><ph name="BEGIN_LINK" />history.google.com<ph name="END_LINK" /> linkində Google Hesabına məxsus axtarış tarixçəsinin başqa formaları ola bilər.</translation>
 <translation id="8617240290563765734">Endirilmiş kontentdə təklif edilən link açılsın?</translation>
 <translation id="8636825310635137004">Panelləri digər cihazlarınızdan əldə etmək üçün sinxronizasiyanı aktiv edin.</translation>
@@ -1057,9 +1025,7 @@ Bu sayt kameraya daxil olmur. Kamera şəkillərini yalnız Siz görürsünüz.<
 <translation id="868929229000858085">Kontaktlarda axtarın</translation>
 <translation id="869891660844655955">Bitmə tarixi</translation>
 <translation id="8719023831149562936">Cari tab şülana bilmir</translation>
-<translation id="8725066075913043281">Yenidən cəhd edin</translation>
 <translation id="8728487861892616501">Bu tətbiqi istifadə etməklə Chrome <ph name="BEGIN_LINK1" />Xidmət Şərtləri<ph name="END_LINK1" />,<ph name="BEGIN_LINK2" />Məxfilik Bildirişi<ph name="END_LINK2" /> və <ph name="BEGIN_LINK3" />Ailə Linkində Yaradılmış Google Hesabları üçün Məxfilik Bildirişi<ph name="END_LINK3" /> ilə razılaşırsınız.</translation>
-<translation id="8730621377337864115">Tamamdır</translation>
 <translation id="8748850008226585750">Məzmun gizlidir</translation>
 <translation id="8751914237388039244">Şəkil seçin</translation>
 <translation id="8758557275681689734">Bütün açıq tabellərinizə baxın</translation>
@@ -1082,6 +1048,7 @@ Bu sayt kameraya daxil olmur. Kamera şəkillərini yalnız Siz görürsünüz.<
 <translation id="8912362522468806198">Google Hesabı</translation>
 <translation id="8920114477895755567">Valideynlərin məlumatları gözlənilir.</translation>
 <translation id="8922289737868596582">Oflayn istifadə etmək üçün səhifələri Digər seçimlər düyməsindən endirin</translation>
+<translation id="8926666909099850184">NFC bu cihazda deaktivdir. <ph name="BEGIN_LINK" />Android Ayarlarında<ph name="END_LINK" /> onu aktiv edin.</translation>
 <translation id="8937772741022875483">Chrome fəaliyyəti Rəqəmsal Sağlamlıqdan silinsin?</translation>
 <translation id="8941729603749328384">www.example.com</translation>
 <translation id="8942627711005830162">Başqa pəncərədə açın</translation>

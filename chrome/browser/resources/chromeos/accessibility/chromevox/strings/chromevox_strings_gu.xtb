@@ -419,6 +419,7 @@
 <translation id="3914732343065571127">ChromeVox આદેશ સંદર્ભ</translation>
 <translation id="3930383913623796990">વાસંતી લીલો</translation>
 <translation id="3930498801443296724">પુલક્વોટ</translation>
+<translation id="3935615366277838204">કૅપિટલ <ph name="LETTER" /></translation>
 <translation id="3936394396199829062">આછો લવંડર</translation>
 <translation id="3941269780691800708">માઉસ હેઠળ આવતી ટેક્સ્ટ બોલો.</translation>
 <translation id="394953087167197343">ખોટી જોડણી સૂચવો:</translation>
@@ -792,7 +793,6 @@
 <translation id="6459511626086141404">સપાટ કિમેપ</translation>
 <translation id="6468049171101508116">આગલું બટન</translation>
 <translation id="646954774886932461">અનુક્રમણિકા</translation>
-<translation id="6479792383819319132">કોઈ આગલો ફકરો નથી.</translation>
 <translation id="6493991254603208962">તેજસ્વીતા ઘટાડો</translation>
 <translation id="6501595918865591267">પીરોજી</translation>
 <translation id="6508059270146105198">બ્રેઇલ ડિસ્પ્લેને પેજમાં સૌથી નીચે ખસેડો</translation>
@@ -815,7 +815,6 @@
 <translation id="6637586476836377253">લૉગ</translation>
 <translation id="6657128831881431364">પ્રોગ્રેસ બાર</translation>
 <translation id="6659594942844771486">ટૅબ</translation>
-<translation id="6675661017770918201">કોઈ પાછલો ફકરો નથી.</translation>
 <translation id="667999046851023355">દસ્તાવેજ</translation>
 <translation id="6688209025607531203">નોન મોડલ ચેતવણી</translation>
 <translation id="6689672606256159458">ઘેરો સૅમન</translation>
@@ -844,6 +843,7 @@
 <translation id="6865519907510167493">ખોટી જોડણીવાળો</translation>
 <translation id="6871161210040114857">કેસ અવગણી રહ્યાં છે.</translation>
 <translation id="6877435256196695200">આગલું ગ્રાફિક નથી.</translation>
+<translation id="688976158310523235">શોધ મેનૂ</translation>
 <translation id="6897341342232909480">ડાબે ખસેડો</translation>
 <translation id="6901540140423170855">તારીખ</translation>
 <translation id="6910211073230771657">કાઢી નાખ્યું</translation>
@@ -856,6 +856,7 @@
 <translation id="699159175332639490">શોધ + O + W</translation>
 <translation id="6994042831499278539">શબ્દાવલીનો સંદર્ભ</translation>
 <translation id="6996566555547746822">આગલું કૉંબો બૉક્સ</translation>
+<translation id="6997224546856374593">કૅપિટલ વાંચતી વખતેઃ</translation>
 <translation id="700202842116345659">ગ્રંથસૂચિની એન્ટ્રી</translation>
 <translation id="7005146664810010831">URL મળ્યું નથી</translation>
 <translation id="7010712454773919705">ChromeVox સંશોધક કી</translation>
@@ -936,6 +937,7 @@ Chrome બ્રાઉઝર મેનૂ ખોલવા માટે, Alt+F �
 <translation id="744163271241493234">pwded</translation>
 <translation id="7491962110804786152">ટેબ</translation>
 <translation id="7492049978501397201">દાખલ કરેલો સંવાદ</translation>
+<translation id="7505149250476994901">અક્ષર પહેલાં "કૅપિટલ" બોલો</translation>
 <translation id="7518543783849163354">ChromeVox ને બોલવાથી અસ્થાયીરૂપે રોકવા માટે, Control કી દબાવો.</translation>
 <translation id="7521682724501952239">તમે ટચસ્ક્રીન સાથે ChromeVoxનો ઉપયોગ કરી શકો છો.</translation>
 <translation id="7532613204005497612">જૂન</translation>
@@ -1207,6 +1209,7 @@ Chrome બ્રાઉઝર મેનૂ ખોલવા માટે, Alt+F �
 <translation id="9065283790526219006">+પૉપઅપ</translation>
 <translation id="9066023754636984703">Search+A દબાવો, વિગતો પર જવા માટે J દબાવો.</translation>
 <translation id="9067522039955793016">પેજ વિભાજન</translation>
+<translation id="9074824103975499138">ChromeVox મેનૂ શોધો</translation>
 <translation id="9077213568694924680">પસંદગીમાંથી દૂર કર્યું</translation>
 <translation id="9077305471618729969">આછો દરિયાઈ લીલો</translation>
 <translation id="9082874451376019682">કોઈ પાછલું સ્લાઇડર નથી.</translation>

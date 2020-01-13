@@ -291,9 +291,7 @@ class CC_EXPORT FrameSequenceTracker {
     return metrics_->main_throughput();
   }
 
-  void ScheduleTerminate() {
-    termination_status_ = TerminationStatus::kScheduledForTermination;
-  }
+  void ScheduleTerminate();
 
   struct TrackedFrameData {
     // Represents the |BeginFrameArgs::source_id| and
@@ -375,6 +373,16 @@ class CC_EXPORT FrameSequenceTracker {
   // scheduled to report histogram.
   base::TimeTicks first_frame_timestamp_;
 
+  // Keeps track of whether the impl-frame being processed did not have any
+  // damage from the compositor (i.e. 'impl damage').
+  bool frame_had_no_compositor_damage_ = false;
+
+  // Keeps track of whether a CompositorFrame is submitted during the frame.
+  bool compositor_frame_submitted_ = false;
+
+  // Keeps track of whether the frame-states should be reset.
+  bool reset_all_state_ = false;
+
   // A frame that is ignored at ReportSubmitFrame should never be presented.
   // TODO(xidachen): this should not be necessary. Some webview tests seem to
   // present a frame even if it is ignored by ReportSubmitFrame.
@@ -382,6 +390,9 @@ class CC_EXPORT FrameSequenceTracker {
 
   // Report the throughput metrics every 5 seconds.
   const base::TimeDelta time_delta_to_report_ = base::TimeDelta::FromSeconds(5);
+
+  uint64_t last_started_impl_sequence_ = 0;
+  uint64_t last_processed_impl_sequence_ = 0;
 
 #if DCHECK_IS_ON()
   bool is_inside_frame_ = false;
@@ -396,8 +407,7 @@ class CC_EXPORT FrameSequenceTracker {
   // when DCHECK is on.
   std::stringstream frame_sequence_trace_;
 
-  uint64_t last_started_impl_sequence_ = 0;
-  uint64_t last_processed_impl_sequence_ = 0;
+  uint64_t last_started_main_sequence_ = 0;
 
   // If ReportBeginImplFrame is never called on a arg, then ReportBeginMainFrame
   // should ignore that arg.

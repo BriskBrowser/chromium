@@ -60,6 +60,7 @@ using ::testing::Invoke;
 using ::testing::Property;
 using ::testing::Return;
 using ::testing::SizeIs;
+using ::testing::UnorderedElementsAre;
 
 class CollectUserDataActionTest : public content::RenderViewHostTestHarness {
  public:
@@ -571,6 +572,11 @@ TEST_F(CollectUserDataActionTest, UserDataComplete_Payment) {
   user_data.billing_address->SetRawInfo(autofill::ADDRESS_HOME_ZIP,
                                         base::UTF8ToUTF16("B1675"));
   EXPECT_TRUE(CollectUserDataAction::IsUserDataComplete(user_data, options));
+
+  // Expired credit card.
+  user_data.card->SetRawInfo(autofill::CREDIT_CARD_EXP_4_DIGIT_YEAR,
+                             base::UTF8ToUTF16("2019"));
+  EXPECT_FALSE(CollectUserDataAction::IsUserDataComplete(user_data, options));
 }
 
 TEST_F(CollectUserDataActionTest, UserDataComplete_Terms) {
@@ -828,15 +834,28 @@ TEST_F(CollectUserDataActionTest, TextInputSectionWritesToClientMemory) {
   input_field_2->set_input_type(TextInputProto::INPUT_ALPHANUMERIC);
   input_field_2->set_client_memory_key("key2");
 
+  auto* input_field_3 =
+      text_input_section->mutable_text_input_section()->add_input_fields();
+  input_field_3->set_input_type(TextInputProto::INPUT_ALPHANUMERIC);
+  input_field_3->set_client_memory_key("key3");
+
   EXPECT_FALSE(client_memory_.has_additional_value("key1"));
   EXPECT_FALSE(client_memory_.has_additional_value("key2"));
+  EXPECT_FALSE(client_memory_.has_additional_value("key3"));
   CollectUserDataAction action(&mock_action_delegate_, action_proto);
+
   EXPECT_CALL(
       callback_,
-      Run(Pointee(Property(&ProcessedActionProto::status, ACTION_APPLIED))));
+      Run(Pointee(AllOf(
+          Property(&ProcessedActionProto::status, ACTION_APPLIED),
+          Property(
+              &ProcessedActionProto::collect_user_data_result,
+              Property(&CollectUserDataResultProto::set_text_input_memory_keys,
+                       UnorderedElementsAre("key1", "key2")))))));
   action.ProcessAction(callback_.Get());
   EXPECT_EQ(*client_memory_.additional_value("key1"), "initial");
   EXPECT_EQ(*client_memory_.additional_value("key2"), "modified");
+  EXPECT_EQ(*client_memory_.additional_value("key3"), "");
 }
 
 TEST_F(CollectUserDataActionTest, AllowedBasicCardNetworks) {

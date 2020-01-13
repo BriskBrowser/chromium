@@ -348,7 +348,7 @@ TEST_F(WorkspaceControllerTest, ShelfStateUpdated) {
   std::unique_ptr<Window> w1(CreateTestWindow());
   const gfx::Rect w1_bounds(0, 1, 101, 102);
   Shelf* shelf = GetPrimaryShelf();
-  shelf->SetAutoHideBehavior(ash::ShelfAutoHideBehavior::kAlways);
+  shelf->SetAutoHideBehavior(ShelfAutoHideBehavior::kAlways);
   const gfx::Rect touches_shelf_bounds(
       0, shelf_layout_manager()->GetIdealBounds().y() - 10, 101, 102);
   // Move |w1| to overlap the shelf.
@@ -444,7 +444,7 @@ TEST_F(WorkspaceControllerTest, MinimizeResetsVisibility) {
   // AshTestHelper.
   SessionInfo info;
   info.state = session_manager::SessionState::ACTIVE;
-  ash::Shell::Get()->session_controller()->SetSessionInfo(info);
+  Shell::Get()->session_controller()->SetSessionInfo(info);
 
   std::unique_ptr<Window> w1(CreateTestWindow());
   w1->Show();
@@ -1005,10 +1005,10 @@ TEST_F(WorkspaceControllerTest, TestRestoreToUserModifiedBounds) {
 
   // A user moved the window.
   std::unique_ptr<WindowResizer> resizer(
-      CreateWindowResizer(window1.get(), gfx::Point(), HTCAPTION,
+      CreateWindowResizer(window1.get(), gfx::PointF(), HTCAPTION,
                           ::wm::WINDOW_MOVE_SOURCE_MOUSE)
           .release());
-  gfx::Point location = resizer->GetInitialLocation();
+  gfx::PointF location = resizer->GetInitialLocation();
   location.Offset(-50, 0);
   resizer->Drag(location, 0);
   resizer->CompleteDrag();

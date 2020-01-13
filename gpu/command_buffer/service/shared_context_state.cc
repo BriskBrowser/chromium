@@ -12,6 +12,7 @@
 #include "gpu/command_buffer/service/service_transfer_cache.h"
 #include "gpu/command_buffer/service/service_utils.h"
 #include "gpu/config/gpu_driver_bug_workarounds.h"
+#include "gpu/config/skia_limits.h"
 #include "gpu/vulkan/buildflags.h"
 #include "skia/buildflags.h"
 #include "ui/gl/gl_bindings.h"
@@ -87,8 +88,8 @@ SharedContextState::SharedContextState(
       context_(context),
       real_context_(std::move(context)),
       surface_(std::move(surface)) {
-  raster::DetermineGrCacheLimitsFromAvailableMemory(
-      &max_resource_cache_bytes_, &glyph_cache_max_texture_bytes_);
+  DetermineGrCacheLimitsFromAvailableMemory(&max_resource_cache_bytes_,
+                                            &glyph_cache_max_texture_bytes_);
   if (GrContextIsVulkan()) {
 #if BUILDFLAG(ENABLE_VULKAN)
     gr_context_ = vk_context_provider_->GetGrContext();
@@ -155,6 +156,7 @@ SharedContextState::~SharedContextState() {
 }
 
 void SharedContextState::InitializeGrContext(
+    const GpuPreferences& gpu_preferences,
     const GpuDriverBugWorkarounds& workarounds,
     GrContextOptions::PersistentCache* cache,
     GpuProcessActivityFlags* activity_flags,
@@ -220,7 +222,7 @@ void SharedContextState::InitializeGrContext(
   } else {
     gr_context_->setResourceCacheLimit(max_resource_cache_bytes_);
   }
-  transfer_cache_ = std::make_unique<ServiceTransferCache>();
+  transfer_cache_ = std::make_unique<ServiceTransferCache>(gpu_preferences);
 }
 
 bool SharedContextState::InitializeGL(
@@ -312,11 +314,11 @@ bool SharedContextState::InitializeGL(
 }
 
 bool SharedContextState::MakeCurrent(gl::GLSurface* surface, bool needs_gl) {
-  if (!GrContextIsGL() && !needs_gl)
-    return true;
-
   if (context_lost_)
     return false;
+
+  if (!GrContextIsGL() && !needs_gl)
+    return true;
 
   gl::GLSurface* dont_care_surface =
       last_current_surface_ ? last_current_surface_ : surface_.get();
@@ -344,7 +346,6 @@ void SharedContextState::ReleaseCurrent(gl::GLSurface* surface) {
 }
 
 void SharedContextState::MarkContextLost() {
-  DCHECK(GrContextIsGL());
   if (!context_lost_) {
     scoped_refptr<SharedContextState> prevent_last_ref_drop = this;
     context_lost_ = true;
@@ -424,7 +425,8 @@ void SharedContextState::PurgeMemory(
       break;
   }
 
-  transfer_cache_->PurgeMemory(memory_pressure_level);
+  if (transfer_cache_)
+    transfer_cache_->PurgeMemory(memory_pressure_level);
 }
 
 uint64_t SharedContextState::GetMemoryUsage() {
@@ -434,8 +436,8 @@ uint64_t SharedContextState::GetMemoryUsage() {
 
 void SharedContextState::UpdateSkiaOwnedMemorySize() {
   if (!gr_context_) {
-    memory_tracker_.OnMemoryAllocatedChange(
-        CommandBufferId::FromUnsafeValue(0u), skia_gr_cache_size_, 0u);
+    memory_tracker_.OnMemoryAllocatedChange(CommandBufferId(),
+                                            skia_gr_cache_size_, 0u);
     skia_gr_cache_size_ = 0u;
     return;
   }
@@ -444,9 +446,8 @@ void SharedContextState::UpdateSkiaOwnedMemorySize() {
   // Skia does not have a CommandBufferId. PeakMemoryMonitor currently does not
   // use CommandBufferId to identify source, so use zero here to separate
   // prevent confusion.
-  memory_tracker_.OnMemoryAllocatedChange(CommandBufferId::FromUnsafeValue(0u),
-                                          skia_gr_cache_size_,
-                                          static_cast<uint64_t>(new_size));
+  memory_tracker_.OnMemoryAllocatedChange(
+      CommandBufferId(), skia_gr_cache_size_, static_cast<uint64_t>(new_size));
   skia_gr_cache_size_ = static_cast<uint64_t>(new_size);
 }
 

@@ -19,9 +19,11 @@ constexpr int kIPPeriod = 1;
 
 // The qp range is 0-51 in H264. Select 26 because of the center value.
 constexpr int kDefaultQP = 26;
-// Webrtc default values, see h264_encoder_impl.cc.
+// Note: Webrtc default values are 24 and 37 respectively, see
+// h264_encoder_impl.cc.
+// These values are selected to make our VEA tests pass.
 constexpr int kMinQP = 24;
-constexpr int kMaxQP = 37;
+constexpr int kMaxQP = 42;
 
 // Subjectively chosen bitrate window size for rate control, in ms.
 constexpr int kCPBWindowSizeMs = 1500;

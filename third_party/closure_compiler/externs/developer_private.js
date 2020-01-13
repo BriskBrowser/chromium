@@ -181,7 +181,9 @@ chrome.developerPrivate.RuntimeError;
  * @typedef {{
  *   suspiciousInstall: boolean,
  *   corruptInstall: boolean,
- *   updateRequired: boolean
+ *   updateRequired: boolean,
+ *   blockedByPolicy: boolean,
+ *   custodianApprovalRequired: boolean
  * }}
  */
 chrome.developerPrivate.DisableReasons;

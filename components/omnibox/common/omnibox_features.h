@@ -18,7 +18,6 @@ extern const base::Feature kHideSteadyStateUrlTrivialSubdomains;
 extern const base::Feature kHideSteadyStateUrlPathQueryAndRef;
 extern const base::Feature kOneClickUnelide;
 extern const base::Feature kSimplifyHttpsIndicator;
-extern const base::Feature kOmniboxGroupSuggestionsBySearchVsUrl;
 extern const base::Feature kOmniboxLocalEntitySuggestions;
 extern const base::Feature kOmniboxMaxURLMatches;
 extern const base::Feature kOmniboxRichEntitySuggestions;
@@ -41,7 +40,6 @@ extern const base::Feature kUIExperimentSwapTitleAndUrl;
 extern const base::Feature kSpeculativeServiceWorkerStartOnQueryInput;
 extern const base::Feature kDocumentProvider;
 extern const base::Feature kAutocompleteTitles;
-extern const base::Feature kOmniboxPopupShortcutIconsInZeroState;
 extern const base::Feature kOmniboxMaterialDesignWeatherIcons;
 extern const base::Feature kOmniboxDisableInstantExtendedLimit;
 extern const base::Feature kOmniboxSearchEngineLogo;
@@ -51,7 +49,6 @@ extern const base::Feature kDebounceDocumentProvider;
 
 // Flags that affect the "twiddle" step of AutocompleteResult, i.e. SortAndCull.
 // TODO(tommycli): There are more flags above that belong in this category.
-extern const base::Feature kOmniboxPreserveDefaultMatchScore;
 extern const base::Feature kOmniboxPreserveDefaultMatchAgainstAsyncUpdate;
 extern const base::Feature kOmniboxDemoteByType;
 

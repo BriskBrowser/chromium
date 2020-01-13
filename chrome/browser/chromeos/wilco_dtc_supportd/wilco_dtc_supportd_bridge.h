@@ -15,7 +15,7 @@
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/wilco_dtc_supportd/wilco_dtc_supportd_notification_controller.h"
 #include "chrome/browser/chromeos/wilco_dtc_supportd/wilco_dtc_supportd_web_request_service.h"
-#include "chrome/services/wilco_dtc_supportd/public/mojom/wilco_dtc_supportd.mojom.h"
+#include "chrome/services/wilco_dtc_supportd/public/mojom/wilco_dtc_supportd.mojom-forward.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/system/buffer.h"
@@ -83,10 +83,6 @@ class WilcoDtcSupportdBridge final
                : nullptr;
   }
 
-  // wilco_dtc_supportd::mojom::WilcoDtcSupportdClient overrides.
-  void HandleEvent(
-      wilco_dtc_supportd::mojom::WilcoDtcSupportdEvent event) override;
-
  private:
   // Starts waiting until the wilco_dtc_supportd D-Bus service becomes available
   // (or until this waiting fails).
@@ -118,6 +114,8 @@ class WilcoDtcSupportdBridge final
       mojo::ScopedHandle json_message,
       SendWilcoDtcMessageToUiCallback callback) override;
   void GetConfigurationData(GetConfigurationDataCallback callback) override;
+  void HandleEvent(
+      wilco_dtc_supportd::mojom::WilcoDtcSupportdEvent event) override;
 
   std::unique_ptr<Delegate> delegate_;
 

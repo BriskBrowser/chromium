@@ -595,28 +595,38 @@
     "expiry_milestone": 77
   },
   {
+    "name": "crostini-disk-resizing",
+    "owners": [ "davidmunro", "nverne", "clumptini" ],
+    "expiry_milestone": 83
+  },
+  {
     "name": "crostini-gpu-support",
-    "owners": [ "nverne", "benwells" ],
+    "owners": [ "nverne", "benwells", "clumptini" ],
     "expiry_milestone": 85
   },
   {
+    "name": "crostini-port-forwarding",
+    "owners": [ "matterchen", "davidmunro", "hollingum" ],
+    "expiry_milestone": 84
+  },
+  {
     "name": "crostini-usb-allow-unsupported",
-    "owners": [ "nverne", "benwells" ],
+    "owners": [ "nverne", "benwells", "clumptini" ],
     "expiry_milestone": 85
   },
   {
     "name": "crostini-usb-support",
-    "owners": [ "jopra", "nverne", "benwells" ],
+    "owners": [ "jopra", "nverne", "benwells", "clumptini" ],
     "expiry_milestone": 76
   },
   {
     "name": "crostini-use-buster-image",
-    "owners": [ "davidmunro", "benwells" ],
+    "owners": [ "davidmunro", "benwells", "clumptini" ],
     "expiry_milestone": 82
   },
   {
     "name": "crostini-webui-upgrader",
-    "owners": [ "nverne", "davidmunro", "benwells" ],
+    "owners": [ "nverne", "davidmunro", "benwells", "clumptini" ],
     "expiry_milestone": 84
   },
   {
@@ -1249,6 +1259,11 @@
     "expiry_milestone": 83
   },
   {
+    "name": "enable-desktop-pwas-tab-strip",
+    "owners": [ "desktop-pwas-team@google.com" ],
+    "expiry_milestone": 84
+  },
+  {
     "name": "enable-devtools-experiments",
     "owners": [ "//third_party/devtools-frontend/src/OWNERS" ],
     // This is a catch-all for ongoing devtools experiments.
@@ -1331,8 +1346,8 @@
   },
   {
     "name": "enable-experimental-kernel-vm-support",
-    "owners": [ "jflat", "zwisler" ],
-    "expiry_milestone": 82
+    "owners": [ "zwisler" ],
+    "expiry_milestone": 87
   },
   {
     "name": "enable-experimental-productivity-features",
@@ -1682,6 +1697,11 @@
     "expiry_milestone": 80
   },
   {
+    "name": "enable-profile-card",
+    "owners": [ "tinazwang" ],
+    "expiry_milestone": 85
+  },
+  {
     "name": "enable-query-in-omnibox",
     "owners": [ "tommycli", "chrome-omnibox-team@google.com" ],
     "expiry_milestone": 85
@@ -1849,6 +1869,11 @@
     "name" : "enable-subresource-redirect",
     "owners" : [ "robertogden", "tbansal" ],
     "expiry_milestone": 85
+  },
+  {
+    "name": "enable-suggested-files",
+    "owners": [ "edimitriadis", "tby" ],
+    "expiry_milestone": 83
   },
   {
     "name": "enable-suggestions-with-substring-match",
@@ -2070,6 +2095,11 @@
     "expiry_milestone": 83
   },
   {
+    "name": "enable-webassembly-tiering",
+    "owners": [ "clemensb", "wasm-team@google.com" ],
+    "expiry_milestone": 86
+  },
+  {
     "name": "enable-webgl-draft-extensions",
     "owners": [ "webgl-team@google.com" ],
     // This flag is the only way for end users to test upcoming WebGL
@@ -2253,6 +2283,11 @@
     "name": "focus-mode",
     "owners": [ "dfried", "pbos", "yiningwang@google.com" ],
     "expiry_milestone": 82
+  },
+  {
+    "name": "font-access",
+    "owners": [ "cmp", "oyiptong" ],
+    "expiry_milestone": 85
   },
   {
     "name": "font-src-local-matching",
@@ -2671,11 +2706,6 @@
     "expiry_milestone": 85
   },
   {
-    "name": "oculus-vr",
-    "owners": [ "//device/vr/OWNERS", "xr-dev@chromium.org" ],
-    "expiry_milestone": 82
-  },
-  {
     "name": "offline-indicator-always-http-probe",
     "owners": [ "jianli", "offline-dev" ],
     "expiry_milestone": 76
@@ -2784,11 +2814,6 @@
     "name": "omnibox-experimental-suggest-scoring",
     "owners": [ "jdonnelly", "chrome-omnibox-team@google.com" ],
     "expiry_milestone": 85
-  },
-  {
-    "name": "omnibox-group-suggestions-by-search-vs-url",
-    "owners": [ "krb", "chrome-omnibox-team@google.com" ],
-    "expiry_milestone": 82
   },
   {
     "name": "omnibox-local-entity-suggestions",
@@ -2936,16 +2961,6 @@
     "expiry_milestone": 76
   },
   {
-    "name": "openvr",
-    "owners": [ "//device/vr/OWNERS", "xr-dev@chromium.org" ],
-    "expiry_milestone": 82
-  },
-  {
-    "name": "openxr",
-    "owners": [ "//device/vr/OWNERS", "xr-dev@chromium.org" ],
-    "expiry_milestone": 82
-  },
-  {
     "name": "out-of-blink-cors",
     "owners": [ "toyoshim" ],
     "expiry_milestone": 82
@@ -2981,6 +2996,11 @@
     "name": "overscroll-history-navigation",
      "owners": [ "mohsen", "jinsukkim" ],
      "expiry_milestone": 80
+  },
+  {
+    "name": "paint-preview-test",
+    "owners": [ "ckitagawa", "mahmoudi", "vollick" ],
+    "expiry_milestone": 83
   },
   {
     "name": "passive-event-listeners-due-to-fling",
@@ -3388,6 +3408,11 @@
     "expiry_milestone": 77
   },
   {
+    "name": "sync-setup-friendly-settings",
+    "owners": ["msalama"],
+    "expiry_milestone": 84
+  },
+  {
     "name": "sync-wifi-configurations",
     "owners": ["jonmann", "cros-system-services@google.com"],
     "expiry_milestone": 85
@@ -3697,16 +3722,6 @@
     "expiry_milestone": 82
   },
   {
-    "name": "webxr-anchors",
-    "owners": [ "//third_party/blink/renderer/modules/xr/OWNERS", "xr-dev@chromium.org" ],
-    "expiry_milestone": 82
-  },
-  {
-    "name": "webxr-ar-dom-overlay",
-    "owners": [ "//third_party/blink/renderer/modules/xr/OWNERS", "xr-dev@chromium.org" ],
-    "expiry_milestone": 81
-  },
-  {
     "name": "webxr-ar-module",
     "owners": [ "//third_party/blink/renderer/modules/xr/OWNERS", "xr-dev@chromium.org" ],
     "expiry_milestone": 82
@@ -3717,14 +3732,18 @@
     "expiry_milestone": 82
   },
   {
-    "name": "webxr-orientation-sensor-device",
-    "owners": [ "//device/vr/OWNERS", "xr-dev@chromium.org" ],
+    "name": "webxr-incubations",
+    "owners": [ "//third_party/blink/renderer/modules/xr/OWNERS", "xr-dev@chromium.org" ],
     "expiry_milestone": 82
   },
   {
-    "name": "webxr-plane-detection",
+    "name": "webxr-runtime",
     "owners": [ "//third_party/blink/renderer/modules/xr/OWNERS", "xr-dev@chromium.org" ],
-    "expiry_milestone": 82
+    // This flag allows QA and Developers to force running on a particular
+    // runtime, even if ordinarily Chrome would prefer a different runtime for
+    // the particular hardware. Useful to debug user issues or multiple runtimes
+    // with a single headset.
+    "expiry_milestone": -1
   },
   {
     "name": "win-use-hybrid-spellchecker",
@@ -3735,11 +3754,6 @@
     "name": "win-use-native-spellchecker",
     "owners": [ "gujen@google.com", "chrome-language@google.com" ],
     "expiry_milestone": 83
-  },
-  {
-    "name": "windows-mixed-reality",
-    "owners": [ "//device/vr/OWNERS", "xr-dev@chromium.org" ],
-    "expiry_milestone": 82
   },
   {
     "name": "xr-sandbox",

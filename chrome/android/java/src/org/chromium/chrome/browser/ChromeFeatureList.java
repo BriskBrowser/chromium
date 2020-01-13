@@ -164,6 +164,8 @@ public abstract class ChromeFeatureList {
             "AutofillCreditCardAuthentication";
     public static final String AUTOFILL_ENABLE_COMPANY_NAME = "AutofillEnableCompanyName";
     public static final String ADJUST_WEBAPK_INSTALLATION_SPACE = "AdjustWebApkInstallationSpace";
+    public static final String ANDROID_BLOCK_INTENT_NON_SAFELISTED_HEADERS =
+            "AndroidBlockIntentNonSafelistedHeaders";
     public static final String ANDROID_NIGHT_MODE = "AndroidNightMode";
     public static final String ANDROID_NIGHT_MODE_CCT = "AndroidNightModeCCT";
     public static final String ANDROID_NIGHT_MODE_FOR_Q = "AndroidNightModeForQ";
@@ -269,7 +271,6 @@ public abstract class ChromeFeatureList {
             "SearchEnginePromo.ExistingDevice";
     public static final String SEARCH_ENGINE_PROMO_NEW_DEVICE = "SearchEnginePromo.NewDevice";
     public static final String MARK_HTTP_AS = "MarkHttpAs";
-    // TODO(crbug.com/980849) Remove ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY
     public static final String MOBILE_IDENTITY_CONSISTENCY = "MobileIdentityConsistency";
     public static final String MODAL_PERMISSION_PROMPTS = "ModalPermissionPrompts";
     public static final String MODAL_PERMISSION_DIALOG_VIEW = "ModalPermissionDialogView";
@@ -298,6 +299,7 @@ public abstract class ChromeFeatureList {
     public static final String OMNIBOX_SEARCH_ENGINE_LOGO = "OmniboxSearchEngineLogo";
     public static final String OVERLAY_NEW_LAYOUT = "OverlayNewLayout";
     public static final String OVERSCROLL_HISTORY_NAVIGATION = "OverscrollHistoryNavigation";
+    public static final String PAINT_PREVIEW_TEST = "PaintPreviewTest";
     public static final String PASSWORD_EDITING_ANDROID = "PasswordEditingAndroid";
     public static final String PASSWORD_LEAK_DETECTION = "PasswordLeakDetection";
     public static final String PASSWORD_MANAGER_ONBOARDING_ANDROID =
@@ -314,6 +316,7 @@ public abstract class ChromeFeatureList {
     public static final String PREDICTIVE_PREFETCHING_ALLOWED_ON_ALL_CONNECTION_TYPES =
             "PredictivePrefetchingAllowedOnAllConnectionTypes";
     public static final String PRIORITIZE_BOOTSTRAP_TASKS = "PrioritizeBootstrapTasks";
+    public static final String PROFILE_CARD = "ProfileCard";
     public static final String QUERY_IN_OMNIBOX = "QueryInOmnibox";
     public static final String QUIET_NOTIFICATION_PROMPTS = "QuietNotificationPrompts";
     public static final String REACHED_CODE_PROFILER = "ReachedCodeProfiler";

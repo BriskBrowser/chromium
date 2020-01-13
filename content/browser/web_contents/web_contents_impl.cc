@@ -151,6 +151,7 @@
 #include "third_party/blink/public/common/mime_util/mime_util.h"
 #include "third_party/blink/public/common/page/page_zoom.h"
 #include "third_party/blink/public/common/security/security_style.h"
+#include "third_party/blink/public/mojom/frame/frame.mojom.h"
 #include "third_party/blink/public/mojom/frame/fullscreen.mojom.h"
 #include "third_party/blink/public/mojom/loader/pause_subresource_loading_handle.mojom.h"
 #include "third_party/blink/public/mojom/mediastream/media_stream.mojom-shared.h"
@@ -818,16 +819,23 @@ WebContentsImpl* WebContentsImpl::FromFrameTreeNode(
 }
 
 // static
-WebContents* WebContentsImpl::FromRenderFrameHostID(int render_process_host_id,
-                                                    int render_frame_host_id) {
+WebContents* WebContentsImpl::FromRenderFrameHostID(
+    GlobalFrameRoutingId render_frame_host_id) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI) ||
          !BrowserThread::IsThreadInitialized(BrowserThread::UI));
   RenderFrameHost* render_frame_host =
-      RenderFrameHost::FromID(render_process_host_id, render_frame_host_id);
+      RenderFrameHost::FromID(render_frame_host_id);
   if (!render_frame_host)
     return nullptr;
 
   return WebContents::FromRenderFrameHost(render_frame_host);
+}
+
+// static
+WebContents* WebContentsImpl::FromRenderFrameHostID(int render_process_host_id,
+                                                    int render_frame_host_id) {
+  return FromRenderFrameHostID(
+      GlobalFrameRoutingId(render_process_host_id, render_frame_host_id));
 }
 
 // static
@@ -1076,8 +1084,8 @@ void WebContentsImpl::SetAccessibilityMode(ui::AXMode mode) {
     return;
 
   // Don't allow accessibility to be enabled for WebContents that are never
-  // visible, like background pages.
-  if (IsNeverVisible())
+  // user-visible, like background pages.
+  if (IsNeverComposited())
     return;
 
   accessibility_mode_ = mode;
@@ -4362,6 +4370,8 @@ void WebContentsImpl::SetFocusToLocationBar() {
 void WebContentsImpl::DidStartNavigation(NavigationHandle* navigation_handle) {
   TRACE_EVENT1("navigation", "WebContentsImpl::DidStartNavigation",
                "navigation_handle", navigation_handle);
+  favicon_urls_.clear();
+
   for (auto& observer : observers_)
     observer.DidStartNavigation(navigation_handle);
 
@@ -4635,7 +4645,7 @@ void WebContentsImpl::OnThemeColorChanged(RenderViewHostImpl* source) {
   if (source->did_first_visually_non_empty_paint() &&
       last_sent_theme_color_ != source->theme_color()) {
     for (auto& observer : observers_)
-      observer.DidChangeThemeColor(source->theme_color());
+      observer.DidChangeThemeColor();
     last_sent_theme_color_ = source->theme_color();
   }
 }
@@ -5117,6 +5127,8 @@ void WebContentsImpl::OnUpdateFaviconURL(
   if (!source->IsCurrent())
     return;
 
+  favicon_urls_ = candidates;
+
   for (auto& observer : observers_)
     observer.DidUpdateFaviconURL(candidates);
 }
@@ -5135,7 +5147,7 @@ void WebContentsImpl::DidFirstVisuallyNonEmptyPaint(
   if (source->theme_color() != last_sent_theme_color_) {
     // Theme color should have updated by now if there was one.
     for (auto& observer : observers_)
-      observer.DidChangeThemeColor(source->theme_color());
+      observer.DidChangeThemeColor();
     last_sent_theme_color_ = source->theme_color();
   }
 }
@@ -5360,7 +5372,7 @@ void WebContentsImpl::OnInterfaceRequest(
 void WebContentsImpl::OnDidBlockNavigation(
     const GURL& blocked_url,
     const GURL& initiator_url,
-    blink::NavigationBlockedReason reason) {
+    blink::mojom::NavigationBlockedReason reason) {
   if (delegate_)
     delegate_->OnDidBlockNavigation(this, blocked_url, initiator_url, reason);
 }
@@ -5685,10 +5697,10 @@ void WebContentsImpl::ClearFocusedElement() {
     frame->ClearFocusedElement();
 }
 
-bool WebContentsImpl::IsNeverVisible() {
+bool WebContentsImpl::IsNeverComposited() {
   if (!delegate_)
     return false;
-  return delegate_->IsNeverVisible(this);
+  return delegate_->IsNeverComposited(this);
 }
 
 RenderViewHostDelegateView* WebContentsImpl::GetDelegateView() {
@@ -5723,6 +5735,20 @@ std::vector<WebContents*> WebContentsImpl::GetInnerWebContents() {
   all_inner_contents.insert(all_inner_contents.end(), inner_contents.begin(),
                             inner_contents.end());
   return all_inner_contents;
+}
+
+WebContentsImpl* WebContentsImpl::GetResponsibleWebContents() {
+  // Iteratively ask delegates which other contents is responsible until a fixed
+  // point is found.
+  WebContentsImpl* contents = this;
+  while (WebContentsDelegate* delegate = contents->GetDelegate()) {
+    auto* responsible_contents = static_cast<WebContentsImpl*>(
+        delegate->GetResponsibleWebContents(contents));
+    if (responsible_contents == contents)
+      break;
+    contents = responsible_contents;
+  }
+  return contents;
 }
 
 WebContentsImpl* WebContentsImpl::GetFocusedWebContents() {
@@ -6740,6 +6766,10 @@ base::UnguessableToken WebContentsImpl::GetAudioGroupId() {
 
 ukm::SourceId WebContentsImpl::GetLastCommittedSourceId() {
   return last_committed_source_id_;
+}
+
+std::vector<FaviconURL> WebContentsImpl::GetFaviconURLs() {
+  return favicon_urls_;
 }
 
 BrowserPluginEmbedder* WebContentsImpl::GetBrowserPluginEmbedder() const {

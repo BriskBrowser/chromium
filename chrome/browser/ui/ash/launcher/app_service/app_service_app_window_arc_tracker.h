@@ -20,6 +20,10 @@ namespace arc {
 class ArcAppShelfId;
 }
 
+namespace ash {
+class ShelfItemDelegate;
+}
+
 namespace aura {
 class window;
 }
@@ -30,6 +34,7 @@ class Time;
 
 class AppServiceAppWindowLauncherController;
 class AppServiceAppWindowLauncherItemController;
+class ArcAppWindowInfo;
 class Profile;
 
 // AppServiceAppWindowArcTracker observes the ArcAppListPrefs to handle ARC app
@@ -78,15 +83,14 @@ class AppServiceAppWindowArcTracker : public ArcAppListPrefs::Observer,
   void RemoveCandidateWindow(aura::Window* window);
 
   // Removes controller from |app_shelf_group_to_controller_map_|.
-  void OnItemDelegateDiscarded(const ash::ShelfID& shelf_id);
+  void OnItemDelegateDiscarded(const ash::ShelfID& shelf_id,
+                               ash::ShelfItemDelegate* delegate);
 
   ash::ShelfID GetShelfId(int task_id) const;
 
   int active_task_id() const { return active_task_id_; }
 
  private:
-  class ArcAppWindowInfo;
-
   using TaskIdToArcAppWindowInfo =
       std::map<int, std::unique_ptr<ArcAppWindowInfo>>;
 

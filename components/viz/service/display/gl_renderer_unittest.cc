@@ -375,7 +375,7 @@ class GLRendererShaderPixelTest : public cc::GLRendererPixelTest {
                                 NON_PREMULTIPLIED_ALPHA, true, true, false,
                                 false));
 
-    // Iterate over alpha plane, nv12, and color_lut parameters.
+    // Iterate over alpha plane and nv12 parameters.
     UVTextureMode uv_modes[2] = {UV_TEXTURE_MODE_UV, UV_TEXTURE_MODE_U_V};
     YUVAlphaTextureMode a_modes[2] = {YUV_NO_ALPHA_TEXTURE,
                                       YUV_HAS_ALPHA_TEXTURE};
@@ -2084,7 +2084,7 @@ class OutputSurfaceMockGLES2Interface : public TestGLES2Interface {
                void(GLuint width,
                     GLuint height,
                     float device_scale,
-                    GLenum color_space,
+                    GLcolorSpace color_space,
                     GLboolean has_alpha));
   MOCK_METHOD4(
       DrawElements,
@@ -2121,6 +2121,8 @@ class MockOutputSurface : public OutputSurface {
   MOCK_METHOD1(SetUpdateVSyncParametersCallback,
                void(UpdateVSyncParametersCallback));
   MOCK_METHOD1(SetDisplayTransformHint, void(gfx::OverlayTransform));
+  MOCK_METHOD0(GetGpuTaskSchedulerHelper,
+               scoped_refptr<gpu::GpuTaskSchedulerHelper>());
 
   gfx::OverlayTransform GetDisplayTransform() override {
     return gfx::OVERLAY_TRANSFORM_NONE;

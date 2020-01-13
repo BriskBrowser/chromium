@@ -35,6 +35,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/traced_value.h"
+#include "components/exo/shell_surface_util.h"
 #include "components/exo/surface.h"
 #include "components/exo/wm_helper.h"
 #include "ui/aura/client/aura_constants.h"
@@ -190,7 +191,7 @@ class ClientControlledWindowStateDelegate : public ash::WindowStateDelegate {
     shell_surface_->OnDragStarted(component);
   }
 
-  void OnDragFinished(bool canceled, const gfx::Point& location) override {
+  void OnDragFinished(bool canceled, const gfx::PointF& location) override {
     shell_surface_->OnDragFinished(canceled, location);
   }
 
@@ -482,7 +483,7 @@ void ClientControlledShellSurface::OnWindowStateChangeEvent(
 }
 
 void ClientControlledShellSurface::StartDrag(int component,
-                                             const gfx::Point& location) {
+                                             const gfx::PointF& location) {
   TRACE_EVENT2("exo", "ClientControlledShellSurface::StartDrag", "component",
                component, "location", location.ToString());
 
@@ -493,7 +494,7 @@ void ClientControlledShellSurface::StartDrag(int component,
 
 void ClientControlledShellSurface::AttemptToStartDrag(
     int component,
-    const gfx::Point& location) {
+    const gfx::PointF& location) {
   aura::Window* target = widget_->GetNativeWindow();
   ash::ToplevelWindowEventHandler* toplevel_handler =
       ash::Shell::Get()->toplevel_window_event_handler();
@@ -504,7 +505,7 @@ void ClientControlledShellSurface::AttemptToStartDrag(
   // 2) mouse was pressed on the target or its subsurfaces.
   if (toplevel_handler->gesture_target() ||
       (mouse_pressed_handler && target->Contains(mouse_pressed_handler))) {
-    gfx::Point point_in_root(location);
+    gfx::PointF point_in_root(location);
     wm::ConvertPointFromScreen(target->GetRootWindow(), &point_in_root);
     toplevel_handler->AttemptToStartDrag(
         target, point_in_root, component,
@@ -578,6 +579,19 @@ void ClientControlledShellSurface::SetOrientationLock(
       widget_->GetNativeWindow(), orientation_lock);
 }
 
+void ClientControlledShellSurface::SetClientAccessibilityId(
+    int32_t accessibility_id) {
+  if (accessibility_id >= 0)
+    client_accessibility_id_ = accessibility_id;
+  else
+    client_accessibility_id_.reset();
+
+  if (widget_ && widget_->GetNativeWindow()) {
+    SetShellClientAccessibilityId(widget_->GetNativeWindow(),
+                                  client_accessibility_id_);
+  }
+}
+
 void ClientControlledShellSurface::OnBoundsChangeEvent(
     ash::WindowStateType current_state,
     ash::WindowStateType requested_state,
@@ -639,7 +653,7 @@ void ClientControlledShellSurface::OnDragStarted(int component) {
 }
 
 void ClientControlledShellSurface::OnDragFinished(bool canceled,
-                                                  const gfx::Point& location) {
+                                                  const gfx::PointF& location) {
   in_drag_ = false;
   if (drag_finished_callback_)
     drag_finished_callback_.Run(location.x(), location.y(), canceled);
@@ -938,6 +952,9 @@ void ClientControlledShellSurface::InitializeWindowState(
     accelerator_target_->RegisterAccelerator(
         ui::Accelerator(entry.keycode, entry.modifiers), entry.action);
   }
+
+  auto* window = widget_->GetNativeWindow();
+  SetShellClientAccessibilityId(window, client_accessibility_id_);
 }
 
 float ClientControlledShellSurface::GetScale() const {

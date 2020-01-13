@@ -231,6 +231,10 @@ def main():
 
   if args.sync:
     subprocess.check_call(cmd)
+    subprocess.check_call([
+        _GSUTIL, 'setmeta', '-h', 'Cache-Control:no-cache',
+        _PUSH_URL + 'milestones.json'
+    ])
   else:
     print()
     print('Sync files by running:')

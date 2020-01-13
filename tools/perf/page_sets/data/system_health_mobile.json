@@ -30,6 +30,9 @@
         "browse:chrome:newtab": {
             "DEFAULT": "system_health_mobile_056.wprgo"
         },
+        "browse:chrome:newtab:2019": {
+            "DEFAULT": "system_health_mobile_1bc8137e59.wprgo"
+        },
         "browse:chrome:omnibox": {
             "DEFAULT": "system_health_mobile_056.wprgo"
         },
@@ -53,6 +56,9 @@
         },
         "browse:media:imgur": {
             "DEFAULT": "system_health_mobile_035.wprgo"
+        },
+        "browse:media:imgur:2019": {
+            "DEFAULT": "system_health_mobile_96a8c80910.wprgo"
         },
         "browse:media:youtube": {
             "DEFAULT": "system_health_mobile_037.wprgo"
@@ -105,6 +111,9 @@
         "browse:news:toi": {
             "DEFAULT": "system_health_mobile_064.wprgo"
         },
+        "browse:news:toi:2019": {
+            "DEFAULT": "system_health_mobile_1a97b96d14.wprgo"
+        },
         "browse:news:washingtonpost": {
             "DEFAULT": "system_health_mobile_021.wprgo"
         },
@@ -132,6 +141,9 @@
         "browse:shopping:flipkart": {
             "DEFAULT": "system_health_mobile_061.wprgo"
         },
+        "browse:shopping:flipkart:2019": {
+            "DEFAULT": "system_health_mobile_605f2323f8.wprgo"
+        },
         "browse:shopping:lazada": {
             "DEFAULT": "system_health_mobile_053.wprgo"
         },
@@ -140,6 +152,9 @@
         },
         "browse:social:facebook": {
             "DEFAULT": "system_health_mobile_028.wprgo"
+        },
+        "browse:social:facebook:2019": {
+            "DEFAULT": "system_health_mobile_77b7808065.wprgo"
         },
         "browse:social:facebook_infinite_scroll": {
             "DEFAULT": "system_health_mobile_062.wprgo"
@@ -263,6 +278,9 @@
         },
         "load:news:irctc": {
             "DEFAULT": "system_health_mobile_058.wprgo"
+        },
+        "load:news:irctc:2019": {
+            "DEFAULT": "system_health_mobile_941a515134.wprgo"
         },
         "load:news:nytimes": {
             "DEFAULT": "system_health_mobile_009.wprgo"

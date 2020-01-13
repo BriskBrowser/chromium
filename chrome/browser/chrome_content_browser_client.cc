@@ -228,15 +228,15 @@
 #include "components/previews/core/previews_switches.h"
 #include "components/rappor/public/rappor_utils.h"
 #include "components/rappor/rappor_service_impl.h"
-#include "components/safe_browsing/browser/browser_url_loader_throttle.h"
-#include "components/safe_browsing/browser/url_checker_delegate.h"
 #include "components/safe_browsing/buildflags.h"
-#include "components/safe_browsing/common/safe_browsing_prefs.h"
-#include "components/safe_browsing/db/database_manager.h"
-#include "components/safe_browsing/features.h"
-#include "components/safe_browsing/password_protection/password_protection_navigation_throttle.h"
-#include "components/safe_browsing/realtime/policy_engine.h"
-#include "components/safe_browsing/verdict_cache_manager.h"
+#include "components/safe_browsing/content/browser/browser_url_loader_throttle.h"
+#include "components/safe_browsing/content/password_protection/password_protection_navigation_throttle.h"
+#include "components/safe_browsing/core/browser/url_checker_delegate.h"
+#include "components/safe_browsing/core/common/safe_browsing_prefs.h"
+#include "components/safe_browsing/core/db/database_manager.h"
+#include "components/safe_browsing/core/features.h"
+#include "components/safe_browsing/core/realtime/policy_engine.h"
+#include "components/safe_browsing/core/verdict_cache_manager.h"
 #include "components/security_interstitials/content/origin_policy_ui.h"
 #include "components/security_interstitials/content/ssl_cert_reporter.h"
 #include "components/security_interstitials/content/ssl_error_navigation_throttle.h"
@@ -610,8 +610,6 @@ using plugins::ChromeContentBrowserClientPluginsPart;
 #endif
 
 namespace {
-
-const storage::QuotaSettings* g_default_quota_settings;
 
 #if BUILDFLAG(ENABLE_PLUGINS)
 // TODO(teravest): Add renderer-side API-specific checking for these APIs so
@@ -2635,20 +2633,6 @@ ChromeContentBrowserClient::CreateQuotaPermissionContext() {
   return new ChromeQuotaPermissionContext();
 }
 
-void ChromeContentBrowserClient::GetQuotaSettings(
-    content::BrowserContext* context,
-    content::StoragePartition* partition,
-    storage::OptionalQuotaSettingsCallback callback) {
-  if (g_default_quota_settings) {
-    // For debugging tests harness can inject settings.
-    std::move(callback).Run(*g_default_quota_settings);
-    return;
-  }
-  storage::GetNominalDynamicSettings(
-      partition->GetPath(), context->IsOffTheRecord(),
-      storage::GetDefaultDeviceInfoHelper(), std::move(callback));
-}
-
 content::GeneratedCodeCacheSettings
 ChromeContentBrowserClient::GetGeneratedCodeCacheSettings(
     content::BrowserContext* context) {
@@ -3590,8 +3574,8 @@ base::string16 ChromeContentBrowserClient::GetAppContainerSidForSandboxType(
     case service_manager::SandboxType::kNetwork:
     case service_manager::SandboxType::kCdm:
     case service_manager::SandboxType::kPdfCompositor:
-    case service_manager::SandboxType::kProfiling:
     case service_manager::SandboxType::kAudio:
+    case service_manager::SandboxType::kSoda:
       // Should never reach here.
       CHECK(0);
       return base::string16();
@@ -4256,9 +4240,9 @@ ChromeContentBrowserClient::CreateURLLoaderThrottles(
     result.push_back(safe_browsing::BrowserURLLoaderThrottle::Create(
         base::BindOnce(
             &ChromeContentBrowserClient::GetSafeBrowsingUrlCheckerDelegate,
-            base::Unretained(this)),
-        wc_getter, frame_tree_node_id, profile->GetResourceContext(),
-        cache_manager));
+            base::Unretained(this),
+            profile->GetPrefs()->GetBoolean(prefs::kSafeBrowsingEnabled)),
+        wc_getter, frame_tree_node_id, cache_manager));
   }
 #endif
 
@@ -4384,9 +4368,10 @@ class FileURLLoaderFactory : public network::mojom::URLLoaderFactory {
               network::URLLoaderCompletionStatus(net::ERR_ACCESS_DENIED));
       return;
     }
-    content::CreateFileURLLoader(request, std::move(loader), std::move(client),
-                                 /*observer=*/nullptr,
-                                 /* allow_directory_listing */ true);
+    content::CreateFileURLLoaderBypassingSecurityChecks(
+        request, std::move(loader), std::move(client),
+        /*observer=*/nullptr,
+        /* allow_directory_listing */ true);
   }
 
   void Clone(
@@ -4511,6 +4496,7 @@ bool ChromeContentBrowserClient::WillCreateURLLoaderFactory(
     mojo::PendingRemote<network::mojom::TrustedURLLoaderHeaderClient>*
         header_client,
     bool* bypass_redirect_checks,
+    bool* disable_secure_dns,
     network::mojom::URLLoaderFactoryOverridePtr* factory_override) {
   bool use_proxy = false;
 
@@ -4535,6 +4521,16 @@ bool ChromeContentBrowserClient::WillCreateURLLoaderFactory(
   use_proxy |= signin::ProxyingURLLoaderFactory::MaybeProxyRequest(
       frame, type == URLLoaderFactoryType::kNavigation, request_initiator,
       factory_receiver);
+
+#if BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
+  if (disable_secure_dns) {
+    WebContents* web_contents = WebContents::FromRenderFrameHost(frame);
+    *disable_secure_dns =
+        web_contents && CaptivePortalTabHelper::FromWebContents(web_contents) &&
+        CaptivePortalTabHelper::FromWebContents(web_contents)
+            ->is_captive_portal_window();
+  }
+#endif
 
   return use_proxy;
 }
@@ -4596,7 +4592,7 @@ void ChromeContentBrowserClient::CreateWebSocket(
     content::RenderFrameHost* frame,
     WebSocketFactory factory,
     const GURL& url,
-    const GURL& site_for_cookies,
+    const net::SiteForCookies& site_for_cookies,
     const base::Optional<std::string>& user_agent,
     mojo::PendingRemote<network::mojom::WebSocketHandshakeClient>
         handshake_client) {
@@ -4610,8 +4606,8 @@ void ChromeContentBrowserClient::CreateWebSocket(
 
   DCHECK(web_request_api);
   web_request_api->ProxyWebSocket(frame, std::move(factory), url,
-                                  site_for_cookies, user_agent,
-                                  std::move(handshake_client));
+                                  site_for_cookies.RepresentativeUrl(),
+                                  user_agent, std::move(handshake_client));
 #endif
 }
 
@@ -4619,7 +4615,7 @@ bool ChromeContentBrowserClient::WillCreateRestrictedCookieManager(
     network::mojom::RestrictedCookieManagerRole role,
     content::BrowserContext* browser_context,
     const url::Origin& origin,
-    const GURL& site_for_cookies,
+    const net::SiteForCookies& site_for_cookies,
     const url::Origin& top_frame_origin,
     bool is_service_worker,
     int process_id,
@@ -4911,19 +4907,12 @@ ui::NativeTheme* ChromeContentBrowserClient::GetWebTheme() const {
   return ui::NativeTheme::GetInstanceForWeb();
 }
 
-// static
-void ChromeContentBrowserClient::SetDefaultQuotaSettingsForTesting(
-    const storage::QuotaSettings* settings) {
-  g_default_quota_settings = settings;
-}
-
 scoped_refptr<safe_browsing::UrlCheckerDelegate>
 ChromeContentBrowserClient::GetSafeBrowsingUrlCheckerDelegate(
-    content::ResourceContext* resource_context) {
+    bool safe_browsing_enabled_for_profile) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-  ProfileIOData* io_data = ProfileIOData::FromResourceContext(resource_context);
-  if (!io_data->safe_browsing_enabled()->GetValue())
+  if (!safe_browsing_enabled_for_profile)
     return nullptr;
 
   // |safe_browsing_service_| may be unavailable in tests.

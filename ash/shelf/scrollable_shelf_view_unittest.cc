@@ -4,11 +4,14 @@
 
 #include "ash/shelf/scrollable_shelf_view.h"
 
+#include "ash/drag_drop/drag_image_view.h"
 #include "ash/public/cpp/shelf_config.h"
+#include "ash/root_window_controller.h"
 #include "ash/shelf/shelf_test_util.h"
 #include "ash/shelf/shelf_tooltip_manager.h"
 #include "ash/shelf/shelf_view_test_api.h"
 #include "ash/shelf/shelf_widget.h"
+#include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/test/scoped_feature_list.h"
@@ -383,7 +386,9 @@ TEST_F(ScrollableShelfViewTest, ShowTooltipForArrowButtons) {
   EXPECT_TRUE(tooltip_manager->IsVisible());
 }
 
-// Verifies that dragging an app icon to a new shelf page works well.
+// Verifies that dragging an app icon to a new shelf page works well. In
+// addition, the dragged icon moves with mouse before mouse release (see
+// https://crbug.com/1031367).
 TEST_F(ScrollableShelfViewTest, DragIconToNewPage) {
   scrollable_shelf_view_->set_page_flip_time_threshold(
       base::TimeDelta::FromMilliseconds(10));
@@ -399,8 +404,13 @@ TEST_F(ScrollableShelfViewTest, DragIconToNewPage) {
       view_model->view_at(scrollable_shelf_view_->last_tappable_app_index());
   const gfx::Point drag_start_point =
       dragged_view->GetBoundsInScreen().CenterPoint();
+
+  // Ensures that the app icon is not dragged to the ideal bounds directly.
+  // It helps to construct a more complex scenario that the animation
+  // is created to move the dropped icon to the target place after drag release.
   const gfx::Point drag_end_point =
-      scrollable_shelf_view_->left_arrow()->GetBoundsInScreen().CenterPoint();
+      scrollable_shelf_view_->left_arrow()->GetBoundsInScreen().origin() -
+      gfx::Vector2d(10, 0);
 
   ASSERT_NE(0, view_model->GetIndexOfView(dragged_view));
 
@@ -413,7 +423,18 @@ TEST_F(ScrollableShelfViewTest, DragIconToNewPage) {
     PageFlipWaiter waiter(scrollable_shelf_view_);
     waiter.Wait();
   }
+
+  // Expects that the drag icon moves with drag pointer before mouse release.
+  const gfx::Rect intermediate_bounds =
+      scrollable_shelf_view_->drag_icon_for_test()->GetBoundsInScreen();
+  EXPECT_EQ(drag_end_point, intermediate_bounds.CenterPoint());
+
   GetEventGenerator()->ReleaseLeftButton();
+  ASSERT_NE(intermediate_bounds.CenterPoint(),
+            dragged_view->GetBoundsInScreen().CenterPoint());
+
+  // Expects that the proxy icon is deleted after mouse release.
+  EXPECT_EQ(nullptr, scrollable_shelf_view_->drag_icon_for_test());
 
   // Verifies that:
   // (1) Scrollable shelf view has the expected layout strategy.
@@ -443,6 +464,31 @@ class HotseatScrollableShelfViewTest : public ScrollableShelfViewTest {
 
   base::test::ScopedFeatureList scoped_feature_list_;
 };
+
+// Verifies that after adding the second display, shelf icons showing on
+// the primary display are also visible on the second display
+// (https://crbug.com/1035596).
+TEST_F(HotseatScrollableShelfViewTest, CheckTappableIndicesOnSecondDisplay) {
+  constexpr int icon_number = 5;
+  for (int i = 0; i < icon_number; i++)
+    AddAppShortcut();
+
+  // Adds the second display.
+  UpdateDisplay("600x800,600x800");
+
+  Shelf* secondary_shelf =
+      Shell::GetRootWindowControllerWithDisplayId(GetSecondaryDisplay().id())
+          ->shelf();
+  ScrollableShelfView* secondary_scrollable_shelf_view =
+      secondary_shelf->shelf_widget()
+          ->hotseat_widget()
+          ->scrollable_shelf_view();
+
+  // Verifies that the all icons are visible on the secondary display.
+  EXPECT_EQ(icon_number - 1,
+            secondary_scrollable_shelf_view->last_tappable_app_index());
+  EXPECT_EQ(0, secondary_scrollable_shelf_view->first_tappable_app_index());
+}
 
 // Verifies that the scrollable shelf in oveflow mode has the correct layout
 // after switching to tablet mode (https://crbug.com/1017979).

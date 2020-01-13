@@ -245,13 +245,6 @@
           Esta política fornece um valor substituto para as políticas <ph name="IDLE_ACTION_AC_POLICY_NAME" /> e <ph name="IDLE_ACTION_BATTERY_POLICY_NAME" /> mais específicas. Se esta política for definida, os valores serão usados quando uma política respectiva mais específica não for usada.
 
           Se esta política não for definida, o comportamento das políticas mais específicas não será afetado.</translation>
-<translation id="1383493480903114193">Esta política força o código de rede a ser executado no processo do navegador.
-
-      A política está desativada por padrão e, se ativada, deixa usuários vulneráveis aos problemas de segurança quando o processo de rede estiver no sandbox.
-
-      Esta política tem como objetivo oferecer às empresas a oportunidade de migrar para um software de terceiros que não dependa de hook das APIs de rede. Recomendamos o uso de servidores proxy em vez da aplicação de patches de API Win32 e LSPs.
-
-      Se esta política não for definida, o código de rede pode sair do processo do navegador, dependendo de testes de campo do experimento do NetworkService.</translation>
 <translation id="1384459581748403878">Referência: <ph name="REFERENCE_URL" /></translation>
 <translation id="138847842893090358">Informar o status de atualização do SO</translation>
 <translation id="1393485621820363363">Impressoras empresariais ativadas</translation>
@@ -1046,6 +1039,14 @@ Se você desativar esta configuração ou deixá-la sem definição, todas as p�
           O valor precisa ser uma matriz de dicionários JSON convertidos em strings. Cada dicionário precisa ter a forma <ph name="AUTO_SELECT_CERTIFICATE_FOR_URLS_EXAMPLE" />, em que <ph name="URL_PATTERN_PLACEHOLDER" /> é um padrão de configuração de conteúdo. <ph name="FILTER_PLACEHOLDER" /> restringe quais certificados do cliente o navegador selecionará automaticamente. Seja qual for o filtro utilizado, apenas os certificados correspondentes à solicitação do servidor são selecionados. Por exemplo, se <ph name="FILTER_PLACEHOLDER" /> tiver a forma <ph name="AUTO_SELECT_CERTIFICATE_FOR_URLS_FILTER_EXAMPLE" />, apenas os certificados do cliente emitidos por um certificado com CommonName <ph name="ISSUER_CN_PLACEHOLDER" /> serão selecionados. Se <ph name="FILTER_PLACEHOLDER" /> tiver as seções <ph name="ISSUER_STRING_VALUE" /> e <ph name="SUBJECT_STRING_VALUE" />, o certificado do cliente precisará satisfazer as duas condições para ser selecionado. Se <ph name="FILTER_PLACEHOLDER" /> especificar uma organização ("O"), o certificado precisará ter pelo menos uma organização correspondente ao valor especificado para ser selecionado. Se <ph name="FILTER_PLACEHOLDER" /> especificar uma unidade organizacional ("UO"), o certificado precisará ter pelo menos uma unidade organizacional correspondente ao valor especificado para ser selecionado. Se <ph name="FILTER_PLACEHOLDER" /> for o dicionário vazio <ph name="EMPTY_DICTIONARY" />, a seleção de certificados do cliente não será restringida de nenhuma outra forma.
 
           Se esta política não for definida, não haverá seleção automática para nenhum site.</translation>
+<translation id="2528659559494311776">Esta política controla um recurso de segurança no TLS 1.3 que protege conexões contra ataques de downgrade. Ela é compatível com versões anteriores e não afetará conexões com servidores e proxies em conformidade com o TLS 1.2. No entanto, versões mais antigas de alguns proxies com interceptação de TLS apresentam uma falha de implementação que causa incompatibilidade.
+
+      Se esta política for definida como "verdadeira" ou não for definida, o <ph name="PRODUCT_NAME" /> ativará essas proteções de segurança para todas as conexões.
+
+      Se esta política for definida como "falsa", o <ph name="PRODUCT_NAME" /> desativará essas proteções de segurança para conexões autenticadas com certificados de CA (Autoridade de certificação) instalados localmente. Essas proteções estão sempre ativas para conexões autenticadas com certificados de CA de confiança pública.
+
+      O valor padrão dessa política foi mudado no <ph name="PRODUCT_NAME" /> 81 de "falso" a "verdadeiro". Os proxies afetados causarão uma falha nas conexões, apresentando o código do erro ERR_TLS13_DOWNGRADE_DETECTED. Os administradores que precisarem de mais tempo para fazer upgrade dos proxies afetados poderão usar esta política para desativar temporariamente esse recurso de segurança. Esta política será removida em versões posteriores à 85.
+      </translation>
 <translation id="2529659024053332711">Permite que você especifique o comportamento na inicialização.
 
           Se você escolher "Abrir nova guia", a página nova guia sempre será aberta quando você iniciar o <ph name="PRODUCT_NAME" />.
@@ -1580,6 +1581,15 @@ Se você desativar esta configuração ou deixá-la sem definição, todas as p�
       Se esta configuração for definida como "Desativado" ou se nenhum valor for definido, o Modo restrito no YouTube não será aplicado pelo <ph name="PRODUCT_NAME" />. No entanto, políticas externas, como políticas do YouTube, ainda poderão aplicar o modo restrito.</translation>
 <translation id="3428247105888806363">Ativar previsão de rede</translation>
 <translation id="3432863169147125747">Controla configurações de impressão.</translation>
+<translation id="3434053014926283175">Usar o botão direito do mouse como o principal na tela de login.
+
+          Se esta política estiver ativada, o botão direito do mouse sempre será o principal na tela de login.
+
+          Se esta política estiver desativada, o botão esquerdo do mouse sempre será o principal na tela de login.
+
+          Se você definir esta política, o usuário não poderá mudá-la ou substituí-la.
+
+          Se esta política não for definida, o botão esquerdo do mouse será o principal na tela de login inicialmente, mas o usuário poderá mudar isso a qualquer momento.</translation>
 <translation id="3434932177006334880">Antes do Chrome 42, esta configuração era chamada de EnableWebBasedSignin. No Chrome 43, a compatibilidade será completamente removida.
 
       Esta configuração é útil para clientes corporativos que estão usando soluções de SSO incompatíveis com o novo fluxo de login in-line.
@@ -2392,7 +2402,7 @@ Quando a |IdleAction| não for definida, a ação padrão de suspensão será re
 
       Essa detecção pode não ser necessária em um ambiente empresarial em que a configuração de rede é conhecida, já que isso causa certo tráfego HTTP e DNS na inicialização e a cada mudança de configuração do DNS.
 
-      Quando essa política não é definida nem ativada, as verificações de interceptação de DNS são executadas. Quando a política é desativada explicitamente, elas não são executadas.</translation>
+      Quando essa política não for definida ou estiver ativada, as verificações de interceptação de DNS são executadas. Quando a política é desativada explicitamente, elas não são executadas.</translation>
 <translation id="4703402283970867140">Ativar modelo de escurecimento inteligente para aumentar o tempo que a tela permanece ativa</translation>
 <translation id="4722122254122249791">Ativar o isolamento de sites para origens específicas</translation>
 <translation id="4722399051042571387">Se definida como false, os usuários não conseguirão configurar PINs que sejam fracos e fáceis de adivinhar.
@@ -4127,21 +4137,6 @@ Essas políticas são ignoradas se a Área de trabalho remota do Google Chrome n
       Quando esta política é definida, o código de acesso dos pais pode ser verificado no dispositivo da criança.
       Quando esta política não é definida, não é possível verificar o código de acesso dos pais no dispositivo da criança.</translation>
 <translation id="7625444193696794922">Especifica o canal de liberação ao qual este dispositivo deve ser vinculado.</translation>
-<translation id="7625498350540361483">
-      Se a política for definida como verdadeira, o <ph name="PRODUCT_NAME" /> poderá coletar logs de eventos WebRTC em serviços do Google (por exemplo, no Google Meet) e fazer upload desses registros no Google.
-
-      Se a política for definida como falsa, o <ph name="PRODUCT_NAME" /> não poderá coletar esses registros nem fazer upload deles.
-
-      Se a política não for definida, até a versão M76, o <ph name="PRODUCT_NAME" /> não poderá coletar esses registros nem fazer upload deles.
-
-      Se a política não for definida, a partir da versão M77, o <ph name="PRODUCT_NAME" /> poderá coletar esses registros e fazer upload deles por padrão se o perfil do navegador for considerado gerenciado, isto é, se o perfil receber políticas em nível de nuvem ou de máquina e não for um perfil filho, temporário, de login ou de navegação anônima.
-
-      Esses registros contêm informações de diagnóstico que são úteis durante a depuração de problemas com chamadas de áudio ou videochamadas no Chrome, como o horário e o tamanho de pacotes RTP enviados e recebidos, feedback sobre congestionamento na rede e metadados sobre o tempo e a qualidade de frames de áudio e vídeo. Esses registros não apresentam o conteúdo das chamadas de áudio ou videochamadas.
-
-      Essa coleta de dados feita pelo Chrome só pode ser acionada por serviços da Web do Google, como o Google Hangouts ou o Google Meet.
-
-      Por meio de um código de sessão, o Google pode associar esses registros a outros coletados pelo próprio serviço do Google. Isso é feito para facilitar a depuração.
-      </translation>
 <translation id="7632724434767231364">Nome da biblioteca GSSAPI</translation>
 <translation id="7635471475589566552">Configura a localidade do aplicativo em <ph name="PRODUCT_NAME" /> e impede que os usuários a alterem. Se ativar esta configuração, <ph name="PRODUCT_NAME" /> utilizará a localidade especificada. Se a localidade configurada não for compatível, "pt-BR" será utilizada. Se esta configuração for desativada ou não for configurada, <ph name="PRODUCT_NAME" /> utilizará a localidade preferida especificada pelo usuário (se configurada), a localidade do sistema ou a localidade padrão "pt-BR".</translation>
 <translation id="7643883929273267746">Contas restritas que estão visíveis no <ph name="PRODUCT_NAME" /></translation>
@@ -4440,6 +4435,7 @@ Esses favoritos são colocados em uma pasta que não pode ser modificada pelo us
           Se você definir esta política, o usuário não poderá alterá-la ou modificá-la.
 
           Se esta política não for definida, o destaque do cursor ficará desativado inicialmente, mas poderá ser ativado pelo usuário a qualquer momento.</translation>
+<translation id="8171924760436219650">Usar o botão direito do mouse como o principal na tela de login</translation>
 <translation id="8172676363520748127">Se esta política for ativada, não será possível fazer capturas de tela usando atalhos do teclado ou APIs de extensão.
 
       Se for desativada ou não for especificada, a captura de tela será permitida.</translation>

@@ -606,7 +606,7 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
 
   void commit();
 
-  ScriptPromise makeXRCompatible(ScriptState*);
+  ScriptPromise makeXRCompatible(ScriptState*, ExceptionState&);
   bool IsXRCompatible();
 
   void UpdateNumberOfUserAllocatedMultisampledRenderbuffers(int delta);
@@ -1511,6 +1511,21 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
                             GLenum type,
                             int64_t offset);
 
+  // Helper function to check if the byte length of {data} fits into an integer
+  // of type {T.} If so, the byte length is stored in {data_length}.
+  template <typename T>
+  bool ExtractDataLengthIfValid(const char* function_name,
+                                MaybeShared<DOMArrayBufferView> data,
+                                T* data_length) {
+    if (base::CheckedNumeric<T>(data.View()->byteLengthAsSizeT())
+            .AssignIfValid(data_length)) {
+      return true;
+    }
+    SynthesizeGLError(GL_INVALID_VALUE, function_name,
+                      "provided data exceeds the maximum supported length");
+    return false;
+  }
+
   // State updates and operations necessary before or at draw call time.
   virtual void OnBeforeDrawCall();
 
@@ -1767,12 +1782,12 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
   DISALLOW_COPY_AND_ASSIGN(WebGLRenderingContextBase);
 };
 
-// TODO(fserb): remove this.
-DEFINE_TYPE_CASTS(WebGLRenderingContextBase,
-                  CanvasRenderingContext,
-                  context,
-                  context->Is3d(),
-                  context.Is3d());
+template <>
+struct DowncastTraits<WebGLRenderingContextBase> {
+  static bool AllowFrom(const CanvasRenderingContext& context) {
+    return context.Is3d();
+  }
+};
 
 }  // namespace blink
 

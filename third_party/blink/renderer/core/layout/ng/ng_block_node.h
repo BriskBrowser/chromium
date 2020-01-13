@@ -14,7 +14,6 @@
 namespace blink {
 
 class LayoutBox;
-class NGBaselineRequest;
 class NGBlockBreakToken;
 class NGBoxFragmentBuilder;
 class NGBreakToken;
@@ -127,8 +126,9 @@ class CORE_EXPORT NGBlockNode final : public NGLayoutInputNode {
   scoped_refptr<const NGLayoutResult> LayoutAtomicInline(
       const NGConstraintSpace& parent_constraint_space,
       const ComputedStyle& parent_style,
-      FontBaseline,
-      bool use_first_line_style);
+      bool use_first_line_style,
+      NGBaselineAlgorithmType baseline_algorithm_type =
+          NGBaselineAlgorithmType::kInlineBlock);
 
   // Called if this is an out-of-flow block which needs to be
   // positioned with legacy layout.
@@ -136,6 +136,7 @@ class CORE_EXPORT NGBlockNode final : public NGLayoutInputNode {
 
   // Write back resolved margins to legacy.
   void StoreMargins(const NGConstraintSpace&, const NGBoxStrut& margins);
+  void StoreMargins(const NGPhysicalBoxStrut& margins);
 
   static bool CanUseNewLayout(const LayoutBox&);
   bool CanUseNewLayout() const;
@@ -183,8 +184,7 @@ class CORE_EXPORT NGBlockNode final : public NGLayoutInputNode {
 
   void CopyBaselinesFromLegacyLayout(const NGConstraintSpace&,
                                      NGBoxFragmentBuilder*);
-  LayoutUnit AtomicInlineBaselineFromLegacyLayout(const NGBaselineRequest&,
-                                                  const NGConstraintSpace&);
+  LayoutUnit AtomicInlineBaselineFromLegacyLayout(const NGConstraintSpace&);
 
   void UpdateShapeOutsideInfoIfNeeded(
       const NGLayoutResult&,

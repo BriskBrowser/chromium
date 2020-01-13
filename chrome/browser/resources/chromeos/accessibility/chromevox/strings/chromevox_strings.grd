@@ -3787,12 +3787,6 @@ If you're done with the tutorial, use ChromeVox to navigate to the Close button 
       <message desc="This is an abbreviated HTML description list detail element shown on a braille display. When translating, try to find a contracted form of the translation for 'description list detail' according to local conventions. If reasonable, use all lowercase and avoid punctuation to keep the number of characters as low as possible." name="IDS_CHROMEVOX_ROLE_DESCRIPTION_LIST_DETAIL_BRL">
         dscrplst dtl
       </message>
-      <message desc="Spoken if the user attempts to jump to the next paragraph when none exists." name="IDS_CHROMEVOX_NO_NEXT_PARAGRAPH">
-        No next paragraph.
-      </message>
-      <message desc="Spoken if the user attempts to jump to the previous paragraph when none exists." name="IDS_CHROMEVOX_NO_PREVIOUS_PARAGRAPH">
-        No previous paragraph.
-      </message>
       <message desc="Spoken when the user resets text to speech settings back to their default values" name="IDS_CHROMEVOX_ANNOUNCE_TTS_DEFAULT_SETTINGS">
         Reset text to speech settings to default values.
       </message>
@@ -3801,6 +3795,24 @@ If you're done with the tutorial, use ChromeVox to navigate to the Close button 
       </message>
       <message desc="The description of the openKeyboardShortcutsMenu key. Displayed in the ChromeVox menu" name="IDS_CHROMEVOX_OPEN_KEYBOARD_SHORTCUTS_MENU">
         Open keyboard shortcuts menu
+      </message>
+      <message desc="Describes the multi select option for how to describe capital letters." name="IDS_CHROMEVOX_OPTIONS_CAPITAL_STRATEGY_SELECT_LABEL">
+        When reading capitals:
+      </message>
+      <message desc="Sets capital description strategy to announce presence of capital letters" name="IDS_CHROMEVOX_OPTIONS_ANNOUNCE_CAPITALS">
+        Speak "cap" before letter
+      </message>
+      <message desc="Sets capital description strategy to increase pitch" name="IDS_CHROMEVOX_OPTIONS_INCREASE_PITCH">
+        Increase pitch
+      </message>
+      <message desc="Used to describe capital letters" name="IDS_CHROMEVOX_ANNOUNCE_CAPITAL_LETTER">
+        Cap <ph name="letter">$1<ex>A</ex></ph>
+      </message>
+      <message desc="The hint text and label for the search bar in the ChromeVox menus" name="IDS_CHROMEVOX_SEARCH_CHROMEVOX_MENUS">
+        Search ChromeVox menus
+      </message>
+      <message desc="Title displayed in the panel for the search menu." name="IDS_CHROMEVOX_PANEL_SEARCH_MENU">
+        Search menu
       </message>
     </messages>
   </release>

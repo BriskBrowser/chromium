@@ -14,7 +14,7 @@
 #include "content/browser/appcache/chrome_appcache_service.h"
 #include "content/browser/navigation_subresource_loader_params.h"
 #include "content/browser/service_worker/embedded_worker_test_helper.h"
-#include "content/browser/service_worker/service_worker_navigation_handle.h"
+#include "content/browser/service_worker/service_worker_main_resource_handle.h"
 #include "content/browser/worker_host/mock_shared_worker.h"
 #include "content/browser/worker_host/shared_worker_connector_impl.h"
 #include "content/browser/worker_host/shared_worker_service_impl.h"
@@ -44,15 +44,10 @@ class SharedWorkerHostTest : public testing::Test {
   }
 
   SharedWorkerHostTest()
-      : default_mock_url_loader_factory_(
-            std::make_unique<NotImplementedNetworkURLLoaderFactory>()),
-        mock_render_process_host_(&browser_context_),
+      : mock_render_process_host_(&browser_context_),
         service_(nullptr /* storage_partition */,
                  nullptr /* service_worker_context */,
-                 nullptr /* appcache_service */) {
-    mock_render_process_host_.OverrideURLLoaderFactory(
-        default_mock_url_loader_factory_.get());
-  }
+                 nullptr /* appcache_service */) {}
 
   base::WeakPtr<SharedWorkerHost> CreateHost() {
     GURL url("http://www.example.com/w.js");
@@ -104,7 +99,7 @@ class SharedWorkerHostTest : public testing::Test {
 
     // Set up for service worker.
     auto service_worker_handle =
-        std::make_unique<ServiceWorkerNavigationHandle>(
+        std::make_unique<ServiceWorkerMainResourceHandle>(
             helper_->context_wrapper());
     mojo::PendingAssociatedRemote<blink::mojom::ServiceWorkerContainer>
         client_remote;
@@ -116,8 +111,8 @@ class SharedWorkerHostTest : public testing::Test {
         client_remote.InitWithNewEndpointAndPassReceiver();
     host_receiver =
         provider_info->host_remote.InitWithNewEndpointAndPassReceiver();
-    base::WeakPtr<ServiceWorkerProviderHost> service_worker_host =
-        ServiceWorkerProviderHost::CreateForWebWorker(
+    base::WeakPtr<ServiceWorkerContainerHost> service_worker_container_host =
+        ServiceWorkerContainerHost::CreateForWebWorker(
             helper_->context()->AsWeakPtr(), mock_render_process_host_.GetID(),
             blink::mojom::ServiceWorkerProviderType::kForSharedWorker,
             std::move(host_receiver), std::move(client_remote));
@@ -133,19 +128,20 @@ class SharedWorkerHostTest : public testing::Test {
   MessagePortChannel AddClient(
       SharedWorkerHost* host,
       mojo::PendingRemote<blink::mojom::SharedWorkerClient> client) {
+    GlobalFrameRoutingId dummy_render_frame_host_id(
+        mock_render_process_host_.GetID(), 22);
+
     mojo::MessagePipe message_pipe;
     MessagePortChannel local_port(std::move(message_pipe.handle0));
     MessagePortChannel remote_port(std::move(message_pipe.handle1));
-    host->AddClient(std::move(client), mock_render_process_host_.GetID(),
-                    22 /* dummy frame_id */, std::move(remote_port));
+    host->AddClient(std::move(client), dummy_render_frame_host_id,
+                    std::move(remote_port));
     return local_port;
   }
 
  protected:
   BrowserTaskEnvironment task_environment_;
   TestBrowserContext browser_context_;
-  std::unique_ptr<network::mojom::URLLoaderFactory>
-      default_mock_url_loader_factory_;
   MockRenderProcessHost mock_render_process_host_;
   std::unique_ptr<EmbeddedWorkerTestHelper> helper_;
 

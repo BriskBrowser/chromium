@@ -11,6 +11,7 @@ background:social:facebook,,mobile,2016
 background:social:facebook:2019,,mobile,2019
 background:tools:gmail,,mobile,"2016,health_check"
 browse:chrome:newtab,Story that loads new tab page and performs searches.,mobile,"2016,emerging_market"
+browse:chrome:newtab:2019,Story that loads new tab page and performs searches.,mobile,"2019,emerging_market"
 browse:chrome:omnibox,Story that peforms search by using omnibox search provider,mobile,"2016,emerging_market"
 browse:chrome:omnibox:2019,Story that peforms search by using omnibox search provider,mobile,"2019,emerging_market"
 browse:media:facebook_photos,Load a photo page from Rihanna's facebook page then navigate a few next,mobile,"2016,emerging_market"
@@ -20,6 +21,7 @@ browse:media:flickr_infinite_scroll:2019,,mobile,"2019,infinite_scroll"
 browse:media:googleplaystore:2018,"Navigate to the movies page of Google Play Store, scroll to the bottom,",desktop,"2018,images"
 browse:media:googleplaystore:2019,"Navigate to the movies page of Google Play Store, scroll to the bottom,",mobile,"2019,emerging_market,images"
 browse:media:imgur,,"desktop,mobile","2016,emerging_market"
+browse:media:imgur:2019,,mobile,"2019,emerging_market"
 browse:media:pinterest:2018,,desktop,2018
 browse:media:tumblr:2018,,desktop,2018
 browse:media:youtube,Load a typical YouTube video then navigate to a next few videos. Stop and,mobile,"2016,emerging_market,health_check,javascript_heavy"
@@ -40,6 +42,7 @@ browse:news:reddit,The top website in http://www.alexa.com/topsites/category/New
 browse:news:reddit:2018,The top website in http://www.alexa.com/topsites/category/News,desktop,2018
 browse:news:reddit:2019,,mobile,2019
 browse:news:toi,,mobile,"2016,emerging_market"
+browse:news:toi:2019,,mobile,"2019,emerging_market"
 browse:news:washingtonpost,Progressive website,mobile,2016
 browse:news:washingtonpost:2019,Progressive website,mobile,2019
 browse:search:amp:2018,Story for Google's Accelerated Mobile Pages (AMP).,mobile,2018
@@ -52,9 +55,11 @@ browse:shopping:amazon:2019,,mobile,"2019,emerging_market"
 browse:shopping:avito,,mobile,"2016,emerging_market,health_check"
 browse:shopping:avito:2019,,mobile,"2019,emerging_market,health_check"
 browse:shopping:flipkart,,mobile,"2016,emerging_market"
+browse:shopping:flipkart:2019,,mobile,"2019,emerging_market"
 browse:shopping:lazada,,mobile,"2016,emerging_market"
 browse:shopping:lazada:2019,,mobile,"2019,emerging_market"
 browse:social:facebook,,mobile,"2016,emerging_market"
+browse:social:facebook:2019,,mobile,"2019,emerging_market"
 browse:social:facebook_infinite_scroll,,mobile,2016
 browse:social:facebook_infinite_scroll:2018,,"desktop,mobile","2018,infinite_scroll"
 browse:social:instagram,,mobile,"2016,emerging_market"
@@ -70,7 +75,7 @@ browse:tech:discourse_infinite_scroll,,mobile,"2016,infinite_scroll"
 browse:tech:discourse_infinite_scroll:2018,,"desktop,mobile","2018,infinite_scroll"
 browse:tools:earth,Google Earth story:,desktop,"2016,javascript_heavy,webgl"
 browse:tools:maps,Google maps story:,"desktop,mobile","2016,emerging_market,javascript_heavy,webgl"
-browse:tools:maps:2019,Google maps story:,"desktop,mobile","2018,2019,emerging_market,javascript_heavy,webgl"
+browse:tools:maps:2019,Google maps story:,"desktop,mobile","2019,emerging_market,javascript_heavy,webgl"
 browse:tools:sheets:2019,,desktop,"2019,javascript_heavy"
 browse_accessibility:media:youtube,Tests interacting with the YouTube home page.,desktop,"2016,accessibility,keyboard_input"
 browse_accessibility:tech:codesearch:2018,Tests scrolling an element within a page.,desktop,"2018,accessibility,scroll"
@@ -98,6 +103,7 @@ load:news:cnn:2018,,"desktop,mobile","2018,javascript_heavy"
 load:news:flipboard,,desktop,2016
 load:news:hackernews:2018,,desktop,2018
 load:news:irctc,,mobile,"2016,emerging_market,health_check"
+load:news:irctc:2019,,mobile,"2019,emerging_market,health_check"
 load:news:nytimes,,mobile,"2016,health_check"
 load:news:nytimes:2018,,desktop,2018
 load:news:nytimes:2019,,mobile,"2019,health_check"

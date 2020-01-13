@@ -270,7 +270,7 @@ OptimizationGuideHintsManager::ProcessHintsComponent(
                              registered_optimization_types);
 
   if (update_data) {
-    bool did_process_hints = optimization_guide::ProcessHints(
+    bool did_process_hints = hint_cache_->ProcessAndCacheHints(
         config->mutable_hints(), update_data.get());
     optimization_guide::RecordProcessHintsComponentResult(
         did_process_hints
@@ -350,8 +350,8 @@ void OptimizationGuideHintsManager::OnHintCacheInitialized() {
     std::unique_ptr<optimization_guide::StoreUpdateData> update_data =
         hint_cache_->MaybeCreateUpdateDataForComponentHints(
             base::Version(kManualConfigComponentVersion));
-    optimization_guide::ProcessHints(manual_config->mutable_hints(),
-                                     update_data.get());
+    hint_cache_->ProcessAndCacheHints(manual_config->mutable_hints(),
+                                      update_data.get());
     // Allow |UpdateComponentHints| to block startup so that the first
     // navigation gets the hints when a command line hint proto is provided.
     UpdateComponentHints(base::DoNothing(), std::move(update_data));
@@ -529,8 +529,10 @@ void OptimizationGuideHintsManager::OnTopHostsHintsFetched(
 void OptimizationGuideHintsManager::OnPageNavigationHintsFetched(
     base::Optional<std::unique_ptr<optimization_guide::proto::GetHintsResponse>>
         get_hints_response) {
-  if (!get_hints_response.has_value() || !get_hints_response.value())
+  if (!get_hints_response.has_value() || !get_hints_response.value()) {
+    page_navigation_hosts_being_fetched_.clear();
     return;
+  }
 
   hint_cache_->UpdateFetchedHints(
       std::move(*get_hints_response), clock_->Now() + kUpdateFetchedHintsDelay,
@@ -543,6 +545,8 @@ void OptimizationGuideHintsManager::OnFetchedTopHostsHintsStored() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   LOCAL_HISTOGRAM_BOOLEAN("OptimizationGuide.FetchedHints.Stored", true);
 
+  hint_cache_->PurgeExpiredFetchedHints();
+
   top_hosts_hints_fetch_timer_.Stop();
   top_hosts_hints_fetch_timer_.Start(
       FROM_HERE, hint_cache_->GetFetchedHintsUpdateTime() - clock_->Now(), this,
@@ -551,8 +555,10 @@ void OptimizationGuideHintsManager::OnFetchedTopHostsHintsStored() {
 
 void OptimizationGuideHintsManager::OnFetchedPageNavigationHintsStored() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  for (const auto& host : navigation_hosts_last_fetched_real_time_)
+  for (const auto& host : page_navigation_hosts_being_fetched_)
     LoadHintForHost(host, base::DoNothing());
+
+  page_navigation_hosts_being_fetched_.clear();
 }
 
 base::Time OptimizationGuideHintsManager::GetLastHintsFetchAttemptTime() const {
@@ -649,9 +655,9 @@ void OptimizationGuideHintsManager::OnPredictionUpdated(
   if (target_hosts.empty())
     return;
 
-  navigation_hosts_last_fetched_real_time_.clear();
+  page_navigation_hosts_being_fetched_.clear();
   for (const auto& host : target_hosts)
-    navigation_hosts_last_fetched_real_time_.push_back(host);
+    page_navigation_hosts_being_fetched_.push_back(host);
 
   if (!hints_fetcher_) {
     hints_fetcher_ = std::make_unique<optimization_guide::HintsFetcher>(
@@ -724,58 +730,67 @@ bool OptimizationGuideHintsManager::HasLoadedOptimizationFilter(
          blacklist_optimization_filters_.end();
 }
 
-void OptimizationGuideHintsManager::CanApplyOptimization(
+optimization_guide::OptimizationTargetDecision
+OptimizationGuideHintsManager::ShouldTargetNavigation(
     content::NavigationHandle* navigation_handle,
-    optimization_guide::proto::OptimizationTarget optimization_target,
-    optimization_guide::proto::OptimizationType optimization_type,
-    optimization_guide::OptimizationTargetDecision*
-        optimization_target_decision,
-    optimization_guide::OptimizationTypeDecision* optimization_type_decision,
-    optimization_guide::OptimizationMetadata* optimization_metadata) {
+    optimization_guide::proto::OptimizationTarget optimization_target) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  DCHECK(optimization_target_decision);
-  DCHECK(optimization_type_decision);
 
-  // Clear out optimization metadata if provided.
-  if (optimization_metadata)
-    (*optimization_metadata).previews_metadata.Clear();
-
-  *optimization_target_decision =
-      optimization_guide::OptimizationTargetDecision::kUnknown;
-  *optimization_type_decision =
-      optimization_guide::OptimizationTypeDecision::kUnknown;
-
-  bool should_update_optimization_target_decision = true;
   if (optimization_target !=
       optimization_guide::proto::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD) {
-    *optimization_target_decision = optimization_guide::
-        OptimizationTargetDecision::kModelNotAvailableOnClient;
-    should_update_optimization_target_decision = false;
+    return optimization_guide::OptimizationTargetDecision::
+        kModelNotAvailableOnClient;
   }
-
-  const auto& url = navigation_handle->GetURL();
-  // If the URL doesn't have a host, we cannot query the hint for it, so just
-  // return early.
-  if (!url.has_host()) {
-    if (should_update_optimization_target_decision) {
-      *optimization_target_decision =
-          optimization_guide::OptimizationTargetDecision::kPageLoadDoesNotMatch;
-    }
-    *optimization_type_decision =
-        optimization_guide::OptimizationTypeDecision::kNoHintAvailable;
-    return;
-  }
-  const auto& host = url.host();
 
   net::EffectiveConnectionType max_ect_trigger =
       net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_2G;
 
-  // TODO(sophiechang): Maybe cache the page hint for a navigation ID so we
-  // don't have to iterate through all page hints every time this is called.
+  const auto& url = navigation_handle->GetURL();
+  if (url.has_host()) {
+    const auto& host = url.host();
+    // Check if we have a hint already loaded for this navigation.
+    const optimization_guide::proto::Hint* loaded_hint =
+        hint_cache_->GetHostKeyedHintIfLoaded(host);
+    const optimization_guide::proto::PageHint* matched_page_hint =
+        loaded_hint ? GetPageHintForNavigation(navigation_handle, loaded_hint)
+                    : nullptr;
+
+    if (matched_page_hint && matched_page_hint->has_max_ect_trigger()) {
+      max_ect_trigger = optimization_guide::ConvertProtoEffectiveConnectionType(
+          matched_page_hint->max_ect_trigger());
+    }
+  }
+
+  if (current_effective_connection_type_ !=
+          net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_UNKNOWN &&
+      current_effective_connection_type_ <= max_ect_trigger) {
+    return optimization_guide::OptimizationTargetDecision::kPageLoadMatches;
+  }
+
+  return optimization_guide::OptimizationTargetDecision::kPageLoadDoesNotMatch;
+}
+
+optimization_guide::OptimizationTypeDecision
+OptimizationGuideHintsManager::CanApplyOptimization(
+    content::NavigationHandle* navigation_handle,
+    optimization_guide::proto::OptimizationType optimization_type,
+    optimization_guide::OptimizationMetadata* optimization_metadata) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  // Clear out optimization metadata if provided.
+  if (optimization_metadata)
+    *optimization_metadata = {};
+
+  const auto& url = navigation_handle->GetURL();
+  // If the URL doesn't have a host, we cannot query the hint for it, so just
+  // return early.
+  if (!url.has_host())
+    return optimization_guide::OptimizationTypeDecision::kNoHintAvailable;
+  const auto& host = url.host();
 
   // Check if we have a hint already loaded for this navigation.
   const optimization_guide::proto::Hint* loaded_hint =
-      hint_cache_->GetHintIfLoaded(host);
+      hint_cache_->GetHostKeyedHintIfLoaded(host);
   bool has_hint_in_cache = hint_cache_->HasHint(host);
   const optimization_guide::proto::PageHint* matched_page_hint =
       loaded_hint ? GetPageHintForNavigation(navigation_handle, loaded_hint)
@@ -788,27 +803,9 @@ void OptimizationGuideHintsManager::CanApplyOptimization(
   if (navigation_data) {
     navigation_data->set_has_hint_after_commit(has_hint_in_cache);
 
-    if (loaded_hint)
+    if (loaded_hint) {
       navigation_data->set_serialized_hint_version_string(
           loaded_hint->version());
-  }
-
-  if (matched_page_hint && matched_page_hint->has_max_ect_trigger()) {
-    max_ect_trigger = optimization_guide::ConvertProtoEffectiveConnectionType(
-        matched_page_hint->max_ect_trigger());
-  }
-
-  if (should_update_optimization_target_decision) {
-    if (current_effective_connection_type_ ==
-            net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_UNKNOWN ||
-        current_effective_connection_type_ > max_ect_trigger) {
-      // The current network is not slow enough, so this navigation is likely
-      // not going to be painful.
-      *optimization_target_decision =
-          optimization_guide::OptimizationTargetDecision::kPageLoadDoesNotMatch;
-    } else {
-      *optimization_target_decision =
-          optimization_guide::OptimizationTargetDecision::kPageLoadMatches;
     }
   }
 
@@ -821,22 +818,19 @@ void OptimizationGuideHintsManager::CanApplyOptimization(
     // if the URL matches anything in the filter.
     if (blacklist_optimization_filters_.find(optimization_type) !=
         blacklist_optimization_filters_.end()) {
-      *optimization_type_decision =
-          blacklist_optimization_filters_[optimization_type]->Matches(url)
-              ? optimization_guide::OptimizationTypeDecision::
-                    kNotAllowedByOptimizationFilter
-              : optimization_guide::OptimizationTypeDecision::
-                    kAllowedByOptimizationFilter;
-      return;
+      return blacklist_optimization_filters_[optimization_type]->Matches(url)
+                 ? optimization_guide::OptimizationTypeDecision::
+                       kNotAllowedByOptimizationFilter
+                 : optimization_guide::OptimizationTypeDecision::
+                       kAllowedByOptimizationFilter;
     }
 
     // Check if we had an optimization filter for it, but it was not loaded into
     // memory.
     if (optimization_types_with_filter_.find(optimization_type) !=
         optimization_types_with_filter_.end()) {
-      *optimization_type_decision = optimization_guide::
-          OptimizationTypeDecision::kHadOptimizationFilterButNotLoadedInTime;
-      return;
+      return optimization_guide::OptimizationTypeDecision::
+          kHadOptimizationFilterButNotLoadedInTime;
     }
   }
 
@@ -845,21 +839,18 @@ void OptimizationGuideHintsManager::CanApplyOptimization(
     // cache, we do not know what to do with the URL so just return.
     // Otherwise, we do have information, but we just do not know it yet.
     if (has_hint_in_cache) {
-      *optimization_type_decision = optimization_guide::
-          OptimizationTypeDecision::kHadHintButNotLoadedInTime;
-    } else if (IsHintBeingFetched(url.host())) {
-      *optimization_type_decision = optimization_guide::
-          OptimizationTypeDecision::kHintFetchStartedButNotAvailableInTime;
-    } else {
-      *optimization_type_decision =
-          optimization_guide::OptimizationTypeDecision::kNoHintAvailable;
+      return optimization_guide::OptimizationTypeDecision::
+          kHadHintButNotLoadedInTime;
     }
-    return;
+    if (IsHintBeingFetched(url.host())) {
+      return optimization_guide::OptimizationTypeDecision::
+          kHintFetchStartedButNotAvailableInTime;
+    }
+    return optimization_guide::OptimizationTypeDecision::kNoHintAvailable;
   }
+
   if (!matched_page_hint) {
-    *optimization_type_decision =
-        optimization_guide::OptimizationTypeDecision::kNoMatchingPageHint;
-    return;
+    return optimization_guide::OptimizationTypeDecision::kNoMatchingPageHint;
   }
 
   // Now check if we have any optimizations for it.
@@ -875,18 +866,26 @@ void OptimizationGuideHintsManager::CanApplyOptimization(
 
     // We found an optimization that can be applied. Populate optimization
     // metadata if applicable and return.
-    if (optimization_metadata && optimization.has_previews_metadata()) {
-      (*optimization_metadata).previews_metadata =
-          optimization.previews_metadata();
+    if (optimization_metadata) {
+      switch (optimization.metadata_case()) {
+        case optimization_guide::proto::Optimization::kPreviewsMetadata:
+          optimization_metadata->previews_metadata =
+              optimization.previews_metadata();
+          break;
+        case optimization_guide::proto::Optimization::kPerformanceHintsMetadata:
+          optimization_metadata->performance_hints_metadata =
+              optimization.performance_hints_metadata();
+          break;
+        default:
+          NOTREACHED();
+          break;
+      }
     }
-    *optimization_type_decision =
-        optimization_guide::OptimizationTypeDecision::kAllowedByHint;
-    return;
+    return optimization_guide::OptimizationTypeDecision::kAllowedByHint;
   }
 
   // We didn't find anything, so it's not allowed by the hint.
-  *optimization_type_decision =
-      optimization_guide::OptimizationTypeDecision::kNotAllowedByHint;
+  return optimization_guide::OptimizationTypeDecision::kNotAllowedByHint;
 }
 
 void OptimizationGuideHintsManager::OnEffectiveConnectionTypeChanged(
@@ -901,7 +900,7 @@ bool OptimizationGuideHintsManager::IsAllowedToFetchNavigationHints(
   if (!IsUserPermittedToFetchFromRemoteOptimizationGuide(profile_))
     return false;
 
-  if (!url.is_valid() || !url.SchemeIs(url::kHttpsScheme))
+  if (!url.is_valid() || !url.SchemeIsHTTPOrHTTPS())
     return false;
 
   base::Optional<net::EffectiveConnectionType> ect_max_threshold =
@@ -934,8 +933,8 @@ void OptimizationGuideHintsManager::OnNavigationStartOrRedirect(
   if (IsAllowedToFetchNavigationHints(navigation_handle->GetURL()) &&
       !hint_cache_->HasHint(navigation_handle->GetURL().host())) {
     std::vector<std::string> hosts{navigation_handle->GetURL().host()};
-    navigation_hosts_last_fetched_real_time_.clear();
-    navigation_hosts_last_fetched_real_time_.push_back(
+    page_navigation_hosts_being_fetched_.clear();
+    page_navigation_hosts_being_fetched_.push_back(
         navigation_handle->GetURL().host());
 
     if (!hints_fetcher_) {
@@ -966,7 +965,7 @@ void OptimizationGuideHintsManager::ClearFetchedHints() {
 
 bool OptimizationGuideHintsManager::IsHintBeingFetched(
     const std::string& host) const {
-  return std::find(navigation_hosts_last_fetched_real_time_.begin(),
-                   navigation_hosts_last_fetched_real_time_.end(),
-                   host) != navigation_hosts_last_fetched_real_time_.end();
+  return std::find(page_navigation_hosts_being_fetched_.begin(),
+                   page_navigation_hosts_being_fetched_.end(),
+                   host) != page_navigation_hosts_being_fetched_.end();
 }

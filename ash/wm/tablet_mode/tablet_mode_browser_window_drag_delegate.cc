@@ -121,7 +121,7 @@ class TabletModeBrowserWindowDragDelegate::WindowsHider
       : dragged_window_(dragged_window) {
     DCHECK(dragged_window);
     aura::Window* source_window =
-        dragged_window->GetProperty(ash::kTabDraggingSourceWindowKey);
+        dragged_window->GetProperty(kTabDraggingSourceWindowKey);
     DCHECK(source_window);
 
     // Disable the backdrop for |source_window| during dragging.
@@ -160,7 +160,7 @@ class TabletModeBrowserWindowDragDelegate::WindowsHider
   ~WindowsHider() override {
     // It might be possible that |source_window| is destroyed during dragging.
     aura::Window* source_window =
-        dragged_window_->GetProperty(ash::kTabDraggingSourceWindowKey);
+        dragged_window_->GetProperty(kTabDraggingSourceWindowKey);
     if (source_window)
       source_window->SetProperty(kBackdropWindowMode, source_window_backdrop_);
 
@@ -227,7 +227,7 @@ TabletModeBrowserWindowDragDelegate::~TabletModeBrowserWindowDragDelegate() =
     default;
 
 void TabletModeBrowserWindowDragDelegate::PrepareWindowDrag(
-    const gfx::Point& location_in_screen) {
+    const gfx::PointF& location_in_screen) {
   DCHECK(dragged_window_);
 
   WindowState* window_state = WindowState::Get(dragged_window_);
@@ -235,7 +235,7 @@ void TabletModeBrowserWindowDragDelegate::PrepareWindowDrag(
 }
 
 void TabletModeBrowserWindowDragDelegate::UpdateWindowDrag(
-    const gfx::Point& location_in_screen) {
+    const gfx::PointF& location_in_screen) {
   DCHECK(dragged_window_);
 
   // Update the source window if necessary.
@@ -244,7 +244,7 @@ void TabletModeBrowserWindowDragDelegate::UpdateWindowDrag(
 
 void TabletModeBrowserWindowDragDelegate::EndingWindowDrag(
     ToplevelWindowEventHandler::DragResult result,
-    const gfx::Point& location_in_screen) {
+    const gfx::PointF& location_in_screen) {
   if (result == ToplevelWindowEventHandler::DragResult::SUCCESS)
     WindowState::Get(dragged_window_)->OnCompleteDrag(location_in_screen);
   else
@@ -252,7 +252,7 @@ void TabletModeBrowserWindowDragDelegate::EndingWindowDrag(
 }
 
 void TabletModeBrowserWindowDragDelegate::EndedWindowDrag(
-    const gfx::Point& location_in_screen) {
+    const gfx::PointF& location_in_screen) {
   MergeBackToSourceWindowIfApplicable(location_in_screen);
 }
 
@@ -265,20 +265,20 @@ void TabletModeBrowserWindowDragDelegate::StartFling(
 bool TabletModeBrowserWindowDragDelegate::ShouldOpenOverviewWhenDragStarts() {
   DCHECK(dragged_window_);
   aura::Window* source_window =
-      dragged_window_->GetProperty(ash::kTabDraggingSourceWindowKey);
+      dragged_window_->GetProperty(kTabDraggingSourceWindowKey);
   return !source_window;
 }
 
 void TabletModeBrowserWindowDragDelegate::UpdateSourceWindow(
-    const gfx::Point& location_in_screen) {
+    const gfx::PointF& location_in_screen) {
   // Only do the scale if the source window is not the dragged window && the
   // source window is not in splitscreen && the source window is not in
   // overview.
   aura::Window* source_window =
-      dragged_window_->GetProperty(ash::kTabDraggingSourceWindowKey);
+      dragged_window_->GetProperty(kTabDraggingSourceWindowKey);
   if (!source_window || source_window == dragged_window_ ||
       split_view_controller_->IsWindowInSplitView(source_window) ||
-      source_window->GetProperty(ash::kIsShowingInOverviewKey)) {
+      source_window->GetProperty(kIsShowingInOverviewKey)) {
     return;
   }
 
@@ -327,13 +327,13 @@ void TabletModeBrowserWindowDragDelegate::UpdateSourceWindow(
 }
 
 void TabletModeBrowserWindowDragDelegate::MergeBackToSourceWindowIfApplicable(
-    const gfx::Point& location_in_screen) {
+    const gfx::PointF& location_in_screen) {
   // No need to merge back if we're not in tab dragging process.
   if (!window_util::IsDraggingTabs(dragged_window_))
     return;
 
   aura::Window* source_window =
-      dragged_window_->GetProperty(ash::kTabDraggingSourceWindowKey);
+      dragged_window_->GetProperty(kTabDraggingSourceWindowKey);
   // Do not merge back if there is no source window.
   if (!source_window)
     return;
@@ -381,7 +381,7 @@ void TabletModeBrowserWindowDragDelegate::MergeBackToSourceWindowIfApplicable(
 
   // Arriving here we know the dragged window should merge back into its source
   // window.
-  source_window->SetProperty(ash::kIsDeferredTabDraggingTargetWindowKey, true);
+  source_window->SetProperty(kIsDeferredTabDraggingTargetWindowKey, true);
 }
 
 }  // namespace ash

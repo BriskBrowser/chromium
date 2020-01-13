@@ -36,7 +36,6 @@
 
 #include "base/memory/scoped_refptr.h"
 
-#include "mojo/public/cpp/bindings/binding_set.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
@@ -46,6 +45,7 @@
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
 
@@ -139,7 +139,6 @@ class LocalFrameClientImpl final : public LocalFrameClient {
   void DownloadURL(const ResourceRequest&,
                    network::mojom::RedirectMode) override;
   bool NavigateBackForward(int offset) const override;
-  void DidAccessInitialDocument() override;
   void DidRunInsecureContent(const SecurityOrigin*,
                              const KURL& insecure_url) override;
   void DidDispatchPingLoader(const KURL&) override;
@@ -244,18 +243,11 @@ class LocalFrameClientImpl final : public LocalFrameClient {
 
   void AnnotatedRegionsChanged() override;
 
-  void DidBlockNavigation(const KURL& blocked_url,
-                          const KURL& initiator_url,
-                          blink::NavigationBlockedReason reason) override;
-
   base::UnguessableToken GetDevToolsFrameToken() const override;
 
   void ScrollRectToVisibleInParentFrame(
       const WebRect&,
       const WebScrollIntoViewParams&) override;
-
-  void BubbleLogicalScrollInParentFrame(ScrollDirection direction,
-                                        ScrollGranularity granularity) override;
 
   String evaluateInInspectorOverlayForTesting(const String& script) override;
 
@@ -304,11 +296,12 @@ class LocalFrameClientImpl final : public LocalFrameClient {
   blink::UserAgentMetadata user_agent_metadata_;
 };
 
-DEFINE_TYPE_CASTS(LocalFrameClientImpl,
-                  LocalFrameClient,
-                  client,
-                  client->IsLocalFrameClientImpl(),
-                  client.IsLocalFrameClientImpl());
+template <>
+struct DowncastTraits<LocalFrameClientImpl> {
+  static bool AllowFrom(const LocalFrameClient& client) {
+    return client.IsLocalFrameClientImpl();
+  }
+};
 
 }  // namespace blink
 

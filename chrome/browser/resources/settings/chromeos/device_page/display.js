@@ -604,7 +604,9 @@ Polymer({
    * @private
    */
   getUnifiedDesktopText_: function(unifiedDesktopMode) {
-    return this.i18n(unifiedDesktopMode ? 'toggleOn' : 'toggleOff');
+    return this.i18n(
+        unifiedDesktopMode ? 'displayUnifiedDesktopOn' :
+                             'displayUnifiedDesktopOff');
   },
 
   /**
@@ -1027,6 +1029,9 @@ Polymer({
    * @private
    */
   shouldShowArrangementSection_: function() {
+    if (!this.displays) {
+      return false;
+    }
     return this.hasMultipleDisplays_() || this.isMirrored_(this.displays);
   },
 

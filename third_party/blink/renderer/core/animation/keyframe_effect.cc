@@ -330,7 +330,7 @@ KeyframeEffect::CheckCanStartAnimationOnCompositor(
 void KeyframeEffect::StartAnimationOnCompositor(
     int group,
     base::Optional<double> start_time,
-    double current_time,
+    base::TimeDelta time_offset,
     double animation_playback_rate,
     CompositorAnimation* compositor_animation) {
   DCHECK(!HasActiveAnimationsOnCompositor());
@@ -345,7 +345,7 @@ void KeyframeEffect::StartAnimationOnCompositor(
   DCHECK(Model());
 
   CompositorAnimations::StartAnimationOnCompositor(
-      *effect_target_, group, start_time, current_time, SpecifiedTiming(),
+      *effect_target_, group, start_time, time_offset, SpecifiedTiming(),
       GetAnimation(), *compositor_animation, *Model(),
       compositor_keyframe_model_ids_, animation_playback_rate);
   DCHECK(!compositor_keyframe_model_ids_.IsEmpty());
@@ -382,7 +382,8 @@ void KeyframeEffect::CancelIncompatibleAnimationsOnCompositor() {
   }
 }
 
-void KeyframeEffect::PauseAnimationForTestingOnCompositor(double pause_time) {
+void KeyframeEffect::PauseAnimationForTestingOnCompositor(
+    base::TimeDelta pause_time) {
   DCHECK(HasActiveAnimationsOnCompositor());
   if (!effect_target_ || !effect_target_->GetLayoutObject())
     return;
@@ -429,7 +430,7 @@ bool KeyframeEffect::AnimationsPreserveAxisAlignment(
       continue;
     DCHECK(value->IsTransform());
     const auto& transform_operations =
-        ToCompositorKeyframeTransform(value)->GetTransformOperations();
+        To<CompositorKeyframeTransform>(value)->GetTransformOperations();
     if (!transform_operations.PreservesAxisAlignment())
       return false;
   }
@@ -563,7 +564,7 @@ void KeyframeEffect::DetachTarget(Animation* animation) {
 AnimationTimeDelta KeyframeEffect::CalculateTimeToEffectChange(
     bool forwards,
     base::Optional<double> local_time,
-    double time_to_next_iteration) const {
+    AnimationTimeDelta time_to_next_iteration) const {
   const double start_time = SpecifiedTiming().start_delay;
   const double end_time_minus_end_delay =
       start_time + SpecifiedTiming().ActiveDuration();
@@ -586,8 +587,8 @@ AnimationTimeDelta KeyframeEffect::CalculateTimeToEffectChange(
         // Need service to apply fill / fire events.
         const double time_to_end = after_time - local_time.value();
         if (RequiresIterationEvents()) {
-          return AnimationTimeDelta::FromSecondsD(
-              std::min(time_to_end, time_to_next_iteration));
+          return std::min(AnimationTimeDelta::FromSecondsD(time_to_end),
+                          time_to_next_iteration);
         }
         return AnimationTimeDelta::FromSecondsD(time_to_end);
       }

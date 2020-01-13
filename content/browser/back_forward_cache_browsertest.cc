@@ -111,7 +111,7 @@ class BackForwardCacheBrowserTest : public ContentBrowserTest {
     command_line->AppendSwitchASCII(
         switches::kAutoplayPolicy,
         switches::autoplay::kNoUserGestureRequiredPolicy);
-
+    command_line->AppendSwitchASCII(switches::kEnableBlinkFeatures, "WakeLock");
     ContentBrowserTest::SetUpCommandLine(command_line);
   }
 
@@ -389,18 +389,12 @@ class ThemeColorObserver : public WebContentsObserver {
  public:
   explicit ThemeColorObserver(WebContents* contents)
       : WebContentsObserver(contents) {}
-  void DidChangeThemeColor(base::Optional<SkColor> color) override {
-    observed_ = true;
-    color_ = color;
-  }
-
-  const base::Optional<SkColor>& color() const { return color_; }
+  void DidChangeThemeColor() override { observed_ = true; }
 
   bool did_fire() const { return observed_; }
 
  private:
   bool observed_ = false;
-  base::Optional<SkColor> color_;
 };
 
 class DOMContentLoadedObserver : public WebContentsObserver {
@@ -1191,7 +1185,7 @@ IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTest,
   web_contents()->GetController().GoBack();
   EXPECT_TRUE(WaitForLoadStop(shell()->web_contents()));
   // Note: We still have a transition proxy that will be used to perform the
-  // frame SwapOut. It gets deleted with rfh_b below.
+  // frame swap. It gets deleted with rfh_b below.
   EXPECT_EQ(3u, render_frame_host_manager()->GetProxyCount());
 
   // Page B should be deleted (not cached).
@@ -1682,6 +1676,130 @@ IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTest, DoesNotCacheIfWebGL) {
       FROM_HERE);
   ExpectBlocklistedFeature(blink::scheduler::WebSchedulerTrackedFeature::kWebGL,
                            FROM_HERE);
+}
+
+IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTest, DoesNotCacheIfWebHID) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  // 1) Navigate to an empty page.
+  GURL url(embedded_test_server()->GetURL("/title1.html"));
+  EXPECT_TRUE(NavigateToURL(shell(), url));
+
+  // Request for HID devices.
+  EXPECT_EQ("success", EvalJs(current_frame_host(), R"(
+    new Promise(resolve => {
+      navigator.hid.getDevices()
+        .then(m => { resolve("success"); })
+        .catch(() => { resolve("error"); });
+    });
+  )"));
+
+  RenderFrameDeletedObserver deleted(current_frame_host());
+
+  // 2) Navigate away.
+  shell()->LoadURL(embedded_test_server()->GetURL("b.com", "/title1.html"));
+
+  // The page uses WebHID so it should be deleted.
+  deleted.WaitUntilDeleted();
+
+  // 3) Go back.
+  web_contents()->GetController().GoBack();
+  EXPECT_TRUE(WaitForLoadStop(shell()->web_contents()));
+  ExpectNotRestored(
+      {BackForwardCacheMetrics::NotRestoredReason::kBlocklistedFeatures},
+      FROM_HERE);
+  ExpectBlocklistedFeature(
+      blink::scheduler::WebSchedulerTrackedFeature::kWebHID, FROM_HERE);
+}
+
+IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTest,
+                       DoesNotCacheIfAcquiredWakeLock) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  // 1) Navigate to a page with WakeLock usage.
+  GURL url(embedded_test_server()->GetURL("/back_forward_cache/empty.html"));
+  EXPECT_TRUE(NavigateToURL(shell(), url));
+
+  RenderFrameHostImpl* rfh_a = current_frame_host();
+  RenderFrameDeletedObserver deleted(current_frame_host());
+
+  // Acquire WakeLock.
+  EXPECT_EQ("DONE", EvalJs(rfh_a, R"(
+  new Promise(async resolve => {
+    try {
+      await navigator.wakeLock.request('screen');
+      resolve('DONE');
+    } catch (error) {
+      resolve('error: request failed');
+    }
+  });
+  )"));
+
+  // 2) Navigate away.
+  shell()->LoadURL(embedded_test_server()->GetURL("b.com", "/title1.html"));
+
+  // The page uses WakeLock so it should be deleted.
+  deleted.WaitUntilDeleted();
+
+  // 3) Go back to the page with WakeLock.
+  web_contents()->GetController().GoBack();
+  EXPECT_TRUE(WaitForLoadStop(shell()->web_contents()));
+  ExpectNotRestored(
+      {BackForwardCacheMetrics::NotRestoredReason::kBlocklistedFeatures},
+      FROM_HERE);
+  ExpectBlocklistedFeature(
+      blink::scheduler::WebSchedulerTrackedFeature::kWakeLock, FROM_HERE);
+}
+
+// TODO(yuzus): By releasing wakelock, the page should become cacheable again.
+// Fix and re-enable the rest of this test.
+IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTest,
+                       DISABLED_CacheIfReleasedWakeLock) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  // 1) Navigate to a page with WakeLock usage.
+  GURL url(embedded_test_server()->GetURL(
+      "/back_forward_cache/page_with_wakelock.html"));
+  EXPECT_TRUE(NavigateToURL(shell(), url));
+
+  RenderFrameHostImpl* rfh_a = current_frame_host();
+  RenderFrameDeletedObserver deleted(current_frame_host());
+
+  // Acquire WakeLock.
+  EXPECT_EQ("DONE", EvalJs(rfh_a, "requestWakeLock()"));
+  // 2) Navigate away.
+  shell()->LoadURL(embedded_test_server()->GetURL("b.com", "/title1.html"));
+
+  // The page uses WakeLock so it should be deleted.
+  deleted.WaitUntilDeleted();
+
+  // 3) Go back to the page with WakeLock.
+  web_contents()->GetController().GoBack();
+  EXPECT_TRUE(WaitForLoadStop(shell()->web_contents()));
+  ExpectNotRestored(
+      {BackForwardCacheMetrics::NotRestoredReason::kBlocklistedFeatures},
+      FROM_HERE);
+  ExpectBlocklistedFeature(
+      blink::scheduler::WebSchedulerTrackedFeature::kWakeLock, FROM_HERE);
+
+  // Release WakeLock.
+  EXPECT_EQ("DONE", EvalJs(current_frame_host(), "releaseWakeLock()"));
+
+  // 4) Navigate away.
+  web_contents()->GetController().GoBack();
+  EXPECT_TRUE(WaitForLoadStop(shell()->web_contents()));
+
+  EXPECT_TRUE(rfh_a->is_in_back_forward_cache());
+
+  // 5) Go back to the page with WakeLock.
+  web_contents()->GetController().GoBack();
+  EXPECT_TRUE(WaitForLoadStop(shell()->web_contents()));
+  EXPECT_EQ(current_frame_host(), rfh_a);
+  EXPECT_TRUE(WaitForLoadStop(shell()->web_contents()));
+
+  // This time the page is restored from cache because WakeLock is released.
+  ExpectOutcome(BackForwardCacheMetrics::HistoryNavigationOutcome::kRestored,
+                FROM_HERE);
 }
 
 IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTest, DoesNotCacheIfHttpError) {
@@ -2800,7 +2918,7 @@ IN_PROC_BROWSER_TEST_P(BackForwardCacheBrowserTestWithServiceWorkerEnabled,
 }
 
 IN_PROC_BROWSER_TEST_P(BackForwardCacheBrowserTestWithServiceWorkerEnabled,
-                       CachedClientBecomesControlledByServiceWorker) {
+                       EvictOnServiceWorkerClaim) {
   net::EmbeddedTestServer https_server(net::EmbeddedTestServer::TYPE_HTTPS);
   https_server.RegisterRequestHandler(
       base::BindRepeating(&RequestHandlerForUpdateWorker));
@@ -2825,7 +2943,6 @@ IN_PROC_BROWSER_TEST_P(BackForwardCacheBrowserTestWithServiceWorkerEnabled,
                             https_server.GetURL("b.com", "/title1.html")));
   EXPECT_FALSE(deleted.deleted());
   EXPECT_TRUE(rfh_a->is_in_back_forward_cache());
-  RenderFrameHostImpl* rfh_b = current_frame_host();
 
   // 3) Navigate to A in |tab_to_execute_service_worker|.
   EXPECT_TRUE(NavigateToURL(
@@ -2834,22 +2951,23 @@ IN_PROC_BROWSER_TEST_P(BackForwardCacheBrowserTestWithServiceWorkerEnabled,
           "a.com", "/back_forward_cache/service_worker_registration.html")));
 
   // 4) Register a service worker for |tab_to_execute_service_worker|.
-  //    Here, rfh_a also becomes controlled by ServiceWorker by clients.claim().
-  //    TODO(yuzus): Instead of waiting for ready, this should wait for claim()
-  //    to resolve.
   EXPECT_EQ("DONE", EvalJs(tab_to_execute_service_worker,
                            "register('service_worker_registration.js')"));
 
-  // 5) Navigate to A in |tab_to_be_bfcached|.
+  // 5) The service worker calls clients.claim(). |rfh_a| would normally be
+  //    claimed but because it's in bfcache, it is evicted from the cache.
+  EXPECT_EQ("DONE", EvalJs(tab_to_execute_service_worker, "claim()"));
+
+  // 6) Navigate to A in |tab_to_be_bfcached|.
   tab_to_be_bfcached->web_contents()->GetController().GoBack();
   EXPECT_TRUE(WaitForLoadStop(tab_to_be_bfcached->web_contents()));
   EXPECT_TRUE(WaitForLoadStop(shell()->web_contents()));
-  EXPECT_FALSE(deleted.deleted());
-  EXPECT_EQ(rfh_a, current_frame_host());
-  EXPECT_FALSE(rfh_a->is_in_back_forward_cache());
-  EXPECT_TRUE(rfh_b->is_in_back_forward_cache());
-  ExpectOutcome(BackForwardCacheMetrics::HistoryNavigationOutcome::kRestored,
+  EXPECT_TRUE(deleted.deleted());
+  ExpectOutcome(BackForwardCacheMetrics::HistoryNavigationOutcome::kNotRestored,
                 FROM_HERE);
+  ExpectNotRestored(
+      {BackForwardCacheMetrics::NotRestoredReason::kServiceWorkerClaim},
+      FROM_HERE);
 }
 
 INSTANTIATE_TEST_SUITE_P(All,
@@ -4046,7 +4164,6 @@ IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTest,
   web_contents()->GetController().GoBack();
   EXPECT_TRUE(WaitForLoadStop(shell()->web_contents()));
   EXPECT_TRUE(observer.did_fire());
-  EXPECT_EQ(observer.color(), 0xFFFF0000u);
   EXPECT_EQ(web_contents()->GetThemeColor(), 0xFFFF0000u);
 }
 
@@ -4799,7 +4916,7 @@ IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTest,
   dialog_observer.WaitForAppModalDialog();
 }
 
-// SwapOutOldFrame will clear all dialogs. We test that further requests for
+// UnloadOldFrame will clear all dialogs. We test that further requests for
 // dialogs coming from JS do not result in the creation of a dialog. This test
 // posts some dialog creation JS to the render from inside the
 // CommitNavigationCallback task. This JS is then able to post a task back to

@@ -53,8 +53,6 @@ class ASH_EXPORT ShelfConfig : public TabletModeObserver,
   // AppListControllerObserver:
   void OnAppListVisibilityWillChange(bool shown, int64_t display_id) override;
 
-  void SetAssistantVisible(bool visible);
-
   // Size of the shelf when visible (height when the shelf is horizontal and
   // width when the shelf is vertical).
   int shelf_size() const;
@@ -177,8 +175,8 @@ class ASH_EXPORT ShelfConfig : public TabletModeObserver,
   // all observers.
   void OnShelfConfigUpdated();
 
-  // Updates |is_dense_| and notifies all observers of the update.
-  void UpdateIsDense();
+  // Updates |is_dense_| and returns whether |is_dense_| was changed.
+  bool UpdateIsDense();
 
   // Gets the current shelf size.
   // |ignore_in_app_state| - Whether the returned shelf size should be
@@ -190,9 +188,6 @@ class ASH_EXPORT ShelfConfig : public TabletModeObserver,
 
   // Whether the app list (or home launcher in tablet mode) is visible.
   bool is_app_list_visible_;
-
-  // Whether the Assistant launcher UI is visible.
-  bool is_assistant_visible_ = false;
 
   // Size of the icons within shelf buttons.
   const int shelf_button_icon_size_;

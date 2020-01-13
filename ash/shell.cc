@@ -507,9 +507,10 @@ void Shell::NotifyUserWorkAreaInsetsChanged(aura::Window* root_window) {
     observer.OnUserWorkAreaInsetsChanged(root_window);
 }
 
-void Shell::NotifyShelfAlignmentChanged(aura::Window* root_window) {
+void Shell::NotifyShelfAlignmentChanged(aura::Window* root_window,
+                                        ShelfAlignment old_alignment) {
   for (auto& observer : shell_observers_)
-    observer.OnShelfAlignmentChanged(root_window);
+    observer.OnShelfAlignmentChanged(root_window, old_alignment);
 }
 
 void Shell::NotifyShelfAutoHideBehaviorChanged(aura::Window* root_window) {
@@ -908,8 +909,6 @@ void Shell::Init(
 
   InitializeDisplayManager();
 
-  display_prefs_ = std::make_unique<DisplayPrefs>(local_state_);
-
   // RefreshFontParams depends on display prefs.
   display_manager_->RefreshFontParams();
 
@@ -1169,7 +1168,6 @@ void Shell::Init(
 }
 
 void Shell::InitializeDisplayManager() {
-  bool display_initialized = display_manager_->InitFromCommandLine();
 
   display_manager_->InitConfigurator(
       ui::OzonePlatform::GetInstance()->CreateNativeDisplayDelegate());
@@ -1184,6 +1182,10 @@ void Shell::InitializeDisplayManager() {
 
   projecting_observer_ =
       std::make_unique<ProjectingObserver>(display_manager_->configurator());
+
+  display_prefs_ = std::make_unique<DisplayPrefs>(local_state_);
+
+  bool display_initialized = display_manager_->InitFromCommandLine();
 
   if (!display_initialized) {
     if (chromeos::IsRunningAsSystemCompositor()) {

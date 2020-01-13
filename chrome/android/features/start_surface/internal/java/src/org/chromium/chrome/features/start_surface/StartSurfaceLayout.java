@@ -17,9 +17,9 @@ import android.text.TextUtils;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Log;
-import org.chromium.base.Supplier;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
+import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.ChromeVersionInfo;
 import org.chromium.chrome.browser.compositor.LayerTitleCache;
@@ -38,7 +38,7 @@ import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabFeatureUtilities;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tasks.tab_management.TabSwitcher;
-import org.chromium.chrome.browser.ui.widget.animation.Interpolators;
+import org.chromium.components.browser_ui.widget.animation.Interpolators;
 import org.chromium.ui.resources.ResourceManager;
 
 import java.util.ArrayList;
@@ -159,6 +159,9 @@ public class StartSurfaceLayout extends Layout implements StartSurface.OverviewM
     @Override
     public void show(long time, boolean animate) {
         super.show(time, animate);
+
+        // Lazy initialization if needed.
+        mStartSurface.initialize();
 
         // Skip shrinking animation when there is no tab in current tab model.
         boolean isCurrentTabModelEmpty = mTabModelSelector.getCurrentModel().getCount() == 0;

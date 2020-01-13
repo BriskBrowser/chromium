@@ -3026,23 +3026,23 @@ TEST_F(TabStripModelTest, AddTabToExistingGroupUpdatesObservers) {
   strip.CloseAllTabs();
 }
 
-TEST_F(TabStripModelTest, AddTabToExistingGroupReordersToTheRight) {
+TEST_F(TabStripModelTest, AddTabToLeftOfExistingGroupReorders) {
   TestTabStripModelDelegate delegate;
   TabStripModel strip(&delegate, profile());
-  PrepareTabs(&strip, 2);
+  PrepareTabs(&strip, 3);
 
-  strip.AddToNewGroup({1});
-  base::Optional<tab_groups::TabGroupId> group = strip.GetTabGroupForTab(1);
+  strip.AddToNewGroup({2});
+  base::Optional<tab_groups::TabGroupId> group = strip.GetTabGroupForTab(2);
 
   strip.AddToExistingGroup({0}, group.value());
-  EXPECT_EQ(strip.GetTabGroupForTab(0), group);
   EXPECT_EQ(strip.GetTabGroupForTab(1), group);
-  EXPECT_EQ("1 0", GetTabStripStateString(strip));
+  EXPECT_EQ(strip.GetTabGroupForTab(2), group);
+  EXPECT_EQ("1 0 2", GetTabStripStateString(strip));
 
   strip.CloseAllTabs();
 }
 
-TEST_F(TabStripModelTest, AddTabToExistingGroupReordersToTheLeft) {
+TEST_F(TabStripModelTest, AddTabToRighOfExistingGroupReorders) {
   TestTabStripModelDelegate delegate;
   TabStripModel strip(&delegate, profile());
   PrepareTabs(&strip, 3);
@@ -3072,7 +3072,7 @@ TEST_F(TabStripModelTest, AddTabToExistingGroupReorders) {
   EXPECT_EQ(strip.GetTabGroupForTab(1), group);
   EXPECT_EQ(strip.GetTabGroupForTab(2), group);
   EXPECT_FALSE(strip.GetTabGroupForTab(3).has_value());
-  EXPECT_EQ("1 0 3 2", GetTabStripStateString(strip));
+  EXPECT_EQ("0 1 3 2", GetTabStripStateString(strip));
 
   strip.CloseAllTabs();
 }
@@ -3089,7 +3089,7 @@ TEST_F(TabStripModelTest, AddTabToExistingGroupUnpins) {
   strip.AddToExistingGroup({0}, group.value());
   EXPECT_FALSE(strip.IsTabPinned(0));
   EXPECT_EQ(strip.GetTabGroupForTab(0), group);
-  EXPECT_EQ("1 0", GetTabStripStateString(strip));
+  EXPECT_EQ("0 1", GetTabStripStateString(strip));
 
   strip.CloseAllTabs();
 }
@@ -3155,7 +3155,7 @@ TEST_F(TabStripModelTest, RemoveTabFromGroupUpdatesObservers) {
   strip.CloseAllTabs();
 }
 
-TEST_F(TabStripModelTest, RemoveTabFromGroupReorders) {
+TEST_F(TabStripModelTest, RemoveTabFromGroupMaintainsOrder) {
   TestTabStripModelDelegate delegate;
   TabStripModel strip(&delegate, profile());
   PrepareTabs(&strip, 2);
@@ -3163,9 +3163,9 @@ TEST_F(TabStripModelTest, RemoveTabFromGroupReorders) {
 
   strip.RemoveFromGroup({0});
 
-  EXPECT_FALSE(strip.GetTabGroupForTab(1).has_value());
-  EXPECT_TRUE(strip.GetTabGroupForTab(0).has_value());
-  EXPECT_EQ("1 0", GetTabStripStateString(strip));
+  EXPECT_TRUE(strip.GetTabGroupForTab(1).has_value());
+  EXPECT_FALSE(strip.GetTabGroupForTab(0).has_value());
+  EXPECT_EQ("0 1", GetTabStripStateString(strip));
 
   strip.CloseAllTabs();
 }
@@ -3182,7 +3182,8 @@ TEST_F(TabStripModelTest, RemoveTabFromGroupDoesntReorderIfNoGroup) {
   strip.CloseAllTabs();
 }
 
-TEST_F(TabStripModelTest, RemoveTabFromGroupMaintainsOrderOfSelectedTabs) {
+TEST_F(TabStripModelTest,
+       RemoveTabFromGroupMaintainsRelativeOrderOfSelectedTabs) {
   TestTabStripModelDelegate delegate;
   TabStripModel strip(&delegate, profile());
   PrepareTabs(&strip, 4);
@@ -3190,11 +3191,11 @@ TEST_F(TabStripModelTest, RemoveTabFromGroupMaintainsOrderOfSelectedTabs) {
 
   strip.RemoveFromGroup({0, 2});
 
-  EXPECT_TRUE(strip.GetTabGroupForTab(0).has_value());
+  EXPECT_FALSE(strip.GetTabGroupForTab(0).has_value());
   EXPECT_TRUE(strip.GetTabGroupForTab(1).has_value());
-  EXPECT_FALSE(strip.GetTabGroupForTab(2).has_value());
+  EXPECT_TRUE(strip.GetTabGroupForTab(2).has_value());
   EXPECT_FALSE(strip.GetTabGroupForTab(3).has_value());
-  EXPECT_EQ("1 3 0 2", GetTabStripStateString(strip));
+  EXPECT_EQ("0 1 3 2", GetTabStripStateString(strip));
 
   strip.CloseAllTabs();
 }
@@ -3208,12 +3209,12 @@ TEST_F(TabStripModelTest, RemoveTabFromGroupMixtureOfGroups) {
 
   strip.RemoveFromGroup({0, 3, 4});
 
-  EXPECT_TRUE(strip.GetTabGroupForTab(0).has_value());
-  EXPECT_FALSE(strip.GetTabGroupForTab(1).has_value());
+  EXPECT_FALSE(strip.GetTabGroupForTab(0).has_value());
+  EXPECT_TRUE(strip.GetTabGroupForTab(1).has_value());
   EXPECT_TRUE(strip.GetTabGroupForTab(2).has_value());
   EXPECT_FALSE(strip.GetTabGroupForTab(3).has_value());
   EXPECT_FALSE(strip.GetTabGroupForTab(4).has_value());
-  EXPECT_EQ("1 0 2 3 4", GetTabStripStateString(strip));
+  EXPECT_EQ("0 1 2 3 4", GetTabStripStateString(strip));
 
   strip.CloseAllTabs();
 }
@@ -3774,6 +3775,51 @@ TEST_F(TabStripModelTest, MoveWebContentsAtCorrectlySendsGroupClearedEvent) {
   EXPECT_EQ(2u, observer.group_updates().size());
   EXPECT_EQ(3, observer.group_update(group1).contents_update_count);
   EXPECT_EQ(1, observer.group_update(group2).contents_update_count);
+
+  strip.CloseAllTabs();
+}
+
+class TabToWindowTestTabStripModelDelegate : public TestTabStripModelDelegate {
+ public:
+  bool CanMoveTabToWindow(int index) override {
+    can_move_calls_.push_back(index);
+    return true;
+  }
+
+  void MoveTabToNewWindow(int index) override { move_calls_.push_back(index); }
+
+  std::vector<int> can_move_calls() { return can_move_calls_; }
+  std::vector<int> move_calls() { return move_calls_; }
+
+ private:
+  std::vector<int> can_move_calls_;
+  std::vector<int> move_calls_;
+};
+
+// Sanity check to ensure that the "Move Tab to Window" command talks to
+// the delegate correctly.
+TEST_F(TabStripModelTest, MoveTabToNewWindow) {
+  TabToWindowTestTabStripModelDelegate delegate;
+  TabStripModel strip(&delegate, profile());
+  PrepareTabs(&strip, 3);
+
+  EXPECT_EQ(delegate.can_move_calls().size(), 0u);
+  EXPECT_EQ(delegate.move_calls().size(), 0u);
+
+  EXPECT_TRUE(strip.IsContextMenuCommandEnabled(
+      2, TabStripModel::CommandMoveTabToNewWindow));
+
+  // ASSERT and not EXPECT since we're accessing back() later.
+  ASSERT_EQ(delegate.can_move_calls().size(), 1u);
+  EXPECT_EQ(delegate.move_calls().size(), 0u);
+  EXPECT_EQ(delegate.can_move_calls().back(), 2);
+
+  strip.ExecuteContextMenuCommand(0, TabStripModel::CommandMoveTabToNewWindow);
+  // Whether ExecuteCommand checks if the command is valid or not is an
+  // implementation detail, so let's not be brittle.
+  EXPECT_GT(delegate.can_move_calls().size(), 0u);
+  ASSERT_EQ(delegate.move_calls().size(), 1u);
+  EXPECT_EQ(delegate.move_calls().back(), 0);
 
   strip.CloseAllTabs();
 }

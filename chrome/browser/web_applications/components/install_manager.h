@@ -67,9 +67,6 @@ class InstallManager {
       InstallableCheckResult result,
       base::Optional<AppId> app_id)>;
 
-  // Returns true if a web app can be installed for a given |web_contents|.
-  virtual bool CanInstallWebApp(content::WebContents* web_contents) = 0;
-
   // Checks a WebApp installability, retrieves manifest and icons and
   // than performs the actual installation.
   virtual void InstallWebAppFromManifest(
@@ -92,7 +89,8 @@ class InstallManager {
 
   // Starts a web app installation process using prefilled
   // |web_application_info| which holds all the data needed for installation.
-  // InstallManager doesn't fetch a manifest.
+  // This doesn't fetch a manifest and doesn't perform all required steps for
+  // External installed apps: use |PendingAppManager::Install| instead.
   virtual void InstallWebAppFromInfo(
       std::unique_ptr<WebApplicationInfo> web_application_info,
       ForInstallableSite for_installable_site,

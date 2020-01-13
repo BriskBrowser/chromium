@@ -140,6 +140,7 @@ class ASH_EXPORT AppListControllerImpl : public AppListController,
 
   // SessionObserver:
   void OnActiveUserPrefServiceChanged(PrefService* pref_service) override;
+  void OnSessionStateChanged(session_manager::SessionState state) override;
 
   // Methods used in ash:
   bool GetTargetVisibility() const;
@@ -225,7 +226,8 @@ class ASH_EXPORT AppListControllerImpl : public AppListController,
   void OnVisibilityWillChange(bool visible, int64_t display_id);
 
   // ShellObserver:
-  void OnShelfAlignmentChanged(aura::Window* root_window) override;
+  void OnShelfAlignmentChanged(aura::Window* root_window,
+                               ShelfAlignment old_alignment) override;
   void OnShellDestroying() override;
 
   // OverviewObserver:

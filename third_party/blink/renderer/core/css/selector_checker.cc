@@ -101,7 +101,7 @@ static bool MatchesTagName(const Element& element,
   const AtomicString& local_name = tag_q_name.LocalName();
   if (local_name != CSSSelector::UniversalSelectorAtom() &&
       local_name != element.localName()) {
-    if (element.IsHTMLElement() || !element.GetDocument().IsHTMLDocument())
+    if (element.IsHTMLElement() || !IsA<HTMLDocument>(element.GetDocument()))
       return false;
     // Non-html elements in html documents are normalized to their camel-cased
     // version during parsing if applicable. Yet, type selectors are lower-cased
@@ -132,7 +132,7 @@ static bool MatchesTagNameForVTT(
 
   if (local_name != CSSSelector::UniversalSelectorAtom() &&
       local_name != element.localName()) {
-    if (element.IsHTMLElement() || !element.GetDocument().IsHTMLDocument())
+    if (element.IsHTMLElement() || !IsA<HTMLDocument>(element.GetDocument()))
       return false;
 
     // Non-html elements in html documents are normalized to their camel-cased
@@ -773,7 +773,7 @@ static bool AnyAttributeMatches(Element& element,
   AttributeCollection attributes = element.AttributesWithoutUpdate();
   for (const auto& attribute_item : attributes) {
     if (!attribute_item.Matches(selector_attr)) {
-      if (element.IsHTMLElement() || !element.GetDocument().IsHTMLDocument())
+      if (element.IsHTMLElement() || !IsA<HTMLDocument>(element.GetDocument()))
         continue;
       // Non-html attributes in html documents are normalized to their camel-
       // cased version during parsing if applicable. Yet, attribute selectors
@@ -798,7 +798,7 @@ static bool AnyAttributeMatches(Element& element,
     // a case-insensitive manner regardless of whether the case insensitive
     // flag is set or not.
     bool legacy_case_insensitive =
-        element.GetDocument().IsHTMLDocument() &&
+        IsA<HTMLDocument>(element.GetDocument()) &&
         !HTMLDocument::IsCaseSensitiveAttribute(selector_attr);
 
     // If case-insensitive, re-check, and count if result differs.
@@ -1295,7 +1295,7 @@ bool SelectorChecker::CheckPseudoClass(const SelectorCheckingContext& context,
       return MatchesSpatialNavigationInterestPseudoClass(element);
     case CSSSelector::kPseudoIsHtml:
       DCHECK(is_ua_rule_);
-      return element.GetDocument().IsHTMLDocument();
+      return IsA<HTMLDocument>(element.GetDocument());
     case CSSSelector::kPseudoListBox:
       DCHECK(is_ua_rule_);
       return MatchesListBoxPseudoClass(element);
@@ -1611,42 +1611,21 @@ bool SelectorChecker::CheckScrollbarPseudoClass(
       return scrollbar_part_ == kBackButtonEndPart ||
              scrollbar_part_ == kForwardButtonEndPart ||
              scrollbar_part_ == kForwardTrackPart;
-    case CSSSelector::kPseudoDoubleButton: {
-      WebScrollbarButtonsPlacement buttons_placement =
-          scrollbar_->GetTheme().ButtonsPlacement();
-      if (scrollbar_part_ == kBackButtonStartPart ||
-          scrollbar_part_ == kForwardButtonStartPart ||
-          scrollbar_part_ == kBackTrackPart)
-        return buttons_placement == kWebScrollbarButtonsPlacementDoubleStart ||
-               buttons_placement == kWebScrollbarButtonsPlacementDoubleBoth;
-      if (scrollbar_part_ == kBackButtonEndPart ||
-          scrollbar_part_ == kForwardButtonEndPart ||
-          scrollbar_part_ == kForwardTrackPart)
-        return buttons_placement == kWebScrollbarButtonsPlacementDoubleEnd ||
-               buttons_placement == kWebScrollbarButtonsPlacementDoubleBoth;
+    case CSSSelector::kPseudoDoubleButton:
+      // :double-button matches nothing on all platforms.
       return false;
-    }
-    case CSSSelector::kPseudoSingleButton: {
-      WebScrollbarButtonsPlacement buttons_placement =
-          scrollbar_->GetTheme().ButtonsPlacement();
-      if (scrollbar_part_ == kBackButtonStartPart ||
-          scrollbar_part_ == kForwardButtonEndPart ||
-          scrollbar_part_ == kBackTrackPart ||
-          scrollbar_part_ == kForwardTrackPart)
-        return buttons_placement == kWebScrollbarButtonsPlacementSingle;
-      return false;
-    }
-    case CSSSelector::kPseudoNoButton: {
-      WebScrollbarButtonsPlacement buttons_placement =
-          scrollbar_->GetTheme().ButtonsPlacement();
-      if (scrollbar_part_ == kBackTrackPart)
-        return buttons_placement == kWebScrollbarButtonsPlacementNone ||
-               buttons_placement == kWebScrollbarButtonsPlacementDoubleEnd;
-      if (scrollbar_part_ == kForwardTrackPart)
-        return buttons_placement == kWebScrollbarButtonsPlacementNone ||
-               buttons_placement == kWebScrollbarButtonsPlacementDoubleStart;
-      return false;
-    }
+    case CSSSelector::kPseudoSingleButton:
+      if (!scrollbar_->GetTheme().NativeThemeHasButtons())
+        return false;
+      return scrollbar_part_ == kBackButtonStartPart ||
+             scrollbar_part_ == kForwardButtonEndPart ||
+             scrollbar_part_ == kBackTrackPart ||
+             scrollbar_part_ == kForwardTrackPart;
+    case CSSSelector::kPseudoNoButton:
+      if (scrollbar_->GetTheme().NativeThemeHasButtons())
+        return false;
+      return scrollbar_part_ == kBackTrackPart ||
+             scrollbar_part_ == kForwardTrackPart;
     case CSSSelector::kPseudoCornerPresent:
       return scrollbar_->GetScrollableArea() &&
              scrollbar_->GetScrollableArea()->IsScrollCornerVisible();

@@ -418,6 +418,7 @@ Als je klaar bent met de training, gebruik je ChromeVox om naar de knop Sluiten 
 <translation id="3914732343065571127">Opdrachtreferentie voor ChromeVox</translation>
 <translation id="3930383913623796990">Lentegroen</translation>
 <translation id="3930498801443296724">Pullquote</translation>
+<translation id="3935615366277838204">Hoofdletter <ph name="LETTER" /></translation>
 <translation id="3936394396199829062">Lavendelblos</translation>
 <translation id="3941269780691800708">Spreek tekst onder de muisaanwijzer uit.</translation>
 <translation id="394953087167197343">Onjuiste spelling aangeven:</translation>
@@ -791,7 +792,6 @@ Als je klaar bent met de training, gebruik je ChromeVox om naar de knop Sluiten 
 <translation id="6459511626086141404">Platte toetsenbordindeling</translation>
 <translation id="6468049171101508116">Volgende knop</translation>
 <translation id="646954774886932461">Index</translation>
-<translation id="6479792383819319132">Er is geen volgende paragraaf.</translation>
 <translation id="6493991254603208962">helderheid omlaag</translation>
 <translation id="6501595918865591267">Turkoois</translation>
 <translation id="6508059270146105198">Brailleweergave naar onderkant pagina verplaatsen</translation>
@@ -814,7 +814,6 @@ Als je klaar bent met de training, gebruik je ChromeVox om naar de knop Sluiten 
 <translation id="6637586476836377253">logboek</translation>
 <translation id="6657128831881431364">Voortgangsbalk</translation>
 <translation id="6659594942844771486">Tabblad</translation>
-<translation id="6675661017770918201">Er is geen vorige paragraaf.</translation>
 <translation id="667999046851023355">Document</translation>
 <translation id="6688209025607531203">Een melding die niet in een modaal dialoogvenster wordt weergegeven</translation>
 <translation id="6689672606256159458">Donker zalmroze</translation>
@@ -843,6 +842,7 @@ Als je klaar bent met de training, gebruik je ChromeVox om naar de knop Sluiten 
 <translation id="6865519907510167493">Spelfout</translation>
 <translation id="6871161210040114857">Hoofdlettergebruik wordt genegeerd.</translation>
 <translation id="6877435256196695200">Geen volgende afbeelding.</translation>
+<translation id="688976158310523235">Zoekmenu</translation>
 <translation id="6897341342232909480">Naar links verplaatsen</translation>
 <translation id="6901540140423170855">datum</translation>
 <translation id="6910211073230771657">Verwijderd</translation>
@@ -855,6 +855,7 @@ Als je klaar bent met de training, gebruik je ChromeVox om naar de knop Sluiten 
 <translation id="699159175332639490">Zoeken + O + W</translation>
 <translation id="6994042831499278539">Woordenlijstreferentie</translation>
 <translation id="6996566555547746822">Volgende keuzelijst met invoervak</translation>
+<translation id="6997224546856374593">Bij het voorlezen van hoofdletters:</translation>
 <translation id="700202842116345659">Bibliografievermelding</translation>
 <translation id="7005146664810010831">Geen URL gevonden</translation>
 <translation id="7010712454773919705">ChromeVox-functietoets</translation>
@@ -863,7 +864,7 @@ Als je klaar bent met de training, gebruik je ChromeVox om naar de knop Sluiten 
 <translation id="7039555289296502784">Olijfgroen</translation>
 <translation id="7041173719775863268">Selectie eindigen</translation>
 <translation id="7043850226734279132">Donkerkaki</translation>
-<translation id="7048792632163898198">De volgende snelkoppelingen zijn geen ChromeVox-opdrachten, maar wel handig om optimaal gebruik te maken van Chrome. Als je vooruit wilt navigeren door actie-items (zoals knoppen en links), druk je op de Tab-toets. Als je terug wilt navigeren, druk je op Shift + Tab.
+<translation id="7048792632163898198">De volgende snelkoppelingen zijn geen ChromeVox-opdrachten, maar wel handig om optimaal gebruik te maken van Chrome. Als je vooruit wilt navigeren door actiepunten (zoals knoppen en links), druk je op de Tab-toets. Als je terug wilt navigeren, druk je op Shift + Tab.
 Als je de cursor naar het adresvak van de Chrome-browser (ook wel omnibox genoemd) wilt verplaatsen, druk je op Ctrl + L.
 Als je automatisch naar een nieuw tabblad wilt gaan, druk je op Ctrl + T. Je cursor wordt in de omnibox geplaatst.
 Als je een tabblad wilt sluiten, druk je op Ctrl + W.
@@ -934,6 +935,7 @@ Als je het menu van de Chrome-browser wilt openen, druk je op Alt + F.</translat
 <translation id="744163271241493234">pwded</translation>
 <translation id="7491962110804786152">tab</translation>
 <translation id="7492049978501397201">Geopend dialoogvenster</translation>
+<translation id="7505149250476994901">Eerst 'hoofdletter' zeggen vóór de letter</translation>
 <translation id="7518543783849163354">Druk op de Ctrl-toets om de spraakfunctie van ChromeVox tijdelijk uit te schakelen.</translation>
 <translation id="7521682724501952239">Je kunt ChromeVox gebruiken met het touchscreen.</translation>
 <translation id="7532613204005497612">juni</translation>
@@ -1205,6 +1207,7 @@ Als je het menu van de Chrome-browser wilt openen, druk je op Alt + F.</translat
 <translation id="9065283790526219006">+pop-up</translation>
 <translation id="9066023754636984703">Druk op Zoeken+A, J om naar de details te gaan.</translation>
 <translation id="9067522039955793016">Pagina-einde</translation>
+<translation id="9074824103975499138">Zoeken in ChromeVox-menu's</translation>
 <translation id="9077213568694924680">uit selectie verwijderd</translation>
 <translation id="9077305471618729969">Licht zeegroen</translation>
 <translation id="9082874451376019682">Geen vorige schuifregelaar.</translation>

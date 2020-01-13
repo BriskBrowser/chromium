@@ -26,6 +26,7 @@
 #include "content/browser/service_worker/service_worker_content_settings_proxy_impl.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
+#include "content/browser/service_worker/service_worker_provider_host.h"
 #include "content/browser/service_worker/service_worker_script_loader_factory.h"
 #include "content/browser/url_loader_factory_getter.h"
 #include "content/browser/url_loader_factory_params_helper.h"
@@ -1064,7 +1065,8 @@ EmbeddedWorkerInstance::CreateFactoryBundleOnUI(
       rph->GetBrowserContext(), nullptr /* frame_host */, rph->GetID(),
       factory_type, origin, base::nullopt /* navigation_id */,
       &default_factory_receiver, &factory_params->header_client,
-      &bypass_redirect_checks, &factory_params->factory_override);
+      &bypass_redirect_checks, nullptr /* disable_secure_dns */,
+      &factory_params->factory_override);
   devtools_instrumentation::WillCreateURLLoaderFactoryForServiceWorker(
       rph, routing_id, &default_factory_receiver);
 

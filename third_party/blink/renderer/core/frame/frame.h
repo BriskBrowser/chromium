@@ -31,7 +31,7 @@
 
 #include "base/optional.h"
 #include "base/unguessable_token.h"
-#include "third_party/blink/public/common/feature_policy/feature_policy.h"
+#include "third_party/blink/public/common/frame/frame_policy.h"
 #include "third_party/blink/public/common/frame/user_activation_state.h"
 #include "third_party/blink/public/common/frame/user_activation_update_source.h"
 #include "third_party/blink/public/web/web_frame_load_type.h"
@@ -79,7 +79,7 @@ class CORE_EXPORT Frame : public GarbageCollected<Frame> {
   virtual bool IsLocalFrame() const = 0;
   virtual bool IsRemoteFrame() const = 0;
 
-  virtual void Navigate(const FrameLoadRequest&, WebFrameLoadType) = 0;
+  virtual void Navigate(FrameLoadRequest&, WebFrameLoadType) = 0;
 
   void Detach(FrameDetachType);
   void DisconnectOwnerElement();
@@ -201,9 +201,10 @@ class CORE_EXPORT Frame : public GarbageCollected<Frame> {
 
   // Continues to bubble logical scroll from |child| in this frame.
   // Returns true if the scroll was consumed locally.
-  virtual bool BubbleLogicalScrollFromChildFrame(ScrollDirection direction,
-                                                 ScrollGranularity granularity,
-                                                 Frame* child) = 0;
+  virtual bool BubbleLogicalScrollFromChildFrame(
+      mojom::blink::ScrollDirection direction,
+      ScrollGranularity granularity,
+      Frame* child) = 0;
 
   const base::UnguessableToken& GetDevToolsFrameToken() const {
     return devtools_frame_token_;
@@ -231,6 +232,12 @@ class CORE_EXPORT Frame : public GarbageCollected<Frame> {
     DCHECK(state.empty() || IsMainFrame());
     DCHECK(opener_feature_state_.empty());
     opener_feature_state_ = state;
+  }
+
+  const FramePolicy& GetFramePolicy() const { return frame_policy_; }
+
+  void SetFramePolicy(const FramePolicy& frame_policy) {
+    frame_policy_ = frame_policy;
   }
 
   WindowAgentFactory& window_agent_factory() const {
@@ -298,6 +305,11 @@ class CORE_EXPORT Frame : public GarbageCollected<Frame> {
   // Feature policy state inherited from an opener. It is always empty for child
   // frames.
   FeaturePolicy::FeatureState opener_feature_state_;
+
+  // Frame policy of current frame. This can be different to
+  // Owner()->GetFramePolicy(), as the document hosted in the frame can also
+  // further specify frame policy.
+  FramePolicy frame_policy_;
 
   Member<WindowAgentFactory> window_agent_factory_;
 

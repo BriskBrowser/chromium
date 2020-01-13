@@ -39,6 +39,7 @@
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/system/data_pipe.h"
 #include "net/base/proxy_server.h"
+#include "net/dns/public/resolve_error_info.h"
 #include "services/network/public/cpp/origin_policy.h"
 
 #if defined(OS_ANDROID)
@@ -64,7 +65,7 @@ class NavigationURLLoader;
 class NavigationUIData;
 class NavigatorDelegate;
 class PrefetchedSignedExchangeCache;
-class ServiceWorkerNavigationHandle;
+class ServiceWorkerMainResourceHandle;
 class SiteInstanceImpl;
 struct SubresourceLoaderParams;
 
@@ -233,6 +234,7 @@ class CONTENT_EXPORT NavigationRequest
   net::HttpResponseInfo::ConnectionInfo GetConnectionInfo() override;
   const base::Optional<net::SSLInfo>& GetSSLInfo() override;
   const base::Optional<net::AuthChallengeInfo>& GetAuthChallengeInfo() override;
+  net::ResolveErrorInfo GetResolveErrorInfo() override;
   net::NetworkIsolationKey GetNetworkIsolationKey() override;
   void RegisterThrottleForTesting(
       std::unique_ptr<NavigationThrottle> navigation_throttle) override;
@@ -255,7 +257,6 @@ class CONTENT_EXPORT NavigationRequest
   const base::Optional<url::Origin>& GetInitiatorOrigin() override;
   bool IsSameProcess() override;
   int GetNavigationEntryOffset() override;
-  bool FromDownloadCrossOriginRedirect() override;
   void RegisterSubresourceOverride(
       mojom::TransferrableURLLoaderPtr transferrable_loader) override;
   GlobalFrameRoutingId GetPreviousRenderFrameHostId() override;
@@ -739,7 +740,6 @@ class CONTENT_EXPORT NavigationRequest
   bool IsSelfReferentialURL();
 
   // RenderProcessHostObserver implementation.
-  void RenderProcessReady(RenderProcessHost* host) override;
   void RenderProcessExited(RenderProcessHost* host,
                            const ChildProcessTerminationInfo& info) override;
   void RenderProcessHostDestroyed(RenderProcessHost* host) override;
@@ -916,6 +916,13 @@ class CONTENT_EXPORT NavigationRequest
   // checks are performed by the NavigationHandle.
   bool has_stale_copy_in_cache_;
   net::Error net_error_ = net::OK;
+  // Detailed host resolution error information. The error code in
+  // |resolve_error_info_.error| should be consistent with (but not necessarily
+  // the same as) |net_error_|. In the case of a host resolution error, for
+  // example, |net_error_| should be ERR_NAME_NOT_RESOLVED while
+  // |resolve_error_info_.error| may give a more detailed error such as
+  // ERR_DNS_TIMED_OUT.
+  net::ResolveErrorInfo resolve_error_info_;
 
   // Identifies in which RenderProcessHost this navigation is expected to
   // commit.
@@ -1056,7 +1063,7 @@ class CONTENT_EXPORT NavigationRequest
 
   // Manages the lifetime of a pre-created ServiceWorkerProviderHost until a
   // corresponding provider is created in the renderer.
-  std::unique_ptr<ServiceWorkerNavigationHandle> service_worker_handle_;
+  std::unique_ptr<ServiceWorkerMainResourceHandle> service_worker_handle_;
 
   // Timer for detecting an unexpectedly long time to commit a navigation.
   base::OneShotTimer commit_timeout_timer_;

@@ -11,11 +11,21 @@
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/task/post_task.h"
+#include "build/build_config.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "components/paint_preview/browser/compositor_utils.h"
 #include "components/paint_preview/browser/file_manager.h"
 #include "components/paint_preview/browser/paint_preview_client.h"
+#include "components/paint_preview/browser/paint_preview_compositor_service_impl.h"
 #include "components/paint_preview/common/mojom/paint_preview_recorder.mojom.h"
 #include "content/public/browser/web_contents.h"
+#include "ui/gfx/geometry/rect.h"
+
+#if defined(OS_ANDROID)
+#include "base/android/jni_android.h"
+#include "base/android/scoped_java_ref.h"
+#include "components/paint_preview/browser/jni_headers/PaintPreviewBaseService_jni.h"
+#endif  // defined(OS_ANDROID)
 
 namespace paint_preview {
 
@@ -28,11 +38,32 @@ const char kPaintPreviewDir[] = "paint_preview";
 PaintPreviewBaseService::PaintPreviewBaseService(
     const base::FilePath& path,
     const std::string& ascii_feature_name,
+    std::unique_ptr<PaintPreviewPolicy> policy,
     bool is_off_the_record)
-    : file_manager_(
+    : policy_(std::move(policy)),
+      file_manager_(
           path.AppendASCII(kPaintPreviewDir).AppendASCII(ascii_feature_name)),
-      is_off_the_record_(is_off_the_record) {}
-PaintPreviewBaseService::~PaintPreviewBaseService() = default;
+      is_off_the_record_(is_off_the_record) {
+#if defined(OS_ANDROID)
+  JNIEnv* env = base::android::AttachCurrentThread();
+  base::android::ScopedJavaLocalRef<jobject> java_ref =
+      Java_PaintPreviewBaseService_Constructor(
+          env, reinterpret_cast<intptr_t>(this));
+  java_ref_.Reset(java_ref);
+#endif  // defined(OS_ANDROID)
+}
+
+PaintPreviewBaseService::~PaintPreviewBaseService() {
+#if defined(OS_ANDROID)
+  JNIEnv* env = base::android::AttachCurrentThread();
+  Java_PaintPreviewBaseService_onDestroy(env, java_ref_);
+#endif  // defined(OS_ANDROID)
+}
+
+base::Optional<PaintPreviewProto>
+PaintPreviewBaseService::GetCapturedPaintPreviewProto(const GURL& url) {
+  return base::nullopt;
+}
 
 void PaintPreviewBaseService::CapturePaintPreview(
     content::WebContents* web_contents,
@@ -49,6 +80,11 @@ void PaintPreviewBaseService::CapturePaintPreview(
     const base::FilePath& root_dir,
     gfx::Rect clip_rect,
     OnCapturedCallback callback) {
+  if (policy_ && !policy_->SupportedForContents(web_contents)) {
+    std::move(callback).Run(kContentUnsupported, nullptr);
+    return;
+  }
+
   PaintPreviewClient::CreateForWebContents(web_contents);  // Is a singleton.
   auto* client = PaintPreviewClient::FromWebContents(web_contents);
   if (!client) {
@@ -66,6 +102,13 @@ void PaintPreviewBaseService::CapturePaintPreview(
       params, render_frame_host,
       base::BindOnce(&PaintPreviewBaseService::OnCaptured,
                      weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+}
+
+std::unique_ptr<PaintPreviewCompositorService>
+PaintPreviewBaseService::StartCompositorService(
+    base::OnceClosure disconnect_handler) {
+  return std::make_unique<PaintPreviewCompositorServiceImpl>(
+      CreateCompositorCollection(), std::move(disconnect_handler));
 }
 
 void PaintPreviewBaseService::OnCaptured(

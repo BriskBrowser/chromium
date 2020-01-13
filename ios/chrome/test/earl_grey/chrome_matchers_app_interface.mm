@@ -39,19 +39,20 @@
 #import "ios/chrome/browser/ui/settings/cells/clear_browsing_data_constants.h"
 #import "ios/chrome/browser/ui/settings/cells/settings_switch_cell.h"
 #import "ios/chrome/browser/ui/settings/cells/settings_switch_item.h"
-#import "ios/chrome/browser/ui/settings/clear_browsing_data/clear_browsing_data_collection_view_controller.h"
 #import "ios/chrome/browser/ui/settings/clear_browsing_data/clear_browsing_data_ui_constants.h"
 #import "ios/chrome/browser/ui/settings/credit_card_scanner/credit_card_scanner_view_controller.h"
-#import "ios/chrome/browser/ui/settings/google_services/accounts_table_view_controller.h"
-#import "ios/chrome/browser/ui/settings/google_services/advanced_signin_settings_coordinator.h"
-#import "ios/chrome/browser/ui/settings/google_services/google_services_settings_view_controller.h"
+#import "ios/chrome/browser/ui/settings/google_services/accounts_table_view_controller_constants.h"
+#import "ios/chrome/browser/ui/settings/google_services/advanced_signin_settings_constants.h"
+#import "ios/chrome/browser/ui/settings/google_services/google_services_settings_constants.h"
 #import "ios/chrome/browser/ui/settings/import_data_table_view_controller.h"
 #import "ios/chrome/browser/ui/settings/password/passwords_table_view_constants.h"
 #import "ios/chrome/browser/ui/settings/privacy_table_view_controller.h"
+#import "ios/chrome/browser/ui/settings/settings_navigation_controller.h"
 #import "ios/chrome/browser/ui/settings/settings_root_table_constants.h"
 #import "ios/chrome/browser/ui/settings/settings_table_view_controller_constants.h"
 #import "ios/chrome/browser/ui/tab_grid/grid/grid_constants.h"
 #import "ios/chrome/browser/ui/tab_grid/tab_grid_constants.h"
+#import "ios/chrome/browser/ui/table_view/cells/table_view_url_item.h"
 #import "ios/chrome/browser/ui/toolbar/keyboard_assist/toolbar_assistive_keyboard_views_utils.h"
 #import "ios/chrome/browser/ui/toolbar/primary_toolbar_view.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_constants.h"
@@ -815,6 +816,25 @@ UIView* SubviewWithAccessibilityIdentifier(NSString* accessibility_id,
 
 + (id<GREYMatcher>)autofillUploadCardInfobar {
   return grey_accessibilityID(kSaveCardInfobarViewUploadAccessibilityID);
+}
+
++ (id<GREYMatcher>)historyEntryForURL:(NSString*)URL title:(NSString*)title {
+  GREYMatchesBlock matches = ^BOOL(TableViewURLCell* cell) {
+    return [cell.titleLabel.text isEqual:title] &&
+           [cell.URLLabel.text isEqual:URL];
+  };
+
+  GREYDescribeToBlock describe = ^(id<GREYDescription> description) {
+    [description appendText:@"view containing URL text: "];
+    [description appendText:URL];
+    [description appendText:@" title text: "];
+    [description appendText:title];
+  };
+  return grey_allOf(
+      grey_kindOfClass([TableViewURLCell class]),
+      [[GREYElementMatcherBlock alloc] initWithMatchesBlock:matches
+                                           descriptionBlock:describe],
+      grey_sufficientlyVisible(), nil);
 }
 
 #pragma mark - Manual Fallback

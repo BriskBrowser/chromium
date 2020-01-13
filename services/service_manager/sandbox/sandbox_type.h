@@ -38,8 +38,7 @@ enum class SandboxType {
   // Renderer or worker process. Most common case.
   kRenderer,
 
-  // Utility process is as restrictive as the worker process except full
-  // access is allowed to one configurable directory.
+  // Utility processes. Used by most isolated services.
   kUtility,
 
   // GPU process.
@@ -62,15 +61,15 @@ enum class SandboxType {
   // The pdf compositor service process.
   kPdfCompositor,
 
-  // The profiling service process.
-  kProfiling,
-
   // The audio service process.
   kAudio,
 
 #if defined(OS_CHROMEOS)
   kIme,
 #endif  // defined(OS_CHROMEOS)
+
+  // The Speech On-Device API service process.
+  kSoda
 };
 
 SERVICE_MANAGER_SANDBOX_EXPORT bool IsUnsandboxedSandboxType(

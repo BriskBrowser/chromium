@@ -103,6 +103,11 @@ extern const char kCollectionsCardPresentationStyleDescription[];
 extern const char kConfirmInfobarMessagesUIName[];
 extern const char kConfirmInfobarMessagesUIDescription[];
 
+// Title and description for the flag that makes the Browser being contained by
+// the TabGrid instead of being presented.
+extern const char kContainedBVCName[];
+extern const char kContainedBVCDescription[];
+
 // Title and description for the flag that enables Messages UI on
 // Crash Restore Infobars.
 extern const char kCrashRestoreInfobarMessagesUIName[];
@@ -227,10 +232,6 @@ extern const char kMarkHttpAsDescription[];
 extern const char kMobileGoogleSRPName[];
 extern const char kMobileGoogleSRPDescription[];
 
-// Title and description for the flag to enable new Clear Browsing Data UI.
-extern const char kNewClearBrowsingDataUIName[];
-extern const char kNewClearBrowsingDataUIDescription[];
-
 // Title and description for the flag to display new omnibox popup.
 extern const char kNewOmniboxPopupLayoutName[];
 extern const char kNewOmniboxPopupLayoutDescription[];
@@ -238,11 +239,6 @@ extern const char kNewOmniboxPopupLayoutDescription[];
 // Title and description for the flag to enable non-modal JavaScript dialogs.
 extern const char kNonModalDialogsName[];
 extern const char kNonModalDialogsDescription[];
-
-// Title and description for the flag to show most visited sites and collection
-// shortcuts in the omnibox popup instead of ZeroSuggest.
-extern const char kOmniboxPopupShortcutIconsInZeroStateName[];
-extern const char kOmniboxPopupShortcutIconsInZeroStateDescription[];
 
 // Title and description for the flag to preserve the default match when an
 // async match updates.
@@ -263,6 +259,10 @@ extern const char kOmniboxUseDefaultSearchEngineFaviconDescription[];
 // suggestions.
 extern const char kOmniboxOnDeviceHeadSuggestionsName[];
 extern const char kOmniboxOnDeviceHeadSuggestionsDescription[];
+
+// Title and description for the flag to enable the new design of the page info.
+extern const char kPageInfoRefactoringName[];
+extern const char kPageInfoRefactoringDescription[];
 
 // Title and description for the flag to enable leak detection for entered
 // credentials.
@@ -296,10 +296,6 @@ extern const char kSendTabToSelfBroadcastDescription[];
 // Title and description for the flag to send UMA data over any network.
 extern const char kSendUmaOverAnyNetwork[];
 extern const char kSendUmaOverAnyNetworkDescription[];
-
-// Title and description for the flag to add a new credit card.
-extern const char kSettingsAddPaymentMethodName[];
-extern const char kSettingsAddPaymentMethodDescription[];
 
 // Title and description for the flag to toggle the flag for the settings UI
 // Refresh.

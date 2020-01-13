@@ -1324,18 +1324,7 @@ CSSValue* ComputedStyleUtils::ValueForGridTrackList(
   bool is_layout_grid = layout_object && layout_object->IsLayoutGrid();
 
   // Handle the 'none' case.
-  bool track_list_is_empty =
-      track_sizes.IsEmpty() && auto_repeat_track_sizes.IsEmpty();
-  if (is_layout_grid && track_list_is_empty) {
-    // For grids we should consider every listed track, whether implicitly or
-    // explicitly created. Empty grids have a sole grid line per axis.
-    auto& positions = is_row_axis
-                          ? ToLayoutGrid(layout_object)->ColumnPositions()
-                          : ToLayoutGrid(layout_object)->RowPositions();
-    track_list_is_empty = positions.size() == 1;
-  }
-
-  if (track_list_is_empty)
+  if (track_sizes.IsEmpty() && auto_repeat_track_sizes.IsEmpty())
     return CSSIdentifierValue::Create(CSSValueID::kNone);
 
   CSSValueList* list = CSSValueList::CreateSpaceSeparated();
@@ -1617,8 +1606,8 @@ CSSValue* ComputedStyleUtils::CreateTimingFunctionValue(
     const TimingFunction* timing_function) {
   switch (timing_function->GetType()) {
     case TimingFunction::Type::CUBIC_BEZIER: {
-      const CubicBezierTimingFunction* bezier_timing_function =
-          ToCubicBezierTimingFunction(timing_function);
+      const auto* bezier_timing_function =
+          To<CubicBezierTimingFunction>(timing_function);
       if (bezier_timing_function->GetEaseType() !=
           CubicBezierTimingFunction::EaseType::CUSTOM) {
         CSSValueID value_id = CSSValueID::kInvalid;
@@ -1647,8 +1636,8 @@ CSSValue* ComputedStyleUtils::CreateTimingFunctionValue(
     }
 
     case TimingFunction::Type::STEPS: {
-      const StepsTimingFunction* steps_timing_function =
-          ToStepsTimingFunction(timing_function);
+      const auto* steps_timing_function =
+          To<StepsTimingFunction>(timing_function);
       StepsTimingFunction::StepPosition position =
           steps_timing_function->GetStepPosition();
       int steps = steps_timing_function->NumberOfSteps();

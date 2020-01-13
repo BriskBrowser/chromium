@@ -1068,6 +1068,9 @@ TEST_F(ShelfViewTest, ModelChangesWhileDragging) {
   ASSERT_NO_FATAL_FAILURE(CheckModelIDs(id_map));
   shelf_view_->PointerReleasedOnButton(dragged_button, ShelfView::MOUSE, false);
 
+  // Waits until app removal animation finishes.
+  test_api_->RunMessageLoopUntilAnimationsDone();
+
   // Adding a shelf item cancels the drag and respects the order.
   dragged_button = SimulateDrag(ShelfView::MOUSE, 0, 2, false);
   ShelfID new_id = AddAppShortcut();
@@ -2057,22 +2060,6 @@ TEST_F(ShelfViewTestNotScrollable, TestDragWithinOverflow) {
   EXPECT_EQ(item_b, GetItemId(overflow_shelf_view->last_visible_index() - 1));
 
   test_api_->HideOverflowBubble();
-}
-
-// Checks how the overflow button and menu get laid out when the display is
-// very narrow.
-TEST_F(ShelfViewTestNotScrollable, TestOverflowWithNarrowDisplay) {
-  UpdateDisplay("200x600");
-
-  AddAppShortcutsUntilOverflow();
-  OverflowButton* overflow_button = shelf_view_->GetOverflowButton();
-  EXPECT_TRUE(overflow_button->GetVisible());
-
-  ui::test::EventGenerator* generator = GetEventGenerator();
-  generator->set_current_screen_location(
-      overflow_button->GetBoundsInScreen().CenterPoint());
-  generator->ClickLeftButton();
-  ASSERT_TRUE(shelf_view_->IsShowingOverflowBubble());
 }
 
 // Checks creating app shortcut for an opened platform app in overflow bubble

@@ -136,10 +136,13 @@ class ArcAccessibilityHelperBridge
       const ui::AXActionData& data,
       const base::Optional<gfx::Rect>& result_rect) const;
 
+  base::Optional<gfx::Rect> OnGetTextLocationDataResultInternal(
+      const base::Optional<gfx::Rect>& result_rect) const;
+
   void OnAccessibilityStatusChanged(
       const chromeos::AccessibilityStatusEventDetails& event_details);
   arc::mojom::AccessibilityFilterType GetFilterTypeForProfile(Profile* profile);
-  void UpdateFilterType();
+  void UpdateEnabledFeature();
   void UpdateWindowProperties(aura::Window* window);
   void SetExploreByTouchEnabled(bool enabled);
   void UpdateTreeIdOfNotificationSurface(const std::string& notification_key,
@@ -152,6 +155,7 @@ class ArcAccessibilityHelperBridge
   AXTreeSourceArc* GetFromTreeId(ui::AXTreeID tree_id) const;
 
   bool activation_observer_added_ = false;
+  bool is_focus_highlight_enabled_ = false;
   Profile* const profile_;
   ArcBridgeService* const arc_bridge_service_;
   TreeMap trees_;

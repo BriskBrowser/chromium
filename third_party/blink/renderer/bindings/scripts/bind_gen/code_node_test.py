@@ -9,7 +9,8 @@ from .code_node import LiteralNode
 from .code_node import SymbolNode
 from .code_node import SymbolScopeNode
 from .code_node import TextNode
-from .codegen_utils import render_code_node
+from .code_node import render_code_node
+from .codegen_accumulator import CodeGenAccumulator
 from .mako_renderer import MakoRenderer
 
 
@@ -21,6 +22,8 @@ class CodeNodeTest(unittest.TestCase):
     def assertRenderResult(self, node, expected):
         if node.renderer is None:
             node.set_renderer(MakoRenderer())
+        if node.accumulator is None:
+            node.set_accumulator(CodeGenAccumulator())
 
         def simplify(text):
             return "\n".join(
@@ -72,6 +75,14 @@ class CodeNodeTest(unittest.TestCase):
         root.remove(root[-1])
         self.assertRenderResult(root, "2,3,5")
 
+    def test_list_node_head_and_tail(self):
+        self.assertRenderResult(ListNode(), "")
+        self.assertRenderResult(ListNode(head="head"), "")
+        self.assertRenderResult(ListNode(tail="tail"), "")
+        self.assertRenderResult(
+            ListNode([TextNode("-content-")], head="head", tail="tail"),
+            "head-content-tail")
+
     def test_nested_sequence(self):
         """Tests nested ListNodes."""
         root = ListNode(separator=",")
@@ -93,7 +104,7 @@ class CodeNodeTest(unittest.TestCase):
         Tests that use of SymbolNode inserts necessary SymbolDefinitionNode
         appropriately.
         """
-        root = SymbolScopeNode(separator_last="\n")
+        root = SymbolScopeNode(tail="\n")
 
         root.register_code_symbols([
             SymbolNode("var1", "int ${var1} = ${var2} + ${var3};"),
@@ -127,7 +138,8 @@ int var1 = var2 + var3;
             ]))
 
         with self.assertRaises(NameError):
-            root.render()
+            renderer.reset()
+            root.render(renderer)
 
         callers_on_error = list(renderer.callers_on_error)
         self.assertEqual(len(callers_on_error), 3)

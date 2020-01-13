@@ -418,6 +418,7 @@
 <translation id="3914732343065571127">ChromeVox тушаалын лавлагаа</translation>
 <translation id="3930383913623796990">Хаврын ногоон</translation>
 <translation id="3930498801443296724">Ишлэл</translation>
+<translation id="3935615366277838204">Том <ph name="LETTER" /></translation>
 <translation id="3936394396199829062">Лавандын цайвар ягаан</translation>
 <translation id="3941269780691800708">Хулганын доорх текстийг хэлнэ үү.</translation>
 <translation id="394953087167197343">Буруу бичсэнийг харуулах:</translation>
@@ -791,7 +792,6 @@
 <translation id="6459511626086141404">Хавтгай зураглал</translation>
 <translation id="6468049171101508116">Дараагийн товч</translation>
 <translation id="646954774886932461">Индекс</translation>
-<translation id="6479792383819319132">Ямар ч дараагийн догол мөр алга байна.</translation>
 <translation id="6493991254603208962">Гэрэлтүүлгийг хасах</translation>
 <translation id="6501595918865591267">Оюу ногоон</translation>
 <translation id="6508059270146105198">Брайлийн дэлгэцийг хуудасны доод хэсэгт шилжүүлэх</translation>
@@ -814,7 +814,6 @@
 <translation id="6637586476836377253">нэвтрэх</translation>
 <translation id="6657128831881431364">Явцын мөр</translation>
 <translation id="6659594942844771486">Цонх</translation>
-<translation id="6675661017770918201">Ямар ч өмнөх догол мөр алга байна.</translation>
 <translation id="667999046851023355">Бичиг баримт</translation>
 <translation id="6688209025607531203">Баймж бус сануулга</translation>
 <translation id="6689672606256159458">Улбар шар туяатай ягаан (Яргай загасны өнгө)</translation>
@@ -843,6 +842,7 @@
 <translation id="6865519907510167493">Алдаатай бичсэн байна</translation>
 <translation id="6871161210040114857">Үсгийн хэлбэршлийг алгасах</translation>
 <translation id="6877435256196695200">Дараагийн ямар ч график алга байна.</translation>
+<translation id="688976158310523235">Хайлтын цэс</translation>
 <translation id="6897341342232909480">Зүүн тийш зөөх</translation>
 <translation id="6901540140423170855">огноо</translation>
 <translation id="6910211073230771657">Устгасан</translation>
@@ -855,6 +855,7 @@
 <translation id="699159175332639490">+ O + W-г хайх</translation>
 <translation id="6994042831499278539">Тайлбар толины лавлагаа</translation>
 <translation id="6996566555547746822">Дараагийн хослолын хайрцаг</translation>
+<translation id="6997224546856374593">Том үсгүүдийг унших үед:</translation>
 <translation id="700202842116345659">Ном зүйн хэсэг</translation>
 <translation id="7005146664810010831">Ямар ч холбоос олдсонгүй</translation>
 <translation id="7010712454773919705">ChromeVox өөрчлөгчийн түлхүүр</translation>
@@ -935,6 +936,7 @@ Chrome хөтчийн цэсийг нээхийн тулд Alt+F-г дарна �
 <translation id="744163271241493234">pwded</translation>
 <translation id="7491962110804786152">цонх</translation>
 <translation id="7492049978501397201">Харилцан ярианд нэвтэрсэн</translation>
+<translation id="7505149250476994901">Үсгийн өмнө "том" гэж хэлнэ үү</translation>
 <translation id="7518543783849163354">ChromeVox-н яриаг түр зогсоохын тулд Control түлхүүрийг дарна уу.</translation>
 <translation id="7521682724501952239">Та ChromeVox-г мэдрэмтгий дэлгэцээр ашиглаж болно.</translation>
 <translation id="7532613204005497612">6-р сар</translation>
@@ -1206,6 +1208,7 @@ Chrome хөтчийн цэсийг нээхийн тулд Alt+F-г дарна �
 <translation id="9065283790526219006">+зар сурталчилгаа</translation>
 <translation id="9066023754636984703">Search+А, J дээр дарж дэлгэрэнгүй мэдээлэл аваарай.</translation>
 <translation id="9067522039955793016">Хуудас тусгаарлагч</translation>
+<translation id="9074824103975499138">ChromeVox цэсэд хайх</translation>
 <translation id="9077213568694924680">Сонголтын хэсгээс арилгасан</translation>
 <translation id="9077305471618729969">Тэнгисийн цайвар ногоон</translation>
 <translation id="9082874451376019682">Өмнөх слайд байхгүй байна.</translation>

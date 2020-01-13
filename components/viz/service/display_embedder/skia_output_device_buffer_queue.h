@@ -5,8 +5,8 @@
 #ifndef COMPONENTS_VIZ_SERVICE_DISPLAY_EMBEDDER_SKIA_OUTPUT_DEVICE_BUFFER_QUEUE_H_
 #define COMPONENTS_VIZ_SERVICE_DISPLAY_EMBEDDER_SKIA_OUTPUT_DEVICE_BUFFER_QUEUE_H_
 
+#include "base/cancelable_callback.h"
 #include "base/macros.h"
-#include "base/memory/weak_ptr.h"
 #include "components/viz/service/display_embedder/skia_output_device.h"
 #include "components/viz/service/viz_service_export.h"
 #include "gpu/command_buffer/service/shared_image_factory.h"
@@ -66,14 +66,19 @@ class VIZ_SERVICE_EXPORT SkiaOutputDeviceBufferQueue final
   class Image;
   class OverlayData;
 
+  using CancelableSwapCompletionCallback =
+      base::CancelableOnceCallback<void(gfx::SwapResult,
+                                        std::unique_ptr<gfx::GpuFence>)>;
+
   Image* GetCurrentImage();
   std::unique_ptr<Image> GetNextImage();
-  void PageFlipComplete();
+  void PageFlipComplete(std::unique_ptr<Image> image);
   void FreeAllSurfaces();
   // Used as callback for SwapBuffersAsync and PostSubBufferAsync to finish
   // operation
   void DoFinishSwapBuffers(const gfx::Size& size,
                            std::vector<ui::LatencyInfo> latency_info,
+                           std::unique_ptr<Image> image,
                            std::vector<OverlayData> overlays,
                            gfx::SwapResult result,
                            std::unique_ptr<gfx::GpuFence> gpu_fence);
@@ -92,10 +97,12 @@ class VIZ_SERVICE_EXPORT SkiaOutputDeviceBufferQueue final
   std::unique_ptr<Image> displayed_image_;
   // These are free for use, and are not nullptr.
   std::vector<std::unique_ptr<Image>> available_images_;
-  // These have been scheduled to display but are not displayed yet.
-  // Entries of this deque may be nullptr, if they represent frames that have
-  // been destroyed.
-  base::circular_deque<std::unique_ptr<Image>> in_flight_images_;
+  // These cancelable callbacks bind images that have been scheduled to display
+  // but are not displayed yet. This deque will be cleared when represented
+  // frames are destroyed. Use CancelableOnceCallback to prevent resources
+  // from being destructed outside SkiaOutputDeviceBufferQueue life span.
+  base::circular_deque<std::unique_ptr<CancelableSwapCompletionCallback>>
+      swap_completion_callbacks_;
   // Scheduled overlays for the next SwapBuffers call.
   std::vector<OverlayData> pending_overlays_;
   // Committed overlays for the last SwapBuffers call.
@@ -107,7 +114,6 @@ class VIZ_SERVICE_EXPORT SkiaOutputDeviceBufferQueue final
       shared_image_representation_factory_;
   uint32_t shared_image_usage_;
 
-  base::WeakPtrFactory<SkiaOutputDeviceBufferQueue> weak_ptr_factory_{this};
   DISALLOW_COPY_AND_ASSIGN(SkiaOutputDeviceBufferQueue);
 };
 

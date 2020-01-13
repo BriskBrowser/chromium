@@ -150,7 +150,7 @@ class MODULES_EXPORT RTCPeerConnectionHandler
   AddTransceiverWithTrack(const blink::WebMediaStreamTrack& web_track,
                           const webrtc::RtpTransceiverInit& init) override;
   webrtc::RTCErrorOr<std::unique_ptr<RTCRtpTransceiverPlatform>>
-  AddTransceiverWithKind(std::string kind,
+  AddTransceiverWithKind(const String& kind,
                          const webrtc::RtpTransceiverInit& init) override;
   webrtc::RTCErrorOr<std::unique_ptr<RTCRtpTransceiverPlatform>> AddTrack(
       const WebMediaStreamTrack& web_track,
@@ -164,7 +164,7 @@ class MODULES_EXPORT RTCPeerConnectionHandler
   void Stop() override;
   webrtc::PeerConnectionInterface* NativePeerConnection() override;
   void RunSynchronousOnceClosureOnSignalingThread(
-      base::OnceClosure closure,
+      CrossThreadOnceClosure closure,
       const char* trace_event_name) override;
   void RunSynchronousRepeatingClosureOnSignalingThread(
       const base::RepeatingClosure& closure,
@@ -265,7 +265,7 @@ class MODULES_EXPORT RTCPeerConnectionHandler
 
   RTCSessionDescriptionPlatform*
   GetRTCSessionDescriptionPlatformOnSignalingThread(
-      base::OnceCallback<const webrtc::SessionDescriptionInterface*()>
+      CrossThreadOnceFunction<const webrtc::SessionDescriptionInterface*()>
           description_cb,
       const char* log_text);
 
@@ -378,7 +378,7 @@ class MODULES_EXPORT RTCPeerConnectionHandler
   std::vector<std::unique_ptr<blink::RTCRtpTransceiverImpl>> rtp_transceivers_;
   // A snapshot of transceiver ids taken before the last transition, used to
   // detect any removals during rollback.
-  blink::WebVector<uintptr_t> previous_transceiver_ids_;
+  Vector<uintptr_t> previous_transceiver_ids_;
 
   base::WeakPtr<PeerConnectionTracker> peer_connection_tracker_;
 

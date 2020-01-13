@@ -7,6 +7,7 @@
 #include <set>
 
 #include "base/bind.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/external_provider_impl.h"
@@ -15,6 +16,7 @@
 #include "components/prefs/pref_service.h"
 #include "extensions/browser/install/crx_install_error.h"
 #include "extensions/browser/pref_names.h"
+#include "extensions/browser/updater/extension_downloader.h"
 #include "extensions/browser/updater/extension_downloader_delegate.h"
 #include "extensions/common/extension_urls.h"
 
@@ -35,7 +37,8 @@ InstallationTracker::InstallationTracker(
       pref_service_(profile->GetPrefs()),
       start_time_(base::Time::Now()),
       timer_(std::move(timer)) {
-  observer_.Add(registry_);
+  registry_observer_.Add(registry_);
+  reporter_observer_.Add(InstallationReporter::Get(profile_));
   pref_change_registrar_.Init(pref_service_);
   pref_change_registrar_.Add(
       pref_names::kInstallForceList,
@@ -132,7 +135,8 @@ void InstallationTracker::OnForcedExtensionsPrefChanged() {
 }
 
 void InstallationTracker::OnShutdown(ExtensionRegistry*) {
-  observer_.RemoveAll();
+  registry_observer_.RemoveAll();
+  reporter_observer_.RemoveAll();
   pref_change_registrar_.RemoveAll();
   timer_->Stop();
 }
@@ -222,6 +226,23 @@ void InstallationTracker::ReportResults() {
               "Extensions.OffStore_ForceInstalledFailureReason2",
               failure_reason);
         }
+
+        // In case of CRX_FETCH_FAILURE, report the network error code, HTTP
+        // error code and number of fetch tries made.
+        if (failure_reason ==
+            InstallationReporter::FailureReason::CRX_FETCH_FAILED) {
+          base::UmaHistogramSparse("Extensions.ForceInstalledNetworkErrorCode",
+                                   installation.network_error_code.value());
+
+          if (installation.response_code) {
+            base::UmaHistogramSparse("Extensions.ForceInstalledHttpErrorCode",
+                                     installation.response_code.value());
+          }
+          UMA_HISTOGRAM_EXACT_LINEAR("Extensions.ForceInstalledFetchTries",
+                                     installation.fetch_tries.value(),
+                                     ExtensionDownloader::kMaxRetries);
+        }
+
         VLOG(2) << "Forced extension " << extension_id
                 << " failed to install with data="
                 << InstallationReporter::GetFormattedInstallationData(
@@ -237,7 +258,8 @@ void InstallationTracker::ReportResults() {
   }
   reported_ = true;
   InstallationReporter::Get(profile_)->Clear();
-  observer_.RemoveAll();
+  registry_observer_.RemoveAll();
+  reporter_observer_.RemoveAll();
   pref_change_registrar_.RemoveAll();
   timer_->Stop();
 }

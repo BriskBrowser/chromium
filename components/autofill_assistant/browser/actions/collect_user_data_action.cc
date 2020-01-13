@@ -518,6 +518,10 @@ void CollectUserDataAction::OnGetUserData(
     for (const auto& value : user_data->additional_values_to_store) {
       delegate_->GetClientMemory()->set_additional_value(value.first,
                                                          value.second);
+      if (!value.second.empty()) {
+        processed_action_proto_->mutable_collect_user_data_result()
+            ->add_set_text_input_memory_keys(value.first);
+      }
     }
 
     processed_action_proto_->mutable_collect_user_data_result()
@@ -596,6 +600,14 @@ bool CollectUserDataAction::CreateOptionsFromProto() {
   if (collect_user_data_options_->require_billing_postal_code &&
       collect_user_data_options_->billing_postal_code_missing_text.empty()) {
     return false;
+  }
+  collect_user_data_options_->credit_card_expired_text =
+      collect_user_data.credit_card_expired_text();
+  // TODO(b/146195295): Remove fallback and enforce non-empty backend string.
+  if (collect_user_data_options_->credit_card_expired_text.empty()) {
+    collect_user_data_options_->credit_card_expired_text =
+        l10n_util::GetStringUTF8(
+            IDS_PAYMENTS_VALIDATION_INVALID_CREDIT_CARD_EXPIRED);
   }
   collect_user_data_options_->request_login_choice =
       collect_user_data.has_login_details();
@@ -832,8 +844,8 @@ void CollectUserDataAction::UpdatePersonalDataManagerProfiles(
       (collect_user_data_options_->request_payer_name ||
        collect_user_data_options_->request_payer_phone ||
        collect_user_data_options_->request_payer_email)) {
-    int default_selection = GetDefaultProfile(*collect_user_data_options_,
-                                              user_data->available_profiles);
+    int default_selection = GetDefaultContactProfile(
+        *collect_user_data_options_, user_data->available_profiles);
     if (default_selection != -1) {
       user_data->contact_profile = std::make_unique<autofill::AutofillProfile>(
           *(user_data->available_profiles[default_selection]));
@@ -845,8 +857,8 @@ void CollectUserDataAction::UpdatePersonalDataManagerProfiles(
   }
   if (user_data->shipping_address == nullptr &&
       collect_user_data_options_->request_shipping) {
-    int default_selection = GetDefaultProfile(*collect_user_data_options_,
-                                              user_data->available_profiles);
+    int default_selection = GetDefaultAddressProfile(
+        *collect_user_data_options_, user_data->available_profiles);
     if (default_selection != -1) {
       user_data->shipping_address = std::make_unique<autofill::AutofillProfile>(
           *(user_data->available_profiles[default_selection]));

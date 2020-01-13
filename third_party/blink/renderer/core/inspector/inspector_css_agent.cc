@@ -64,6 +64,7 @@
 #include "third_party/blink/renderer/core/dom/text.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
+#include "third_party/blink/renderer/core/html/html_document.h"
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
 #include "third_party/blink/renderer/core/html/html_head_element.h"
 #include "third_party/blink/renderer/core/inspector/identifiers_factory.h"
@@ -1137,8 +1138,8 @@ Response InspectorCSSAgent::getComputedStyleForNode(
   for (CSSPropertyID property_id : CSSPropertyIDList()) {
     const CSSProperty& property_class =
         CSSProperty::Get(resolveCSSPropertyID(property_id));
-    if (!property_class.IsWebExposed() || property_class.IsShorthand() ||
-        !property_class.IsProperty())
+    if (!property_class.IsWebExposed(&node->GetDocument()) ||
+        property_class.IsShorthand() || !property_class.IsProperty())
       continue;
     (*style)->emplace_back(
         protocol::CSS::CSSComputedStyleProperty::create()
@@ -1832,7 +1833,7 @@ InspectorStyleSheetForInlineStyle* InspectorCSSAgent::AsInspectorStyleSheet(
     return nullptr;
 
   InspectorStyleSheetForInlineStyle* inspector_style_sheet =
-      InspectorStyleSheetForInlineStyle::Create(element, this);
+      MakeGarbageCollected<InspectorStyleSheetForInlineStyle>(element, this);
   id_to_inspector_style_sheet_for_inline_style_.Set(inspector_style_sheet->Id(),
                                                     inspector_style_sheet);
   node_to_inspector_style_sheet_.Set(element, inspector_style_sheet);
@@ -1917,7 +1918,7 @@ InspectorStyleSheet* InspectorCSSAgent::ViaInspectorStyleSheet(
   if (!document)
     return nullptr;
 
-  if (!document->IsHTMLDocument() && !document->IsSVGDocument())
+  if (!IsA<HTMLDocument>(document) && !document->IsSVGDocument())
     return nullptr;
 
   CSSStyleSheet& inspector_sheet =
@@ -2077,7 +2078,9 @@ InspectorCSSAgent::BuildObjectForAttributesStyle(Element* element) {
     return nullptr;
 
   InspectorStyle* inspector_style = MakeGarbageCollected<InspectorStyle>(
-      mutable_attribute_style->EnsureCSSStyleDeclaration(), nullptr, nullptr);
+      mutable_attribute_style->EnsureCSSStyleDeclaration(
+          &element->GetDocument()),
+      nullptr, nullptr);
   return inspector_style->BuildObjectForStyle();
 }
 
@@ -2201,15 +2204,15 @@ Response InspectorCSSAgent::setEffectivePropertyValueForNode(
   if (element->GetPseudoId())
     return Response::Error("Elements is pseudo");
 
-  CSSPropertyID property = cssPropertyID(property_name);
-  if (!isValidCSSPropertyID(property))
-    return Response::Error("Invalid property name");
-
   Document* owner_document = element->ownerDocument();
   if (!owner_document->IsActive())
     return Response::Error("Can't edit a node from a non-active document");
 
-  CSSPropertyID property_id = cssPropertyID(property_name);
+  CSSPropertyID property = cssPropertyID(owner_document, property_name);
+  if (!isValidCSSPropertyID(property))
+    return Response::Error("Invalid property name");
+
+  CSSPropertyID property_id = cssPropertyID(owner_document, property_name);
   const CSSProperty& property_class = CSSProperty::Get(property_id);
   CSSStyleDeclaration* style =
       FindEffectiveDeclaration(property_class, MatchingStyles(element));

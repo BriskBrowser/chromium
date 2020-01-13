@@ -37,16 +37,16 @@
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
-#include "components/safe_browsing/common/safe_browsing_prefs.h"
-#include "components/safe_browsing/common/utils.h"
-#include "components/safe_browsing/db/database_manager.h"
-#include "components/safe_browsing/features.h"
-#include "components/safe_browsing/password_protection/password_protection_navigation_throttle.h"
-#include "components/safe_browsing/password_protection/password_protection_request.h"
-#include "components/safe_browsing/proto/csd.pb.h"
-#include "components/safe_browsing/triggers/trigger_throttler.h"
-#include "components/safe_browsing/verdict_cache_manager.h"
-#include "components/safe_browsing/web_ui/safe_browsing_ui.h"
+#include "components/safe_browsing/content/password_protection/password_protection_navigation_throttle.h"
+#include "components/safe_browsing/content/password_protection/password_protection_request.h"
+#include "components/safe_browsing/content/web_ui/safe_browsing_ui.h"
+#include "components/safe_browsing/core/common/safe_browsing_prefs.h"
+#include "components/safe_browsing/core/common/utils.h"
+#include "components/safe_browsing/core/db/database_manager.h"
+#include "components/safe_browsing/core/features.h"
+#include "components/safe_browsing/core/proto/csd.pb.h"
+#include "components/safe_browsing/core/triggers/trigger_throttler.h"
+#include "components/safe_browsing/core/verdict_cache_manager.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/strings/grit/components_strings.h"
@@ -263,7 +263,10 @@ ChromePasswordProtectionService::ChromePasswordProtectionService(
 }
 
 void ChromePasswordProtectionService::Init() {
-#if defined(SYNC_PASSWORD_REUSE_WARNING_ENABLED)
+// The following code is disabled on Android. RefreshTokenIsAvailable cannot be
+// used in unit tests, because it needs to interact with system accounts.
+// Considering avoid running it during unit tests. See: crbug.com/1009957.
+#if !defined(OS_ANDROID)
   // This code is shared by the normal ctor and testing ctor.
 
   sync_password_hash_ = GetSyncPasswordHashFromPrefs();
@@ -376,12 +379,15 @@ void ChromePasswordProtectionService::ShowModalWarning(
   if (web_contents->IsFullscreenForCurrentTab())
     web_contents->ExitFullscreen(true);
 
+// TODO(crbug.com/1036042): Enable password reuse warning on Android.
+#if !defined(OS_ANDROID)
   ShowPasswordReuseModalWarningDialog(
       web_contents, this, password_type,
       base::BindOnce(&ChromePasswordProtectionService::OnUserAction,
                      base::Unretained(this), web_contents, password_type,
                      outcome, verdict_type, verdict_token,
                      WarningUIType::MODAL_DIALOG));
+#endif  // !defined(OS_ANDROID)
 
   LogWarningAction(WarningUIType::MODAL_DIALOG, WarningAction::SHOWN,
                    password_type);
@@ -831,12 +837,15 @@ void ChromePasswordProtectionService::OnGaiaPasswordChanged(
   for (auto& observer : observer_list_)
     observer.OnGaiaPasswordChanged();
 
+// Disabled on Android, because enterprise reporting extension is not supported.
+#if !defined(OS_ANDROID)
   // Only report if the current password changed is the primary account and it's
   // not a Gmail account or if the current password changed is a content area
   // account and it's not a Gmail account.
   if ((!is_other_gaia_password && !IsPrimaryAccountGmail()) ||
       (is_other_gaia_password && !IsOtherGaiaAccountGmail(username)))
     ReportPasswordChanged();
+#endif
 }
 
 GURL ChromePasswordProtectionService::GetEnterpriseChangePasswordURL() const {
@@ -1060,9 +1069,9 @@ base::string16 ChromePasswordProtectionService::GetWarningDetailText(
       IDS_PAGE_INFO_CHANGE_PASSWORD_DETAILS_ENTERPRISE);
 }
 
-base::string16
-ChromePasswordProtectionService::GetWarningDetailTextForSavedPasswords(
-    std::vector<size_t>* placeholder_offsets) const {
+std::vector<base::string16>
+ChromePasswordProtectionService::GetPlaceholdersForSavedPasswordWarningText()
+    const {
   const std::vector<std::string>& matching_domains =
       saved_passwords_matching_domains();
   const std::list<std::string>& spoofed_domains = common_spoofed_domains();
@@ -1092,7 +1101,14 @@ ChromePasswordProtectionService::GetWarningDetailTextForSavedPasswords(
     placeholders.push_back(base::UTF8ToUTF16(matching_domains[idx]));
     domains_idx++;
   }
+  return placeholders;
+}
 
+base::string16
+ChromePasswordProtectionService::GetWarningDetailTextForSavedPasswords(
+    std::vector<size_t>* placeholder_offsets) const {
+  std::vector<base::string16> placeholders =
+      GetPlaceholdersForSavedPasswordWarningText();
   // If showing the saved passwords domain experiment is not on or if there is
   // are no saved domains, default to original saved passwords reuse warning.
   if (!base::FeatureList::IsEnabled(
@@ -1127,7 +1143,10 @@ std::string ChromePasswordProtectionService::GetOrganizationName(
           : GetSignedInNonSyncAccount(username_for_last_shown_warning()).email;
   return email.empty() ? std::string() : gaia::ExtractDomainName(email);
 }
+#endif
 
+// Disabled on Android, because enterprise reporting extension is not supported.
+#if !defined(OS_ANDROID)
 void ChromePasswordProtectionService::MaybeReportPasswordReuseDetected(
     content::WebContents* web_contents,
     const std::string& username,
@@ -1167,7 +1186,9 @@ void ChromePasswordProtectionService::ReportPasswordChanged() {
         ->OnPolicySpecifiedPasswordChanged(GetAccountInfo().email);
   }
 }
+#endif
 
+#if defined(SYNC_PASSWORD_REUSE_WARNING_ENABLED)
 bool ChromePasswordProtectionService::HasUnhandledEnterprisePasswordReuse(
     content::WebContents* web_contents) const {
   return web_contents_with_unhandled_enterprise_reuses_.find(web_contents) !=

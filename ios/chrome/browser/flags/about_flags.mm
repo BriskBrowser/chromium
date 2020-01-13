@@ -60,6 +60,7 @@
 #import "ios/chrome/browser/ui/dialogs/dialog_features.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_features.h"
 #import "ios/chrome/browser/ui/infobars/infobar_feature.h"
+#import "ios/chrome/browser/ui/page_info/features.h"
 #include "ios/chrome/browser/ui/settings/autofill/features.h"
 #import "ios/chrome/browser/ui/table_view/feature_flags.h"
 #import "ios/chrome/browser/ui/toolbar/public/features.h"
@@ -313,10 +314,6 @@ const flags_ui::FeatureEntry kFeatureEntries[] = {
      flag_descriptions::kAutofillIOSDelayBetweenFieldsName,
      flag_descriptions::kAutofillIOSDelayBetweenFieldsDescription,
      flags_ui::kOsIos, MULTI_VALUE_TYPE(kAutofillIOSDelayBetweenFieldsChoices)},
-    {"new-clear-browsing-data-ui",
-     flag_descriptions::kNewClearBrowsingDataUIName,
-     flag_descriptions::kNewClearBrowsingDataUIDescription, flags_ui::kOsIos,
-     FEATURE_VALUE_TYPE(kNewClearBrowsingDataUI)},
     {"autofill-show-all-profiles-on-prefilled-forms",
      flag_descriptions::kAutofillShowAllSuggestionsOnPrefilledFormsName,
      flag_descriptions::kAutofillShowAllSuggestionsOnPrefilledFormsDescription,
@@ -374,11 +371,6 @@ const flags_ui::FeatureEntry kFeatureEntries[] = {
     {"toolbar-container", flag_descriptions::kToolbarContainerName,
      flag_descriptions::kToolbarContainerDescription, flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(toolbar_container::kToolbarContainerEnabled)},
-    {"omnibox-popup-shortcuts",
-     flag_descriptions::kOmniboxPopupShortcutIconsInZeroStateName,
-     flag_descriptions::kOmniboxPopupShortcutIconsInZeroStateDescription,
-     flags_ui::kOsIos,
-     FEATURE_VALUE_TYPE(omnibox::kOmniboxPopupShortcutIconsInZeroState)},
     {"omnibox-on-device-head-suggestions",
      flag_descriptions::kOmniboxOnDeviceHeadSuggestionsName,
      flag_descriptions::kOmniboxOnDeviceHeadSuggestionsDescription,
@@ -504,10 +496,6 @@ const flags_ui::FeatureEntry kFeatureEntries[] = {
     {"enable-sync-uss-nigori", flag_descriptions::kEnableSyncUSSNigoriName,
      flag_descriptions::kEnableSyncUSSNigoriDescription, flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(switches::kSyncUSSNigori)},
-    {"settings-add-payment-method",
-     flag_descriptions::kSettingsAddPaymentMethodName,
-     flag_descriptions::kSettingsAddPaymentMethodDescription, flags_ui::kOsIos,
-     FEATURE_VALUE_TYPE(kSettingsAddPaymentMethod)},
     {"collections-card-presentation-style",
      flag_descriptions::kCollectionsCardPresentationStyleName,
      flag_descriptions::kCollectionsCardPresentationStyleDescription,
@@ -606,6 +594,12 @@ const flags_ui::FeatureEntry kFeatureEntries[] = {
     {"reload-sad-tab", flag_descriptions::kReloadSadTabName,
      flag_descriptions::kReloadSadTabDescription, flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(web::kReloadSadTab)},
+    {"page-info-refactoring", flag_descriptions::kPageInfoRefactoringName,
+     flag_descriptions::kPageInfoRefactoringDescription, flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(kPageInfoRefactoring)},
+    {"contained-browser-bvc", flag_descriptions::kContainedBVCName,
+     flag_descriptions::kContainedBVCDescription, flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(kContainedBVC)},
 };
 
 // Add all switches from experimental flags to |command_line|.

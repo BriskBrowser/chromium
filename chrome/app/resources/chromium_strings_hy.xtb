@@ -21,7 +21,6 @@
 <translation id="1929939181775079593">Chromium-ը չի պատասխանում: Վերագործարկե՞լ:</translation>
 <translation id="1966382378801805537">Chromium-ը չի կարողանում որոշել կամ սահմանել կանխադրված դիտարկիչը</translation>
 <translation id="2008474315282236005">1 տարր կջնջվի այս սարքից: Հետագայում ձեր տվյալներն առբերելու համար մուտք գործեք Chromium <ph name="USER_EMAIL" /> հաշվով:</translation>
-<translation id="2119636228670142020">Տեղեկություններ &amp;Chromium OS-ի մասին</translation>
 <translation id="2147976119693222405">Chromium OS-ը չկարողացավ համաժամացնել ձեր տվյալները։ Շտկել խնդիրը։</translation>
 <translation id="2241627712206172106">Եթե ձեզնից բացի որևէ այլ մեկն օգտվում է այս համակարգչից, օրինակ ձեր ընկերները կամ հարազատները, ապա նրանք կարող են առանձին աշխատել և կարգավորել Chromium-ն իրենց ուզած ձևով:</translation>
 <translation id="2347108572062610441">Այս ընդլայնումը փոխել է Chromium-ի մեկնարկի ժամանակ ցուցադրվող էջը:</translation>
@@ -39,7 +38,6 @@
 <translation id="2770231113462710648">Կանխադրված դիտարկիչը դարձնել՝</translation>
 <translation id="2799223571221894425">Վերագործարկել</translation>
 <translation id="2805036593126168338">Chromium OS-ը չկարողացավ համաժամացնել ձեր գաղտնաբառերը։ Շտկել խնդիրը։</translation>
-<translation id="2838154144102149890">Թարմացման համար անհրաժեշտ է փակել Chromium-ն այս համակարգչում։ Այս համակարգչում մյուս օգտատերերի չպահված փոփոխությունները կարող են կորել։</translation>
 <translation id="2847479871509788944">Հեռացնել Chromium-ից...</translation>
 <translation id="2886012850691518054">Կամընտիր. Օգնեք բարելավել Chromium-ը՝ ավտոմատ Google-ին ուղարկելով օգտագործման վիճակագրությունները և խափանումների մասին հաշվետվությունները:</translation>
 <translation id="2910007522516064972">&amp;Chromium-ի մասին</translation>
@@ -149,7 +147,6 @@
 <translation id="6847869444787758381">Chromium-ը ձեզ տեղյակ կպահի, եթե ձեր գաղտնաբառերի անվտագությանը սպառնալիք լինի</translation>
 <translation id="6857782730669500492">Chromium – <ph name="PAGE_TITLE" /></translation>
 <translation id="6863361426438995919">Google Pay (պատճենվել է Chromium-ում)</translation>
-<translation id="6868056391275687737">Chromium-ի այլ օրինակներ են աշխատում: Թարմացնելու համար փակեք դրանք։</translation>
 <translation id="6893813176749746474">Chromium-ը թարմացվել է, սակայն դուք չեք օգտագործել այն առնվազն 30 օր:</translation>
 <translation id="6964305034639999644">Բացել հղումը Chromium-ի ինկ&amp;ոգնիտո պատուհանում</translation>
 <translation id="6990124437352146030">Chromium-ին այս կայքի համար անհրաժեշտ է ձեր խոսափողն օգտագործելու թույլտվություն</translation>
@@ -209,7 +206,6 @@ Chromium-ին չհաջողվեց վերականգնել ձեր կարգավոր�
 <translation id="8697124171261953979">Այն նաև վերահսկում է Chromium-ի մեկնարկի կամ Omnibox-ից որոնում կատարելու ժամանակ ցուցադրվող էջը:</translation>
 <translation id="8704119203788522458">Սա ձեր Chromium-ն է</translation>
 <translation id="8739167630197873875">Երբ Chromium-ից դուրս եք գալիս, քուքիները մաքրվում են: Համաժամացումը շարունակելու համար փոխեք <ph name="COOKIE_SETTINGS_LINK" />ը:</translation>
-<translation id="8748383401829947534">Փակեք Chromium-ի բոլոր օրինակները</translation>
 <translation id="8796602469536043152">Chromium-ին այս կայքի համար անհրաժեշտ է ձեր տեսախցիկն ու խոսափողը օգտագործելու թույլտվություն</translation>
 <translation id="8803635938069941624">Chromium OS-ի պայմաններ</translation>
 <translation id="8821041990367117597">Chromium-ը չկարողացավ համաժամացնել ձեր տվյալները, քանի որ ձեր հաշվի մուտքի տվյալները հնացած են:</translation>

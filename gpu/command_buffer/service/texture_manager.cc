@@ -15,7 +15,6 @@
 #include "base/bits.h"
 #include "base/format_macros.h"
 #include "base/lazy_instance.h"
-#include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -2107,15 +2106,27 @@ TextureRef::~TextureRef() {
 }
 
 bool TextureRef::BeginAccessSharedImage(GLenum mode) {
-  shared_image_scoped_access_ = shared_image_->BeginScopedAccess(mode);
+  // When accessing through TextureManager, we are using legacy GL logic which
+  // tracks clearning internally. Always allow access to uncleared
+  // SharedImages.
+  shared_image_scoped_access_ = shared_image_->BeginScopedAccess(
+      mode, SharedImageRepresentation::AllowUnclearedAccess::kYes);
   if (!shared_image_scoped_access_) {
     return false;
   }
+  // After beginning access, the returned gles2::Texture's cleared status
+  // should match the SharedImage's.
+  DCHECK_EQ(shared_image_->ClearedRect(),
+            texture_->GetLevelClearedRect(texture_->target(), 0));
   return true;
 }
 
 void TextureRef::EndAccessSharedImage() {
   shared_image_scoped_access_.reset();
+  // After ending access, the SharedImages cleared rect should be synchronized
+  // with |texture_|'s.
+  DCHECK_EQ(shared_image_->ClearedRect(),
+            texture_->GetLevelClearedRect(texture_->target(), 0));
 }
 
 void TextureRef::ForceContextLost() {
@@ -3696,13 +3707,6 @@ void TextureManager::DoTexImage(DecoderTextureState* texture_state,
     }
   }
   GLenum error = ERRORSTATE_PEEK_GL_ERROR(error_state, function_name);
-  if (args.command_type == DoTexImageArguments::CommandType::kTexImage3D) {
-    UMA_HISTOGRAM_CUSTOM_ENUMERATION("GPU.Error_TexImage3D", error,
-        GetAllGLErrors());
-  } else {
-    UMA_HISTOGRAM_CUSTOM_ENUMERATION("GPU.Error_TexImage2D", error,
-        GetAllGLErrors());
-  }
   if (error == GL_NO_ERROR) {
     bool set_as_cleared = (args.pixels != nullptr || unpack_buffer_bound);
     SetLevelInfo(

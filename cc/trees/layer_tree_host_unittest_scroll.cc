@@ -716,7 +716,7 @@ class LayerTreeHostScrollTestCaseWithChild : public LayerTreeHostScrollTest {
         InputHandler::ScrollStatus status = impl->ScrollBegin(
             BeginState(scroll_point).get(), InputHandler::TOUCHSCREEN);
         EXPECT_EQ(InputHandler::SCROLL_ON_IMPL_THREAD, status.thread);
-        impl->ScrollBy(UpdateState(gfx::Point(), scroll_amount_).get());
+        impl->ScrollUpdate(UpdateState(gfx::Point(), scroll_amount_).get());
         auto* scrolling_node = impl->CurrentlyScrollingNode();
         CHECK(scrolling_node);
         impl->ScrollEnd();
@@ -741,7 +741,7 @@ class LayerTreeHostScrollTestCaseWithChild : public LayerTreeHostScrollTest {
         InputHandler::ScrollStatus status = impl->ScrollBegin(
             BeginState(scroll_point).get(), InputHandler::WHEEL);
         EXPECT_EQ(InputHandler::SCROLL_ON_IMPL_THREAD, status.thread);
-        impl->ScrollBy(UpdateState(gfx::Point(), scroll_amount_).get());
+        impl->ScrollUpdate(UpdateState(gfx::Point(), scroll_amount_).get());
         impl->ScrollEnd();
 
         // Check the scroll is applied as a delta.
@@ -1135,7 +1135,7 @@ void DoGestureScroll(LayerTreeHostImpl* host_impl,
   update_scroll_state_data.delta_y = offset.y();
   std::unique_ptr<ScrollState> update_scroll_state(
       new ScrollState(update_scroll_state_data));
-  host_impl->ScrollBy(update_scroll_state.get());
+  host_impl->ScrollUpdate(update_scroll_state.get());
 
   host_impl->ScrollEnd(true /* should_snap */);
 }
@@ -1453,7 +1453,7 @@ class LayerTreeHostScrollTestScrollZeroMaxScrollOffset
         impl->active_tree()->property_trees()->scroll_tree;
     ScrollNode* scroll_node = scroll_tree.Node(scroller_->scroll_tree_index());
     InputHandler::ScrollStatus status =
-        impl->TryScroll(gfx::PointF(0.0f, 1.0f), scroll_tree, scroll_node);
+        impl->TryScroll(scroll_tree, scroll_node);
     switch (impl->active_tree()->source_frame_number()) {
       case 0:
         EXPECT_EQ(InputHandler::SCROLL_ON_IMPL_THREAD, status.thread)
@@ -1557,13 +1557,12 @@ class LayerTreeHostScrollTestImplScrollUnderMainThreadScrollingParent
         scroll_tree.Node(outer_scroll_layer->scroll_tree_index());
 
     InputHandler::ScrollStatus status =
-        impl->TryScroll(gfx::PointF(1.f, 1.f), scroll_tree, inner_scroll_node);
+        impl->TryScroll(scroll_tree, inner_scroll_node);
     EXPECT_EQ(InputHandler::SCROLL_ON_MAIN_THREAD, status.thread);
     EXPECT_EQ(MainThreadScrollingReason::kScrollbarScrolling,
               status.main_thread_scrolling_reasons);
 
-    status =
-        impl->TryScroll(gfx::PointF(1.f, 1.f), scroll_tree, outer_scroll_node);
+    status = impl->TryScroll(scroll_tree, outer_scroll_node);
     EXPECT_EQ(InputHandler::SCROLL_ON_IMPL_THREAD, status.thread);
     EXPECT_EQ(MainThreadScrollingReason::kNotScrollingOnMain,
               status.main_thread_scrolling_reasons);
@@ -2534,6 +2533,9 @@ class NonScrollingNonFastScrollableRegion : public LayerTreeHostScrollTest {
   void BeginTest() override { PostSetNeedsCommitToMainThread(); }
 
   void CommitCompleteOnThread(LayerTreeHostImpl* impl) override {
+    if (TestEnded())
+      return;
+
     // The top-left hit should immediately hit the top layer's non-fast region
     // which forces main-thread scrolling.
     auto top_left_status = impl->ScrollBegin(
@@ -2549,6 +2551,7 @@ class NonScrollingNonFastScrollableRegion : public LayerTreeHostScrollTest {
     EXPECT_EQ(InputHandler::SCROLL_ON_IMPL_THREAD, top_right_status.thread);
     EXPECT_EQ(MainThreadScrollingReason::kNotScrollingOnMain,
               top_right_status.main_thread_scrolling_reasons);
+    impl->ScrollEnd();
 
     // The bottom-right should hit the bottom layer's non-fast region. Though
     // the middle layer is a composited scroller and is hit first, we cannot do

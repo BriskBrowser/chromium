@@ -204,15 +204,6 @@ OmniboxViewViews::OmniboxViewViews(OmniboxEditController* controller,
       friendly_suggestion_text_prefix_length_(0) {
   SetID(VIEW_ID_OMNIBOX);
   SetFontList(font_list);
-
-  if (base::FeatureList::IsEnabled(
-          omnibox::kHideSteadyStateUrlPathQueryAndRef)) {
-    // The animation only applies when the path is dimmed to begin with.
-    SkColor starting_color =
-        location_bar_view_->GetColor(OmniboxPart::LOCATION_BAR_TEXT_DIMMED);
-    path_fade_animation_ =
-        std::make_unique<PathFadeAnimation>(this, starting_color);
-  }
 }
 
 OmniboxViewViews::~OmniboxViewViews() {
@@ -231,15 +222,14 @@ void OmniboxViewViews::Init() {
   SetTextInputType(ui::TEXT_INPUT_TYPE_URL);
   GetRenderText()->SetElideBehavior(gfx::ELIDE_TAIL);
   GetRenderText()->set_symmetric_selection_visual_bounds(true);
+  InstallPlaceholderText();
+  scoped_template_url_service_observer_.Add(
+      model()->client()->GetTemplateURLService());
 
   if (popup_window_mode_)
     SetReadOnly(true);
 
   if (location_bar_view_) {
-    InstallPlaceholderText();
-    scoped_template_url_service_observer_.Add(
-        model()->client()->GetTemplateURLService());
-
     // Initialize the popup view using the same font.
     popup_view_.reset(
         new OmniboxPopupContentsView(this, model(), location_bar_view_,
@@ -309,9 +299,6 @@ void OmniboxViewViews::ResetTabState(content::WebContents* web_contents) {
 }
 
 void OmniboxViewViews::InstallPlaceholderText() {
-  set_placeholder_text_color(
-      location_bar_view_->GetColor(OmniboxPart::LOCATION_BAR_TEXT_DIMMED));
-
   const TemplateURL* const default_provider =
       model()->client()->GetTemplateURLService()->GetDefaultSearchProvider();
   if (default_provider) {
@@ -584,6 +571,23 @@ void OmniboxViewViews::RemovedFromWidget() {
 
 bool OmniboxViewViews::ShouldDoLearning() {
   return location_bar_view_ && !location_bar_view_->profile()->IsOffTheRecord();
+}
+
+void OmniboxViewViews::OnThemeChanged() {
+  views::Textfield::OnThemeChanged();
+
+  const SkColor dimmed_text_color = GetOmniboxColor(
+      GetThemeProvider(), OmniboxPart::LOCATION_BAR_TEXT_DIMMED);
+  set_placeholder_text_color(dimmed_text_color);
+
+  if (base::FeatureList::IsEnabled(
+          omnibox::kHideSteadyStateUrlPathQueryAndRef)) {
+    // The animation only applies when the path is dimmed to begin with.
+    path_fade_animation_ =
+        std::make_unique<PathFadeAnimation>(this, dimmed_text_color);
+  }
+
+  EmphasizeURLComponents();
 }
 
 bool OmniboxViewViews::IsDropCursorForInsertion() const {
@@ -881,13 +885,20 @@ void OmniboxViewViews::ClearAccessibilityLabel() {
 
 void OmniboxViewViews::SetAccessibilityLabel(const base::string16& display_text,
                                              const AutocompleteMatch& match) {
-  bool is_tab_switch_button_focused =
-      model()->popup_model()->selected_line_state() ==
-      OmniboxPopupModel::BUTTON_FOCUSED;
-  friendly_suggestion_text_ = AutocompleteMatchType::ToAccessibilityLabel(
-      match, display_text, model()->popup_model()->selected_line(),
-      model()->result().size(), is_tab_switch_button_focused,
-      &friendly_suggestion_text_prefix_length_);
+  size_t selected_line = model()->popup_model()->selected_line();
+  if (selected_line != OmniboxPopupModel::kNoMatch && popup_view_) {
+    // Although it feels bad to ask a whole different view for the accessibility
+    // text, only the OmniboxResultView knows which secondary button is shown.
+    OmniboxResultView* result_view = popup_view_->result_view_at(selected_line);
+    friendly_suggestion_text_ =
+        result_view->ToAccessibilityLabelWithSecondaryButton(
+            display_text, model()->result().size(),
+            &friendly_suggestion_text_prefix_length_);
+  } else {
+    friendly_suggestion_text_ = AutocompleteMatchType::ToAccessibilityLabel(
+        match, display_text, selected_line, model()->result().size(), 0,
+        &friendly_suggestion_text_prefix_length_);
+  }
 
 #if defined(OS_MACOSX)
   // On macOS, the text field value changed notification is not
@@ -1060,9 +1071,9 @@ int OmniboxViewViews::GetOmniboxTextLength() const {
 }
 
 void OmniboxViewViews::SetEmphasis(bool emphasize, const gfx::Range& range) {
-  SkColor color = location_bar_view_->GetColor(
-      emphasize ? OmniboxPart::LOCATION_BAR_TEXT_DEFAULT
-                : OmniboxPart::LOCATION_BAR_TEXT_DIMMED);
+  SkColor color = GetOmniboxColor(
+      GetThemeProvider(), emphasize ? OmniboxPart::LOCATION_BAR_TEXT_DEFAULT
+                                    : OmniboxPart::LOCATION_BAR_TEXT_DIMMED);
   if (range.IsValid())
     ApplyColor(color, range);
   else
@@ -1072,6 +1083,14 @@ void OmniboxViewViews::SetEmphasis(bool emphasize, const gfx::Range& range) {
 void OmniboxViewViews::UpdateSchemeStyle(const gfx::Range& range) {
   DCHECK(range.IsValid());
   DCHECK(!model()->user_input_in_progress());
+
+  // Do not style the scheme for non-http/https URLs. For such schemes, styling
+  // could be confusing or misleading. For example, the scheme isn't meaningful
+  // in about:blank URLs. Or in blob: or filesystem: URLs, which have an inner
+  // origin, the URL is likely too syntax-y to be able to meaningfully draw
+  // attention to any part of it.
+  if (!controller()->GetLocationBarModel()->GetURL().SchemeIsHTTPOrHTTPS())
+    return;
 
   security_state::SecurityLevel security_level =
       controller()->GetLocationBarModel()->GetSecurityLevel();

@@ -64,12 +64,7 @@
 
 #pragma mark - OverlayRequestCoordinator
 
-+ (BOOL)supportsRequest:(OverlayRequest*)request {
-  NOTREACHED() << "Subclasses implement.";
-  return NO;
-}
-
-+ (BOOL)usesChildViewController {
++ (BOOL)showsOverlayUsingChildViewController {
   return YES;
 }
 

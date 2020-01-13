@@ -28,13 +28,11 @@ TabModalConfirmDialog* TabModalConfirmDialog::Create(
   return new TabModalConfirmDialogViews(std::move(delegate), web_contents);
 }
 
-//////////////////////////////////////////////////////////////////////////////
-// TabModalConfirmDialogViews, constructor & destructor:
-
 TabModalConfirmDialogViews::TabModalConfirmDialogViews(
     std::unique_ptr<TabModalConfirmDialogDelegate> delegate,
     content::WebContents* web_contents)
     : delegate_(std::move(delegate)) {
+  DialogDelegate::set_buttons(delegate_->GetDialogButtons());
   DialogDelegate::set_button_label(ui::DIALOG_BUTTON_OK,
                                    delegate_->GetAcceptButtonTitle());
   DialogDelegate::set_button_label(ui::DIALOG_BUTTON_CANCEL,
@@ -51,8 +49,11 @@ TabModalConfirmDialogViews::TabModalConfirmDialogViews(
   message_box_view_ = new views::MessageBoxView(init_params);
 
   base::string16 link_text(delegate_->GetLinkText());
-  if (!link_text.empty())
-    message_box_view_->SetLink(link_text, this);
+  if (!link_text.empty()) {
+    message_box_view_->SetLink(
+        link_text, base::BindRepeating(&TabModalConfirmDialogViews::LinkClicked,
+                                       base::Unretained(this)));
+  }
 
   constrained_window::ShowWebModalDialogViews(this, web_contents);
   delegate_->set_close_delegate(this);
@@ -74,19 +75,9 @@ void TabModalConfirmDialogViews::CloseDialog() {
   GetWidget()->Close();
 }
 
-//////////////////////////////////////////////////////////////////////////////
-// TabModalConfirmDialogViews, views::LinkListener implementation:
-
 void TabModalConfirmDialogViews::LinkClicked(views::Link* source,
                                              int event_flags) {
   delegate_->LinkClicked(ui::DispositionFromEventFlags(event_flags));
-}
-
-//////////////////////////////////////////////////////////////////////////////
-// TabModalConfirmDialogViews, views::DialogDelegate implementation:
-
-int TabModalConfirmDialogViews::GetDialogButtons() const {
-  return delegate_->GetDialogButtons();
 }
 
 base::string16 TabModalConfirmDialogViews::GetWindowTitle() const {
@@ -126,9 +117,6 @@ views::View* TabModalConfirmDialogViews::GetInitiallyFocusedView() {
     return GetCancelButton();
   return nullptr;
 }
-
-///////////////////////////////////////////////////////////////////////////////
-// TabModalConfirmDialogViews, views::WidgetDelegate implementation:
 
 views::View* TabModalConfirmDialogViews::GetContentsView() {
   return message_box_view_;

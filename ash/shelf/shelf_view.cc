@@ -540,8 +540,8 @@ void ShelfView::ToggleOverflowBubble() {
   overflow_view->overflow_mode_ = true;
   overflow_view->Init();
   overflow_view->set_owner_overflow_bubble(overflow_bubble_.get());
-  overflow_view->OnShelfAlignmentChanged(
-      GetWidget()->GetNativeWindow()->GetRootWindow());
+  aura::Window* root_window = GetWidget()->GetNativeWindow()->GetRootWindow();
+  overflow_view->OnShelfAlignmentChanged(root_window, shelf_->alignment());
   overflow_view->main_shelf_ = this;
   UpdateOverflowRange(overflow_view);
 
@@ -1395,9 +1395,6 @@ void ShelfView::EndDrag(bool cancel) {
 void ShelfView::SwapButtons(views::View* button_to_swap, bool with_next) {
   if (!button_to_swap)
     return;
-  // We don't allow reordering of buttons that aren't app buttons.
-  if (button_to_swap->GetClassName() != ShelfAppButton::kViewClassName)
-    return;
 
   // Find the index of the button to swap in the view model.
   int src_index = -1;
@@ -1410,23 +1407,19 @@ void ShelfView::SwapButtons(views::View* button_to_swap, bool with_next) {
   }
 
   const int target_index = with_next ? src_index + 1 : src_index - 1;
+  // TODO(manucornet): Remove this restriction once we get rid of overflow
+  // bubbles in favor of a scrollable shelf.
   const int first_swappable_index = std::max(first_visible_index_, 0);
   const int last_swappable_index = last_visible_index_;
-  if (src_index == -1 || (target_index > last_swappable_index) ||
-      (target_index < first_swappable_index)) {
-    return;
-  }
-
-  // Only allow swapping two pinned apps or two unpinned apps.
-  if (!SamePinState(model_->items()[src_index].type,
-                    model_->items()[target_index].type)) {
+  if (target_index > last_swappable_index ||
+      target_index < first_swappable_index) {
     return;
   }
 
   // Swapping items in the model is sufficient, everything will then be
   // reflected in the views.
-  model_->Move(src_index, target_index);
-  AnimateToIdealBounds();
+  if (model_->Swap(src_index, with_next))
+    AnimateToIdealBounds();
   // TODO(manucornet): Announce the swap to screen readers.
 }
 
@@ -1490,13 +1483,8 @@ void ShelfView::PointerReleasedOnButton(views::View* view,
   if (drag_pointer_ != NONE)
     return;
 
-  if (chromeos::switches::ShouldShowScrollableShelf()) {
+  if (chromeos::switches::ShouldShowScrollableShelf())
     drag_and_drop_host_->DestroyDragIconProxy();
-
-    // |drag_view_| is reset already when being removed from the shelf view.
-    if (drag_view_)
-      drag_view_->layer()->SetOpacity(1.0f);
-  }
 
   // If the drag pointer is NONE, no drag operation is going on and the
   // drag_view can be released.
@@ -1658,13 +1646,17 @@ void ShelfView::ContinueDrag(const ui::LocatedEvent& event) {
     }
   }
 
+  // Calculates the drag point in screen before MoveDragViewTo is called.
+  gfx::Point drag_point_in_screen(event.location());
+  ConvertPointToScreen(drag_view_, &drag_point_in_screen);
+
   gfx::Point drag_point(event.location());
   ConvertPointToTarget(drag_view_, this, &drag_point);
   MoveDragViewTo(shelf_->PrimaryAxisValue(drag_point.x() - drag_origin_.x(),
                                           drag_point.y() - drag_origin_.y()));
   if (chromeos::switches::ShouldShowScrollableShelf()) {
-    drag_and_drop_host_->UpdateDragIconProxy(
-        drag_view_->GetBoundsInScreen().origin());
+    drag_and_drop_host_->UpdateDragIconProxy(drag_point_in_screen -
+                                             drag_origin_.OffsetFromOrigin());
   }
 }
 
@@ -1873,12 +1865,13 @@ bool ShelfView::HandleRipOffDrag(const ui::LocatedEvent& event) {
                         drag_view_, gfx::Vector2d(0, 0),
                         kDragAndDropProxyScale);
 
+    dragged_off_shelf_ = true;
+
     if (chromeos::switches::ShouldShowScrollableShelf())
       drag_and_drop_host_->DestroyDragIconProxy();
     else
       drag_view_->layer()->SetOpacity(0.0f);
 
-    dragged_off_shelf_ = true;
     if (RemovableByRipOff(current_index) == REMOVABLE) {
       // Move the item to the back and hide it. ShelfItemMoved() callback will
       // handle the |view_model_| update and call AnimateToIdealBounds().
@@ -2408,7 +2401,8 @@ void ShelfView::ShelfItemStatusChanged(const ShelfID& id) {
   button->SchedulePaint();
 }
 
-void ShelfView::OnShelfAlignmentChanged(aura::Window* root_window) {
+void ShelfView::OnShelfAlignmentChanged(aura::Window* root_window,
+                                        ShelfAlignment old_alignment) {
   LayoutToIdealBounds();
   for (int i = 0; i < view_model_->view_size(); ++i) {
     if (i >= first_visible_index_ && i <= last_visible_index_)
@@ -2558,15 +2552,14 @@ void ShelfView::OnBoundsAnimatorDone(views::BoundsAnimator* animator) {
       // previously hidden status can be shown again. Since the button itself
       // might have gone away or changed locations we check that the button
       // is still in the shelf and show its status again.
-      for (int index = 0; index < view_model_->view_size(); index++) {
-        views::View* view = view_model_->view_at(index);
-        if (view == snap_back_from_rip_off_view_) {
-          CHECK_EQ(ShelfAppButton::kViewClassName, view->GetClassName());
-          ShelfAppButton* button = static_cast<ShelfAppButton*>(view);
-          button->ClearState(ShelfAppButton::STATE_HIDDEN);
-          break;
-        }
-      }
+      const auto& entries = view_model_->entries();
+      const auto iter = std::find_if(
+          entries.begin(), entries.end(), [this](const auto& entry) {
+            return entry.view == snap_back_from_rip_off_view_;
+          });
+      if (iter != entries.end())
+        snap_back_from_rip_off_view_->ClearState(ShelfAppButton::STATE_HIDDEN);
+
       snap_back_from_rip_off_view_ = nullptr;
     }
   }

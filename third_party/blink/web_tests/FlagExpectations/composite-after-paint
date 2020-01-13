@@ -31,15 +31,10 @@ virtual/web-components-v0-disabled/* [ Skip ]
 virtual/compositor_threaded_scrollbar_scrolling/paint/invalidation/scroll/sticky/invalidate-after-composited-scroll-with-sticky.html [ Skip ]
 
 # Fail before CompositeAfterPaint but pass with it.
-crbug.com/472330 fast/borders/border-image-outset-split-inline-vertical-lr.html [ Pass ]
-crbug.com/736052 compositing/overflow/composited-scroll-with-fractional-translation.html [ Pass ]
 crbug.com/802915 css3/blending/isolation-should-include-non-local-background.html [ Pass ]
-crbug.com/363609 external/wpt/css/css-transforms/rotateY-180deg-with-overflow-scroll.html [ Pass ]
-crbug.com/918155 scrollbars/overlay-scrollbar-over-child-layer.html [ Pass ]
-crbug.com/887000 virtual/prefer_compositing_to_lcd_text/scrollbars/hidden-scrollbars-invisible.html [ Pass ]
-crbug.com/918155 virtual/prefer_compositing_to_lcd_text/scrollbars/overlay-scrollbar-over-child-layer.html [ Pass ]
 crbug.com/918155 virtual/prefer_compositing_to_lcd_text/scrollbars/overlay-scrollbar-over-child-layer-nested-2.html [ Pass ]
 crbug.com/918155 virtual/prefer_compositing_to_lcd_text/scrollbars/overlay-scrollbar-over-child-layer-nested.html [ Pass ]
+crbug.com/1039401 virtual/scroll_customization/fast/scrolling/scrollbar-mousedown-mouseup.html [ Pass ]
 
 # Missing composited layers for elements without visible contents.
 crbug.com/937573 compositing/geometry/foreground-layer.html [ Failure ]
@@ -57,8 +52,6 @@ virtual/android/url-bar/bottom-and-top-fixed-sticks-to-top.html [ Crash ]
 virtual/android/url-bar/bottom-fixed-adjusted-when-showing-url-bar.html [ Crash ]
 
 # Composited filters are not working.
-crbug.com/1008501 compositing/culling/filter-occlusion-blur-large.html [ Failure ]
-crbug.com/1008501 compositing/culling/filter-occlusion-blur.html [ Failure ]
 crbug.com/1008501 compositing/reflections/deeply-nested-reflections.html [ Failure ]
 
 # Wrong contentsOpaque or background color.
@@ -124,9 +117,6 @@ paint/invalidation/compositing/should-invoke-deferred-compositing.html [ Failure
 paint/invalidation/scroll/overflow-hidden-yet-scrolled-with-custom-scrollbar.html [ Failure ]
 paint/invalidation/scroll/overflow-hidden-yet-scrolled.html [ Failure ]
 
-# Under-invalidation
-fast/events/touch/touch-rect-crash-on-unpromote-layer.html [ Crash ]
-
 # "Missing" raster invalidation because composited layers are re-created.
 crbug.com/842356 paint/invalidation/compositing/containing-block-added-individual.html [ Failure ]
 crbug.com/842356 paint/invalidation/compositing/containing-block-added.html [ Failure ]
@@ -164,15 +154,10 @@ external/wpt/svg/render/reftests/blending-001.svg [ Failure ]
 external/wpt/svg/render/reftests/blending-002.svg [ Failure ]
 
 # Text failures due to layerization differences
-compositing/overflow/scroller-with-border-radius.html [ Failure ]
 css3/blending/mix-blend-mode-isolation-remove.html [ Failure ]
 
-# virtual/threaded variants of sub-directories and tests already skipped or marked as failing above.
-virtual/threaded/fast/events/pinch/pinch-zoom-pan-within-zoomed-viewport.html [ Failure ]
 virtual/threaded/fast/events/pinch/scroll-visual-viewport-send-boundary-events.html [ Timeout ]
-virtual/threaded-prefer-compositing/fast/scroll-behavior/first-scroll-runs-on-compositor.html [ Failure ]
 virtual/threaded/compositing/visibility/layer-visible-content.html [ Failure ]
-virtual/threaded/synthetic_gestures/smooth-scroll-tiny-delta.html [ Failure Timeout Pass ]
 
 crbug.com/931486 compositing/overflow/overlap-testing-ancestor-scroller-high-dpi.html [ Failure ]
 crbug.com/931486 compositing/squashing/squash-above-fixed-1.html [ Failure ]
@@ -181,7 +166,6 @@ crbug.com/931486 paint/invalidation/compositing/pointer-events-composited-scroll
 crbug.com/931486 paint/invalidation/compositing/scrolling-neg-z-index-descendants.html [ Failure ]
 crbug.com/931486 paint/invalidation/scroll/composited-iframe-scroll-repaint.html [ Failure ]
 crbug.com/931486 paint/invalidation/scroll/fixed-and-absolute-position-scrolled.html [ Failure ]
-crbug.com/931486 paint/invalidation/scroll/scrollbar-damage-and-full-viewport-repaint.html [ Failure ]
 crbug.com/931486 scrollbars/overlay-scrollbars-within-overflow-scroll.html [ Failure ]
 crbug.com/931486 scrollbars/reconstruct-coordinated-scrollbar.html [ Failure ]
 crbug.com/931486 virtual/prefer_compositing_to_lcd_text/scrollbars/reconstruct-coordinated-scrollbar.html [ Failure ]
@@ -201,16 +185,6 @@ paint/invalidation/reflection/scroll-fixed-reflected-layer.html [ Failure ]
 crbug.com/900241 paint/invalidation/animation/opacity-animation.html [ Failure ]
 crbug.com/900241 paint/invalidation/animation/transform-animation.html [ Failure ]
 
-# These tests have additional hit test rects. These may correct and simply due
-# to different layerization decisions, but this needs investigation.
-crbug.com/909749 fast/events/touch/compositor-touch-hit-rects-non-composited-scroll.html [ Failure ]
-
-# Backdrop filter
-crbug.com/923429 css3/filters/backdrop-filter-plus-mask.html [ Failure ]
-crbug.com/923429 css3/filters/backdrop-filter-plus-mask-large.html [ Failure ]
-crbug.com/923429 virtual/scalefactor200/css3/filters/backdrop-filter-plus-mask.html [ Failure ]
-crbug.com/923429 virtual/scalefactor200/css3/filters/backdrop-filter-plus-mask-large.html [ Failure ]
-
 crbug.com/940033 virtual/threaded-prefer-compositing/fast/scrolling/wheel-scrolling-over-custom-scrollbar.html [ Pass Failure ]
 
 # Crash during PictureLayer::GetPicture() when DisplayItemList is finished twice.
@@ -227,6 +201,7 @@ crbug.com/979380 compositing/overflow/overflow-scroll-content-fractional-offset.
 crbug.com/979380 compositing/rtl/rtl-iframe-absolute-overflow-scrolled.html [ Failure ]
 crbug.com/979380 compositing/rtl/rtl-iframe-fixed-overflow-scrolled.html [ Failure ]
 crbug.com/979380 fast/frames/transparent-scrollbar.html [ Failure ]
+crbug.com/979380 fast/hidpi/scrollbar-appearance-increase-device-scale-factor.html [ Failure ]
 
 # Crash on non-contiguous effect on multiple columns
 fast/multicol/composited-layer-will-change.html [ Crash ]
@@ -235,6 +210,17 @@ paint/clipath/change-mask-clip-path-multicol-crash.html [ Crash ]
 # Clip-path and mask.
 crbug.com/979369 svg/clip-path/deep-nested-clip-in-mask.svg [ Failure ]
 
-# These failures need to be triaged and are being added to unblock the CQ (see: https://crbug.com/966981).
-crbug.com/966981 virtual/threaded/fast/events/pinch/gesture-pinch-zoom-scroll-bubble.html [ Timeout ]
-crbug.com/966981 virtual/threaded-prefer-compositing/fast/scroll-behavior/overscroll-behavior.html [ Failure ]
+# Animation failure related to direct property update
+crbug.com/1041013 external/wpt/web-animations/timing-model/animations/update-playback-rate-slow.html [ Failure ]
+crbug.com/1041013 external/wpt/web-animations/timing-model/animations/update-playback-rate-zero.html [ Failure ]
+
+virtual/threaded-prefer-compositing/fast/scroll-behavior/overscroll-behavior.html [ Failure ]
+virtual/threaded/fast/scroll-snap/snaps-after-touchpad-scrolling.html [ Failure ]
+http/tests/devtools/a11y-axe-core/layers/layers-a11y-test.js [ Crash ]
+
+# DCHECK(latched_scroll_type_.has_value()) in LayerTreeHostImpl::ScrollLatchedScroller().
+crbug.com/1041322 virtual/threaded/synthetic_gestures/synthetic-pinch-zoom-gesture-touchscreen-desktop.html [ Crash ]
+crbug.com/1041322 virtual/threaded/synthetic_gestures/synthetic-pinch-zoom-gesture-touchscreen-zoom-in-slow-desktop.html [ Crash ]
+crbug.com/1041322 virtual/threaded/synthetic_gestures/synthetic-pinch-zoom-gesture-touchscreen-zoom-in-slow.html [ Crash ]
+crbug.com/1041322 virtual/threaded/synthetic_gestures/synthetic-pinch-zoom-gesture-touchscreen-zoom-out-slow.html [ Crash ]
+crbug.com/1041322 virtual/threaded/synthetic_gestures/synthetic-pinch-zoom-gesture-touchscreen.html [ Crash ]

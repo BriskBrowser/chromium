@@ -25,14 +25,21 @@ v8::Local<v8::Value> RemoteObject::GetNamedProperty(
     v8::Isolate* isolate,
     const std::string& property) {
   // TODO(crbug.com/794320): implement this.
-  ignore_result(object_id_);
-  return v8::Local<v8::Value>();
+  return gin::StringToSymbol(isolate, property);
 }
 
 std::vector<std::string> RemoteObject::EnumerateNamedProperties(
     v8::Isolate* isolate) {
-  // TODO(crbug.com/794320): implement this.
-  return std::vector<std::string>();
+  if (!object_.is_bound()) {
+    gateway_->BindRemoteObjectReceiver(object_id_,
+                                       object_.BindNewPipeAndPassReceiver());
+  }
+  WTF::Vector<WTF::String> methods;
+  object_->GetMethods(&methods);
+  std::vector<std::string> result;
+  for (const auto& method : methods)
+    result.push_back(method.Utf8());
+  return result;
 }
 
 }  // namespace blink

@@ -95,7 +95,7 @@ class ImageDocumentParser : public RawDataDocumentParser {
       : RawDataDocumentParser(document) {}
 
   ImageDocument* GetDocument() const {
-    return ToImageDocument(RawDataDocumentParser::GetDocument());
+    return To<ImageDocument>(RawDataDocumentParser::GetDocument());
   }
 
   void Trace(Visitor* visitor) override {
@@ -174,13 +174,15 @@ void ImageDocumentParser::Finish() {
         loader->GetTiming().ResponseEnd(),
         GetDocument()->GetTaskRunner(TaskType::kInternalLoading).get());
 
-    GetDocument()->UpdateTitle();
+    if (GetDocument()->CachedImage()) {
+      GetDocument()->UpdateTitle();
 
-    if (IsDetached())
-      return;
+      if (IsDetached())
+        return;
 
-    GetDocument()->ImageUpdated();
-    GetDocument()->ImageLoaded();
+      GetDocument()->ImageUpdated();
+      GetDocument()->ImageLoaded();
+    }
   }
 
   if (!IsDetached()) {

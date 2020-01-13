@@ -122,7 +122,7 @@ void UnifiedMessageCenterView::SetAvailableHeight(int available_height) {
 }
 
 void UnifiedMessageCenterView::SetExpanded() {
-  if (!GetVisible() || !collapsed_)
+  if (!collapsed_)
     return;
 
   collapsed_ = false;
@@ -133,6 +133,11 @@ void UnifiedMessageCenterView::SetExpanded() {
 
 void UnifiedMessageCenterView::SetCollapsed(bool animate) {
   if (!GetVisible() || collapsed_)
+    return;
+
+  // Do not collapse the message center if notification bar is not visible.
+  // i.e. there is only one notification.
+  if (!notification_bar_->GetVisible())
     return;
 
   collapsed_ = true;

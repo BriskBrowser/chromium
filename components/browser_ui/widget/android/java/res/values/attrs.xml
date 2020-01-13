@@ -5,10 +5,15 @@
 
 <resources>
     <declare-styleable name="BoundedView">
-        <attr name="maxWidth" format="dimension" />
         <attr name="maxWidthLandscape" format="dimension" />
         <attr name="maxWidthPortrait" format="dimension" />
         <attr name="maxHeight" format="dimension" />
+    </declare-styleable>
+
+    <declare-styleable name="ChromeTextInputLayout">
+        <attr name="errorTextAppearance" format="reference" />
+        <attr name="hint" format="reference|string" />
+        <attr name="hintTextAppearance" format="reference" />
     </declare-styleable>
 
     <declare-styleable name="DualControlLayout">
@@ -22,5 +27,12 @@
         </attr>
         <attr name="dualControlLayoutVerticalPadding" format="dimension"/>
         <attr name="dualControlLayoutHorizontalPadding" format="dimension"/>
+    </declare-styleable>
+
+    <declare-styleable name="TextViewWithCompoundDrawables">
+        <attr name="drawableWidth" format="dimension"/>
+        <attr name="drawableHeight" format="dimension"/>
+        <!-- drawableTint wasn't added in Android until API level 23. -->
+        <attr name="chromeDrawableTint" format="color"/>
     </declare-styleable>
 </resources>

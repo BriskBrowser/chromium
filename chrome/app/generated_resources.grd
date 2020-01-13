@@ -459,6 +459,12 @@ are declared in tools/grit/grit_rule.gni.
         <message name="IDS_SEARCH_RESULTS_PLURAL" desc="Message announced to screenreader users when searching completes and results are showing.">
           <ph name="RESULT_COUNT">$1<ex>15</ex></ph> results for '<ph name="SEARCH_TEXT">$2<ex>cookies</ex></ph>'
         </message>
+        <message name="IDS_SEARCH_RESULT_BUBBLE_TEXT" desc="Text that shows in search result bubbles that point at parts of the settings UI which, when clicked, reveal new places for a search results (singular).">
+          1 result
+        </message>
+        <message name="IDS_SEARCH_RESULTS_BUBBLE_TEXT" desc="Text that shows in search result bubbles that point at parts of the settings UI which, when clicked, reveal new places for search results (plural).">
+          <ph name="NUM_RESULTS">$1<ex>5</ex></ph> results
+        </message>
         <message name="IDS_SEARCH_NO_RESULTS" desc="Text description of a search that has no results.">
           No search results found
         </message>
@@ -2086,6 +2092,10 @@ are declared in tools/grit/grit_rule.gni.
             Always open in Adobe Reader
           </message>
         </if>
+        <message name="IDS_DOWNLOAD_MENU_DEEP_SCAN"
+          desc="Download context menu: send file for deep scanning">
+          Scan file
+        </message>
       </if>
 
       <!-- Touch Bar-->
@@ -2675,7 +2685,7 @@ are declared in tools/grit/grit_rule.gni.
         Third-party cookie blocking
       </message>
       <message name="IDS_COOKIE_CONTROLS_HELP" desc="Tooltip shown in the dialog that is shown when cookie blocking is enabled.">
-        Cookies are files created by websites you visit. There are two types of cookies: First-party cookies are created by the site you visit. The site is shown on the address bar. Third-party cookies are created by other sites. These sites own some of the content, like ads or images, that you see on the website you visit.
+        Cookies are files created by websites. There are two types of cookies: First-party cookies are created by the site you visit. The site is shown on the address bar. Third-party cookies are created by other sites. These sites own some of the content, like ads or images, that you see on the website you visit.
       </message>
 
       <!-- Win certificate selector dialog strings.  -->
@@ -3720,14 +3730,8 @@ are declared in tools/grit/grit_rule.gni.
       <message name="IDS_EXTENSION_ALERT_TITLE" desc="Titlebar of the extension notification alert">
         Confirm Changes
       </message>
-      <message name="IDS_EXTENSION_ALERT_ITEM_EXTERNAL" desc="A statement that an external extension has been newly installed. End users have no idea what an 'external' extension is, so we simply call them extensions.">
-        The extension "<ph name="EXTENSION_NAME">$1<ex>Gmail Checker</ex></ph>" has been added.
-      </message>
       <message name="IDS_EXTENSION_ALERT_ITEM_BLACKLISTED" desc="A statement that an extension has been newly blacklisted. https://support.google.com/chrome/answer/1210215 contains the language on which we're basing the phrasing.">
         The extension "<ph name="EXTENSION_NAME">$1<ex>Gmail Checker</ex></ph>" was automatically disabled.
-      </message>
-      <message name="IDS_APP_ALERT_ITEM_EXTERNAL" desc="A statement that an external packaged app has been newly installed. End users have no idea what an 'external' app is, so we simply call them apps.">
-        The app "<ph name="EXTENSION_NAME">$1<ex>Gmail</ex></ph>" has been added.
       </message>
       <message name="IDS_APP_ALERT_ITEM_BLACKLISTED" desc="A statement that a packaged app has been newly blacklisted. https://support.google.com/chrome/answer/1210215 contains the language on which we're basing the phrasing.">
         The app "<ph name="EXTENSION_NAME">$1<ex>Gmail</ex></ph>" was automatically removed.
@@ -4543,10 +4547,10 @@ Keep your key file in a safe place. You will need it to create new versions of y
         These extensions can see and change information on this site.
       </message>
       <message name="IDS_EXTENSIONS_MENU_WANTS_TO_ACCESS_SITE_DATA" desc="Header for section of extensions that want to access the current site's data">
-        To allow access on this site, click the extension.
+        To give an extension access to this site, click it.
       </message>
       <message name="IDS_EXTENSIONS_MENU_CANT_ACCESS_SITE_DATA" desc="Header for section of extensions that can't access the current site's data">
-        These extensions don't need access to this site.
+        These extensions don't need to see and change information on this site.
       </message>
 
       <!-- Settings API bubble -->
@@ -4941,6 +4945,17 @@ Keep your key file in a safe place. You will need it to create new versions of y
         usage statistics
       </message>
 
+      <!-- Storage Pressure Notification Infobar/Bubble -->
+      <message name="IDS_SETTINGS_STORAGE_PRESSURE_BUBBLE_VIEW_TITLE" desc="The title for the notification warning users that they are low on disk space.">
+        Free up space to continue
+      </message>
+      <message name="IDS_SETTINGS_STORAGE_PRESSURE_BUBBLE_VIEW_MESSAGE" desc="The message for the notification warning users that they are low on disk space, asking the user if they would like to go to the settings page and clear some data.">
+        Some features on <ph name="ORIGIN">$1<ex>site.com</ex></ph> might not work until you clear data that other sites have stored on your device
+      </message>
+      <message name="IDS_SETTINGS_STORAGE_PRESSURE_BUBBLE_VIEW_BUTTON_LABEL" desc="Label for default button on storage pressure buble view which will take users to a page to manage site storage.">
+        Choose sites to clear
+      </message>
+
       <!-- Bad Flags Infobar-->
       <message name="IDS_BAD_FLAGS_WARNING_MESSAGE" desc="Message shown when an unsupported command-line flag is used. [Keep it short so it fits in the infobar.]">
         You are using an unsupported command-line flag: <ph name="BAD_FLAG">$1<ex>--no-sandbox</ex></ph>. Stability and security will suffer.
@@ -5051,7 +5066,7 @@ Keep your key file in a safe place. You will need it to create new versions of y
       </if>
 
       <!-- chrome://browser-switch strings -->
-      <if expr="is_win or is_macosx or (is_linux and not is_chromeos)">
+      <if expr="is_win or is_macosx or (is_linux and not chromeos)">
         <message name="IDS_ABOUT_BROWSER_SWITCH_TITLE" desc="about:browser-switch page title">
           Legacy Browser Support
         </message>
@@ -5762,9 +5777,6 @@ the Bookmarks menu.">
       <message name="IDS_PASSWORDS_VIA_FEDERATION" desc="Text for federated credential's value.">
         with <ph name="PROVIDER">$1<ex>facebook.com</ex></ph>
       </message>
-      <message name="IDS_PASSWORDS_PAGE_VIEW_HIDE_BUTTON" desc="Text for passwords page view's button to hide a stored password">
-        Hide
-      </message>
 
       <!-- Confirm MessageBox Dialog -->
       <message name="IDS_CONFIRM_MESSAGEBOX_YES_BUTTON_LABEL" desc="Confirm MessageBox Dialog's 'Yes' button text">
@@ -6467,6 +6479,9 @@ the Bookmarks menu.">
       </message>
       <message name="IDS_MEDIA_TAB_CAPTURE_WITH_AUDIO_NOTIFICATION_TEXT_DELEGATED" desc="label used in screen capture notification UI to show the screen sharing status when the stream is consumed by a tab instead of the app initiating the window picker">
         <ph name="APP_NAME">$1<ex>html5rocks.com</ex></ph> is sharing a Chrome tab and audio with <ph name="TAB_NAME">$2<ex>https://google.com</ex></ph>.
+      </message>
+      <message name="IDS_MEDIA_SCREEN_CAPTURE_NOTIFICATION_HIDE" desc="Text shown on a link that hides the notification that the screen is being captured.">
+        Hide
       </message>
       <message name="IDS_MEDIA_SCREEN_CAPTURE_NOTIFICATION_SOURCE" desc="Text shown on the button that changes the screen capture source.">
         Change source
@@ -9093,6 +9108,12 @@ Please help our engineers fix this problem. Tell us what happened right before y
         <message name="IDS_SHELF_CONTEXT_MENU_PIN_ENFORCED_BY_POLICY" desc="Short text for the pin/unpin context menu to tell user the setting is enforced by policy of a shelf item">
           Pinned by administrator
         </message>
+        <message name="IDS_SHELF_CONTEXT_MENU_SWAP_WITH_NEXT" desc="Label of the context menu item allowing to swap the selected shelf item with the next one">
+          Swap with next
+        </message>
+        <message name="IDS_SHELF_CONTEXT_MENU_SWAP_WITH_PREVIOUS" desc="Label of the context menu item allowing to swap the selected shelf item with the previous one">
+          Swap with previous
+        </message>
       </if>
 
       <!-- High-contrast mode. -->
@@ -10383,9 +10404,19 @@ Please help our engineers fix this problem. Tell us what happened right before y
     <message name="IDS_DEEP_SCANNING_DIALOG_TITLE" desc="Title shown in tab modal dialog while performing a deep scan of data to see if it complies with enterprise policies">
       Scanning
     </message>
-    <message name="IDS_DEEP_SCANNING_DIALOG_MESSAGE" desc="Message shown in tab modal dialog while performing a deep scan of data to see if complies with enterprise policies">
-      Scanning files for sensitive data...
+    <message name="IDS_DEEP_SCANNING_DIALOG_UPLOAD_PENDING_MESSAGE" desc="Message shown in tab modal dialog while performing a deep scan of uploaded data to see if complies with enterprise policies">
+      Your organization is scanning this upload for security approval.
     </message>
+    <message name="IDS_DEEP_SCANNING_DIALOG_SUCCESS_MESSAGE" desc="Message shown in tab modal dialog after performing a deep scan of data when it complies with enterprise policies">
+      Scan complete, everything's good to go.
+    </message>
+    <message name="IDS_DEEP_SCANNING_DIALOG_UPLOAD_FAILURE_MESSAGE" desc="Message shown in tab modal dialog after performing a deep scan of uploaded data when it doesn't comply with enterprise security policies">
+      This upload violates your organization's security policies and can't be completed.
+    </message>
+    <message name="IDS_DEEP_SCANNING_DIALOG_CANCEL_UPLOAD_BUTTON" desc="Text shown in the cancel button of a tab modal dialog while performing a deep scan of data to see if it complies with enterprise policies">
+      Cancel upload
+    </message>
+
 
     <!-- Deep scanning open now dialog strings -->
     <message name="IDS_DEEP_SCANNING_DIALOG_OPEN_NOW_TITLE" desc="Title shown in tab modal dialog when the user attempts to open a download while deep scanning is in progress">

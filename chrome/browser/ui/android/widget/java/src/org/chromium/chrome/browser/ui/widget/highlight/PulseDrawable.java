@@ -23,7 +23,7 @@ import androidx.annotation.NonNull;
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.MathUtils;
 import org.chromium.chrome.browser.ui.widget.R;
-import org.chromium.chrome.browser.ui.widget.animation.Interpolators;
+import org.chromium.components.browser_ui.widget.animation.Interpolators;
 
 /**
  * A custom {@link Drawable} that will animate a pulse using the {@link PulseInterpolator}.  Meant
@@ -274,7 +274,8 @@ public class PulseDrawable extends Drawable implements Animatable {
     public void setUseLightPulseColor(Resources resources, boolean useLightPulseColor) {
         @ColorInt
         int color = ApiCompatibilityUtils.getColor(resources,
-                useLightPulseColor ? R.color.modern_blue_300 : R.color.default_icon_color_blue);
+                useLightPulseColor ? R.color.default_icon_color_blue_light
+                                   : R.color.default_icon_color_blue);
         if (mState.color == color) return;
 
         int alpha = getAlpha();

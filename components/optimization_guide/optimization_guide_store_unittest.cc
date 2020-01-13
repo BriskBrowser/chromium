@@ -314,7 +314,18 @@ class OptimizationGuideStoreTest : public testing::Test {
   void PurgeExpiredFetchedHints() {
     guide_store()->PurgeExpiredFetchedHints();
 
-    // OnFetchedHintsLoadedToMaybePurge
+    // OnLoadExpiredEntriesToPurge
+    db()->LoadCallback(true);
+    // OnUpdateStore
+    db()->UpdateCallback(true);
+    // OnLoadEntryKeys callback
+    db()->LoadCallback(true);
+  }
+
+  void PurgeExpiredHostModelFeatures() {
+    guide_store()->PurgeExpiredHostModelFeatures();
+
+    // OnLoadExpiredEntriesToPurge
     db()->LoadCallback(true);
     // OnUpdateStore
     db()->UpdateCallback(true);
@@ -1407,9 +1418,7 @@ TEST_F(OptimizationGuideStoreTest, FindHintEntryKeyForFetchedHints) {
   InitializeStore(schema_state);
 
   std::unique_ptr<StoreUpdateData> update_data =
-      guide_store()->CreateUpdateDataForFetchedHints(
-          update_time, update_time + optimization_guide::features::
-                                         StoredFetchedHintsFreshnessDuration());
+      guide_store()->CreateUpdateDataForFetchedHints(update_time);
   ASSERT_TRUE(update_data);
   SeedFetchedUpdateData(update_data.get(), update_hint_count);
   UpdateFetchedHints(std::move(update_data));
@@ -1452,10 +1461,7 @@ TEST_F(OptimizationGuideStoreTest,
 
   // Add fetched hints to the store that overlap with the same hosts as the
   // initial set.
-  update_data = guide_store()->CreateUpdateDataForFetchedHints(
-      update_time,
-      update_time +
-          optimization_guide::features::StoredFetchedHintsFreshnessDuration());
+  update_data = guide_store()->CreateUpdateDataForFetchedHints(update_time);
 
   proto::Hint hint;
   hint.set_key("domain2.org");
@@ -1511,8 +1517,7 @@ TEST_F(OptimizationGuideStoreTest, ClearFetchedHints) {
 
   // Add fetched hints to the store that overlap with the same hosts as the
   // initial set.
-  update_data = guide_store()->CreateUpdateDataForFetchedHints(
-      update_time, update_time + base::TimeDelta().FromDays(7));
+  update_data = guide_store()->CreateUpdateDataForFetchedHints(update_time);
 
   proto::Hint fetched_hint1;
   fetched_hint1.set_key("domain2.org");
@@ -1573,10 +1578,7 @@ TEST_F(OptimizationGuideStoreTest, ClearFetchedHints) {
   host_suffix = "host.domain2.org";
   EXPECT_TRUE(guide_store()->FindHintEntryKey(host_suffix, &hint_entry_key));
 
-  update_data = guide_store()->CreateUpdateDataForFetchedHints(
-      update_time,
-      update_time +
-          optimization_guide::features::StoredFetchedHintsFreshnessDuration());
+  update_data = guide_store()->CreateUpdateDataForFetchedHints(update_time);
   proto::Hint new_hint;
   new_hint.set_key("domain1.org");
   new_hint.set_key_representation(proto::HOST_SUFFIX);
@@ -1623,31 +1625,37 @@ TEST_F(OptimizationGuideStoreTest, FetchHintsPurgeExpiredFetchedHints) {
 
   // Add fetched hints to the store that overlap with the same hosts as the
   // initial set.
-  update_data = guide_store()->CreateUpdateDataForFetchedHints(
-      update_time, update_time + base::TimeDelta().FromDays(7));
+  update_data = guide_store()->CreateUpdateDataForFetchedHints(update_time);
 
   proto::Hint fetched_hint1;
   fetched_hint1.set_key("domain2.org");
   fetched_hint1.set_key_representation(proto::HOST_SUFFIX);
+  fetched_hint1.mutable_max_cache_duration()->set_seconds(
+      base::TimeDelta::FromDays(7).InSeconds());
   update_data->MoveHintIntoUpdateData(std::move(fetched_hint1));
   proto::Hint fetched_hint2;
   fetched_hint2.set_key("domain3.org");
   fetched_hint2.set_key_representation(proto::HOST_SUFFIX);
+  fetched_hint1.mutable_max_cache_duration()->set_seconds(
+      base::TimeDelta::FromDays(7).InSeconds());
   update_data->MoveHintIntoUpdateData(std::move(fetched_hint2));
 
   UpdateFetchedHints(std::move(update_data));
 
   // Add expired fetched hints to the store.
-  update_data = guide_store()->CreateUpdateDataForFetchedHints(
-      update_time, update_time - base::TimeDelta().FromDays(7));
+  update_data = guide_store()->CreateUpdateDataForFetchedHints(update_time);
 
   proto::Hint fetched_hint3;
   fetched_hint1.set_key("domain4.org");
   fetched_hint1.set_key_representation(proto::HOST_SUFFIX);
+  fetched_hint1.mutable_max_cache_duration()->set_seconds(
+      base::TimeDelta::FromDays(-7).InSeconds());
   update_data->MoveHintIntoUpdateData(std::move(fetched_hint1));
   proto::Hint fetched_hint4;
   fetched_hint2.set_key("domain5.org");
   fetched_hint2.set_key_representation(proto::HOST_SUFFIX);
+  fetched_hint2.mutable_max_cache_duration()->set_seconds(
+      base::TimeDelta::FromDays(-7).InSeconds());
   update_data->MoveHintIntoUpdateData(std::move(fetched_hint2));
 
   UpdateFetchedHints(std::move(update_data));
@@ -1688,12 +1696,13 @@ TEST_F(OptimizationGuideStoreTest, FetchedHintsLoadExpiredHint) {
   UpdateComponentHints(std::move(update_data));
 
   // Add fetched hints to the store that expired.
-  update_data = guide_store()->CreateUpdateDataForFetchedHints(
-      update_time, update_time - base::TimeDelta().FromDays(10));
+  update_data = guide_store()->CreateUpdateDataForFetchedHints(update_time);
 
   proto::Hint fetched_hint1;
   fetched_hint1.set_key("domain2.org");
   fetched_hint1.set_key_representation(proto::HOST_SUFFIX);
+  fetched_hint1.mutable_max_cache_duration()->set_seconds(
+      base::TimeDelta().FromDays(-10).InSeconds());
   update_data->MoveHintIntoUpdateData(std::move(fetched_hint1));
   proto::Hint fetched_hint2;
   fetched_hint2.set_key("domain3.org");
@@ -2010,6 +2019,43 @@ TEST_F(OptimizationGuideStoreTest, ClearHostModelFeatures) {
   ClearHostModelFeaturesFromDatabase();
   histogram_tester.ExpectBucketCount(
       "OptimizationGuide.ClearHostModelFeatures.StoreAvailable", true, 1);
+
+  for (size_t i = 0; i < update_host_model_features_count; ++i) {
+    std::string host_suffix = GetHostSuffix(i);
+    OptimizationGuideStore::EntryKey entry_key;
+    EXPECT_FALSE(
+        guide_store()->FindHostModelFeaturesEntryKey(host_suffix, &entry_key));
+  }
+}
+
+TEST_F(OptimizationGuideStoreTest, PurgeExpiredHostModelFeatures) {
+  base::HistogramTester histogram_tester;
+  size_t update_host_model_features_count = 5;
+  MetadataSchemaState schema_state = MetadataSchemaState::kValid;
+  base::Time update_time = base::Time().Now();
+  SeedInitialData(schema_state, 0, base::Time().Now());
+  CreateDatabase();
+  InitializeStore(schema_state);
+
+  std::unique_ptr<StoreUpdateData> update_data =
+      guide_store()->CreateUpdateDataForHostModelFeatures(
+          update_time, update_time -
+                           optimization_guide::features::
+                               StoredHostModelFeaturesFreshnessDuration());
+  ASSERT_TRUE(update_data);
+  SeedHostModelFeaturesUpdateData(update_data.get(),
+                                  update_host_model_features_count);
+  UpdateHostModelFeatures(std::move(update_data));
+
+  for (size_t i = 0; i < update_host_model_features_count; ++i) {
+    std::string host_suffix = GetHostSuffix(i);
+    OptimizationGuideStore::EntryKey entry_key;
+    EXPECT_TRUE(
+        guide_store()->FindHostModelFeaturesEntryKey(host_suffix, &entry_key));
+  }
+
+  // Remove expired host model features from the opt. guide store.
+  PurgeExpiredHostModelFeatures();
 
   for (size_t i = 0; i < update_host_model_features_count; ++i) {
     std::string host_suffix = GetHostSuffix(i);

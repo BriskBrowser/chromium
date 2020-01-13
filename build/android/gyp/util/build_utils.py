@@ -32,10 +32,10 @@ DIR_SOURCE_ROOT = os.path.relpath(
         os.path.join(
             os.path.dirname(__file__), os.pardir, os.pardir, os.pardir,
             os.pardir)))
-JAVA_PATH = os.path.join(DIR_SOURCE_ROOT, 'third_party', 'jdk', 'current',
-                         'bin', 'java')
-JAVAC_PATH = JAVA_PATH + 'c'
-JAVAP_PATH = JAVA_PATH + 'p'
+JAVA_HOME = os.path.join(DIR_SOURCE_ROOT, 'third_party', 'jdk', 'current')
+JAVA_PATH = os.path.join(JAVA_HOME, 'bin', 'java')
+JAVAC_PATH = os.path.join(JAVA_HOME, 'bin', 'javac')
+JAVAP_PATH = os.path.join(JAVA_HOME, 'bin', 'javap')
 RT_JAR_PATH = os.path.join(DIR_SOURCE_ROOT, 'third_party', 'jdk', 'extras',
                            'java_8', 'jre', 'lib', 'rt.jar')
 
@@ -419,6 +419,8 @@ def DoZip(inputs, output, base_dir=None, compress_fn=None,
   for tup in inputs:
     if isinstance(tup, string_types):
       tup = (os.path.relpath(tup, base_dir), tup)
+      if tup[0].startswith('..'):
+        raise Exception('Invalid zip_path: ' + tup[0])
     input_tuples.append(tup)
 
   # Sort by zip path to ensure stable zip ordering.

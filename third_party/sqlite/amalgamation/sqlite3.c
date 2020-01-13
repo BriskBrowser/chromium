@@ -19114,6 +19114,7 @@ SQLITE_PRIVATE void sqlite3EndTransaction(Parse*,int);
 SQLITE_PRIVATE void sqlite3Savepoint(Parse*, int, Token*);
 SQLITE_PRIVATE void sqlite3CloseSavepoints(sqlite3 *);
 SQLITE_PRIVATE void sqlite3LeaveMutexAndCloseZombie(sqlite3*);
+SQLITE_PRIVATE u32 sqlite3IsTrueOrFalse(const char*);
 SQLITE_PRIVATE int sqlite3ExprIdToTrueFalse(Expr*);
 SQLITE_PRIVATE int sqlite3ExprTruthValue(const Expr*);
 SQLITE_PRIVATE int sqlite3ExprIsConstant(Expr*);
@@ -99331,18 +99332,33 @@ SQLITE_PRIVATE int sqlite3SelectWalkFail(Walker *pWalker, Select *NotUsed){
 }
 
 /*
+** Check the input string to see if it is "true" or "false" (in any case).
+**
+**       If the string is....           Return
+**         "true"                         EP_IsTrue
+**         "false"                        EP_IsFalse
+**         anything else                  0
+*/
+SQLITE_PRIVATE u32 sqlite3IsTrueOrFalse(const char *zIn){
+  if( sqlite3StrICmp(zIn, "true")==0  ) return EP_IsTrue;
+  if( sqlite3StrICmp(zIn, "false")==0 ) return EP_IsFalse;
+  return 0;
+}
+
+
+/*
 ** If the input expression is an ID with the name "true" or "false"
 ** then convert it into an TK_TRUEFALSE term.  Return non-zero if
 ** the conversion happened, and zero if the expression is unaltered.
 */
 SQLITE_PRIVATE int sqlite3ExprIdToTrueFalse(Expr *pExpr){
+  u32 v;
   assert( pExpr->op==TK_ID || pExpr->op==TK_STRING );
   if( !ExprHasProperty(pExpr, EP_Quoted)
-   && (sqlite3StrICmp(pExpr->u.zToken, "true")==0
-       || sqlite3StrICmp(pExpr->u.zToken, "false")==0)
+   && (v = sqlite3IsTrueOrFalse(pExpr->u.zToken))!=0
   ){
     pExpr->op = TK_TRUEFALSE;
-    ExprSetProperty(pExpr, pExpr->u.zToken[4]==0 ? EP_IsTrue : EP_IsFalse);
+    ExprSetProperty(pExpr, v);
     return 1;
   }
   return 0;
@@ -127627,7 +127643,7 @@ SQLITE_PRIVATE int sqlite3ColumnsFromExprList(
         zName = pEList->a[i].zSpan;
       }
     }
-    if( zName ){
+    if( zName && !sqlite3IsTrueOrFalse(zName) ){
       zName = sqlite3DbStrDup(db, zName);
     }else{
       zName = sqlite3MPrintf(db,"column%d",i+1);
@@ -147617,9 +147633,11 @@ static ExprList *exprListAppendList(
     int nInit = pList ? pList->nExpr : 0;
     for(i=0; i<pAppend->nExpr; i++){
       Expr *pDup = sqlite3ExprDup(pParse->db, pAppend->a[i].pExpr, 0);
+      assert( pDup==0 || !ExprHasProperty(pDup, EP_MemToken) );
       if( bIntToNull && pDup && pDup->op==TK_INTEGER ){
         pDup->op = TK_NULL;
         pDup->flags &= ~(EP_IntValue|EP_IsTrue|EP_IsFalse);
+        pDup->u.zToken = 0;
       }
       pList = sqlite3ExprListAppend(pParse, pList, pDup);
       if( pList ) pList->a[nInit+i].sortFlags = pAppend->a[i].sortFlags;
@@ -172008,7 +172026,7 @@ static int fts3SqlStmt(
 ** returns zero rows.  */
 /* 28 */ "SELECT level, count(*) AS cnt FROM %Q.'%q_segdir' "
          "  GROUP BY level HAVING cnt>=?"
-         "  ORDER BY (level %% 1024) ASC LIMIT 1",
+         "  ORDER BY (level %% 1024) ASC, 2 DESC LIMIT 1",
 
 /* Estimate the upper limit on the number of leaf nodes in a new segment
 ** created by merging the oldest :2 segments from absolute level :1. See
@@ -176598,8 +176616,14 @@ SQLITE_PRIVATE int sqlite3Fts3Incrmerge(Fts3Table *p, int nMerge, int nMin){
 
       rc = fts3IncrmergeHintPop(&hint, &iHintAbsLevel, &nHintSeg);
       if( nSeg<0 || (iAbsLevel % nMod) >= (iHintAbsLevel % nMod) ){
+        /* Based on the scan in the block above, it is known that there
+        ** are no levels with a relative level smaller than that of
+        ** iAbsLevel with more than nSeg segments, or if nSeg is -1,
+        ** no levels with more than nMin segments. Use this to limit the
+        ** value of nHintSeg to avoid a large memory allocation in case the
+        ** merge-hint is corrupt*/
         iAbsLevel = iHintAbsLevel;
-        nSeg = nHintSeg;
+        nSeg = MIN(MAX(nMin,nSeg), nHintSeg);
         bUseHint = 1;
         bDirtyHint = 1;
       }else{
@@ -176612,7 +176636,7 @@ SQLITE_PRIVATE int sqlite3Fts3Incrmerge(Fts3Table *p, int nMerge, int nMin){
     /* If nSeg is less that zero, then there is no level with at least
     ** nMin segments and no hint in the %_stat table. No work to do.
     ** Exit early in this case.  */
-    if( nSeg<0 ) break;
+    if( nSeg<=0 ) break;
 
     /* Open a cursor to iterate through the contents of the oldest nSeg
     ** indexes of absolute level iAbsLevel. If this cursor is opened using
@@ -177990,7 +178014,7 @@ static int fts3BestSnippet(
     /* Set the *pmSeen output variable. */
     for(i=0; i<nList; i++){
       if( sIter.aPhrase[i].pHead ){
-        *pmSeen |= (u64)1 << i;
+        *pmSeen |= (u64)1 << (i%64);
       }
     }
 
@@ -224696,7 +224720,7 @@ SQLITE_API int sqlite3_stmt_init(
 #endif /* !defined(SQLITE_CORE) || defined(SQLITE_ENABLE_STMTVTAB) */
 
 /************** End of stmt.c ************************************************/
-#if __LINE__!=224699
+#if __LINE__!=224723
 #undef SQLITE_SOURCE_ID
 #define SQLITE_SOURCE_ID      "2019-10-10 20:19:45 18db032d058f1436ce3dea84081f4ee5a0f2259ad97301d43c426bc7f3dfalt2"
 #endif

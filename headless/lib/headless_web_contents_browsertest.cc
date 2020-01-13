@@ -467,7 +467,8 @@ class HeadlessWebContentsPDFPageSizeRoundingTest
 };
 
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessWebContentsPDFPageSizeRoundingTest);
-#endif
+
+#endif  // BUILDFLAG(ENABLE_PRINTING)
 
 class HeadlessWebContentsSecurityTest
     : public HeadlessAsyncDevTooledBrowserTest,

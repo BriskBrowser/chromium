@@ -419,6 +419,7 @@
 <translation id="3914732343065571127">ChromeVox буйруктары тууралуу маалымдама</translation>
 <translation id="3930383913623796990">Ачык жашыл</translation>
 <translation id="3930498801443296724">Үзүндү</translation>
+<translation id="3935615366277838204">Баш тамга <ph name="LETTER" /></translation>
 <translation id="3936394396199829062">Кызгылт сыя</translation>
 <translation id="3941269780691800708">Чычкандын астындагы текстти окуу.</translation>
 <translation id="394953087167197343">Орфографиялык катаны көрсөтүү:</translation>
@@ -792,7 +793,6 @@
 <translation id="6459511626086141404">Текши баскычтар дайындалышы</translation>
 <translation id="6468049171101508116">Кийинки баскыч</translation>
 <translation id="646954774886932461">Индекс</translation>
-<translation id="6479792383819319132">Кийинки абзац жок.</translation>
 <translation id="6493991254603208962">Күңүртүрөөк</translation>
 <translation id="6501595918865591267">Мала көгүлтүр түс</translation>
 <translation id="6508059270146105198">Брайл дисплейин барактын аягына жылдыруу</translation>
@@ -815,7 +815,6 @@
 <translation id="6637586476836377253">log</translation>
 <translation id="6657128831881431364">Илгерилөө тилкеси</translation>
 <translation id="6659594942844771486">Өтмөк</translation>
-<translation id="6675661017770918201">Мурунку абзац жок.</translation>
 <translation id="667999046851023355">Документ</translation>
 <translation id="6688209025607531203">Модалдык эмес эскертүү</translation>
 <translation id="6689672606256159458">Коюу кызгылтым</translation>
@@ -844,6 +843,7 @@
 <translation id="6865519907510167493">Ката жазылган</translation>
 <translation id="6871161210040114857">Регистр эске алынбайт.</translation>
 <translation id="6877435256196695200">Кийинки графика жок.</translation>
+<translation id="688976158310523235">Издөө менюсу</translation>
 <translation id="6897341342232909480">Солго жылуу</translation>
 <translation id="6901540140423170855">дата</translation>
 <translation id="6910211073230771657">Жок кылынды</translation>
@@ -856,6 +856,7 @@
 <translation id="699159175332639490">Издөө + O + W</translation>
 <translation id="6994042831499278539">Глоссарийге шилтеме</translation>
 <translation id="6996566555547746822">Кийинки айкалыштырылган кутуча</translation>
+<translation id="6997224546856374593">Баш тамгаларды окуганда:</translation>
 <translation id="700202842116345659">библиографиялык жазуу</translation>
 <translation id="7005146664810010831">Эч URL табылган жок</translation>
 <translation id="7010712454773919705">ChromeVox өзгөрткүч баскычы</translation>
@@ -936,6 +937,7 @@ Chrome серепчисинин менюсун ачуу үчүн Alt+F баск�
 <translation id="744163271241493234">pwded</translation>
 <translation id="7491962110804786152">өтмөк</translation>
 <translation id="7492049978501397201">Диалогго кирдиңиз</translation>
+<translation id="7505149250476994901">Тамгага чейин "баш тамга" деп айтыңыз</translation>
 <translation id="7518543783849163354">ChromeVox окуп жатканда убактылуу токтотуу үчүн Control баскычын басыңыз.</translation>
 <translation id="7521682724501952239">ChromeVox'ту сенсордук экран менен колдонсоңуз болот.</translation>
 <translation id="7532613204005497612">июнь</translation>
@@ -1207,6 +1209,7 @@ Chrome серепчисинин менюсун ачуу үчүн Alt+F баск�
 <translation id="9065283790526219006">+калкып чыкма</translation>
 <translation id="9066023754636984703">Кошумча маалыматты көрүү үчүн Search+A, андан кийин J баскычтарын басыңыз.</translation>
 <translation id="9067522039955793016">барактардын үзүлгөн жери</translation>
+<translation id="9074824103975499138">ChromeVox менюларын издөө</translation>
 <translation id="9077213568694924680">тандоодон алынып салынды</translation>
 <translation id="9077305471618729969">Деңиздей мала жашыл</translation>
 <translation id="9082874451376019682">Мурунку слайдер жок.</translation>

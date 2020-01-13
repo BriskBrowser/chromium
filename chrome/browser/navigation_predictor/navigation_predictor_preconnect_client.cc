@@ -11,6 +11,7 @@
 #include "base/metrics/field_trial_params.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "chrome/browser/navigation_predictor/search_engine_preconnector.h"
 #include "chrome/browser/predictors/loading_predictor.h"
 #include "chrome/browser/predictors/loading_predictor_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -77,14 +78,13 @@ void NavigationPredictorPreconnectClient::OnVisibilityChanged(
     content::Visibility visibility) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
+  // Check for same state.
   if (current_visibility_ == visibility)
     return;
 
-  // Check if the visibility changed from VISIBLE to HIDDEN. Since navigation
-  // predictor is currently restricted to Android, it is okay to disregard the
-  // occluded state.
-  if (current_visibility_ != content::Visibility::HIDDEN ||
-      visibility != content::Visibility::VISIBLE) {
+  // Check if the visibility is now visible, if not, cancel future preconnects.
+  // If visible, we can begin preconnecting.
+  if (visibility != content::Visibility::VISIBLE) {
     current_visibility_ = visibility;
 
     // Stop any future preconnects while hidden.
@@ -123,7 +123,9 @@ void NavigationPredictorPreconnectClient::MaybePreconnectNow() {
   // On search engine results page, next navigation is likely to be a different
   // origin. Currently, the preconnect is only allowed for same origins. Hence,
   // preconnect is currently disabled on search engine results page.
-  if (IsSearchEnginePage())
+  // If preconnect to DSE is enabled, skip this check.
+  if (!base::FeatureList::IsEnabled(features::kPreconnectToSearch) &&
+      IsSearchEnginePage())
     return;
 
   url::Origin preconnect_origin =
@@ -137,6 +139,9 @@ void NavigationPredictorPreconnectClient::MaybePreconnectNow() {
       Profile::FromBrowserContext(browser_context_));
   GURL preconnect_url_serialized(preconnect_origin.Serialize());
   DCHECK(preconnect_url_serialized.is_valid());
+
+  if (!loading_predictor)
+    return;
 
   loading_predictor->PrepareForPageLoad(
       preconnect_url_serialized, predictors::HintOrigin::NAVIGATION_PREDICTOR,

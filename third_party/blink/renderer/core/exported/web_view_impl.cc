@@ -364,7 +364,8 @@ void WebViewImpl::HandleMouseDown(LocalFrame& main_frame,
         html_element->IsPluginElement()) {
       mouse_capture_element_ = To<HTMLPlugInElement>(hit_node);
       main_frame.Client()->SetMouseCapture(true);
-      TRACE_EVENT_ASYNC_BEGIN0("input", "capturing mouse", this);
+      TRACE_EVENT_NESTABLE_ASYNC_BEGIN0("input", "capturing mouse",
+                                        TRACE_ID_LOCAL(this));
     }
   }
 
@@ -1139,7 +1140,7 @@ WebPagePopupImpl* WebViewImpl::OpenPagePopup(PagePopupClient* client) {
   // CreatePopup returns nullptr if this renderer process is about to die.
   if (!popup_widget)
     return nullptr;
-  page_popup_ = ToWebPagePopupImpl(popup_widget);
+  page_popup_ = To<WebPagePopupImpl>(popup_widget);
   page_popup_->Initialize(this, client);
   EnablePopupMouseWheelEventListener(frame);
   return page_popup_.get();
@@ -1152,7 +1153,7 @@ void WebViewImpl::CancelPagePopup() {
 
 void WebViewImpl::ClosePagePopup(PagePopup* popup) {
   DCHECK(popup);
-  WebPagePopupImpl* popup_impl = ToWebPagePopupImpl(popup);
+  auto* popup_impl = To<WebPagePopupImpl>(popup);
   DCHECK_EQ(page_popup_.get(), popup_impl);
   if (page_popup_.get() != popup_impl)
     return;
@@ -1210,14 +1211,6 @@ void WebViewImpl::Close() {
   CHECK(AsView().page);
   DCHECK(AllInstances().Contains(this));
   AllInstances().erase(this);
-
-  if (does_composite_) {
-    // This must occur before WillBeDestroyed, since detaching the main frame
-    // will also destroy the WebWidgetClient and the AnimationHost.
-    // TODO(danakj): Since the AnimationHost will be destroyed anyways, there
-    // is probably no good reason to do this at all.
-    GetPage()->WillCloseAnimationHost(nullptr);
-  }
 
   // Initiate shutdown for the entire frameset.  This will cause a lot of
   // notifications to be sent. This will detach all frames in this WebView's
@@ -1674,8 +1667,10 @@ void WebViewImpl::ThemeChanged() {
 }
 
 void WebViewImpl::EnterFullscreen(LocalFrame& frame,
-                                  const FullscreenOptions* options) {
-  fullscreen_controller_->EnterFullscreen(frame, options);
+                                  const FullscreenOptions* options,
+                                  bool for_cross_process_descendant) {
+  fullscreen_controller_->EnterFullscreen(frame, options,
+                                          for_cross_process_descendant);
 }
 
 void WebViewImpl::ExitFullscreen(LocalFrame& frame) {
@@ -1871,7 +1866,8 @@ void WebViewImpl::OnFallbackCursorModeToggled(bool is_on) {
 }
 
 void WebViewImpl::MouseCaptureLost() {
-  TRACE_EVENT_ASYNC_END0("input", "capturing mouse", this);
+  TRACE_EVENT_NESTABLE_ASYNC_END0("input", "capturing mouse",
+                                  TRACE_ID_LOCAL(this));
   mouse_capture_element_ = nullptr;
   if (AsView().page->DeprecatedLocalMainFrame())
     AsView().page->DeprecatedLocalMainFrame()->Client()->SetMouseCapture(false);
@@ -2322,8 +2318,8 @@ void WebViewImpl::PropagateZoomFactorToLocalFrameRoots(Frame* frame,
   auto* local_frame = DynamicTo<LocalFrame>(frame);
   if (local_frame && local_frame->IsLocalRoot()) {
     if (Document* document = local_frame->GetDocument()) {
-      if (!document->IsPluginDocument() ||
-          !ToPluginDocument(document)->GetPluginView()) {
+      auto* plugin_document = DynamicTo<PluginDocument>(document);
+      if (!plugin_document || !plugin_document->GetPluginView()) {
         local_frame->SetPageZoomFactor(zoom_factor);
       }
     }

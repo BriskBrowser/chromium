@@ -219,10 +219,6 @@ void WebRuntimeFeatures::EnableForceTallerSelectPopup(bool enable) {
   RuntimeEnabledFeatures::SetForceTallerSelectPopupEnabled(enable);
 }
 
-void WebRuntimeFeatures::EnableFormControlsRefresh(bool enable) {
-  RuntimeEnabledFeatures::SetFormControlsRefreshEnabled(enable);
-}
-
 void WebRuntimeFeatures::EnableGenericSensorExtraClasses(bool enable) {
   RuntimeEnabledFeatures::SetSensorExtraClassesEnabled(enable);
 }
@@ -476,24 +472,12 @@ void WebRuntimeFeatures::EnableWebXRARModule(bool enable) {
   RuntimeEnabledFeatures::SetWebXRARModuleEnabled(enable);
 }
 
-void WebRuntimeFeatures::EnableWebXRARDOMOverlay(bool enable) {
-  RuntimeEnabledFeatures::SetWebXRARDOMOverlayEnabled(enable);
-}
-
-void WebRuntimeFeatures::EnableWebXRAnchors(bool enable) {
-  RuntimeEnabledFeatures::SetWebXRAnchorsEnabled(enable);
-}
-
-void WebRuntimeFeatures::EnableWebXrGamepadModule(bool enable) {
-  RuntimeEnabledFeatures::SetWebXrGamepadModuleEnabled(enable);
-}
-
 void WebRuntimeFeatures::EnableWebXRHitTest(bool enable) {
   RuntimeEnabledFeatures::SetWebXRHitTestEnabled(enable);
 }
 
-void WebRuntimeFeatures::EnableWebXRPlaneDetection(bool enable) {
-  RuntimeEnabledFeatures::SetWebXRPlaneDetectionEnabled(enable);
+void WebRuntimeFeatures::EnableWebXRIncubations(bool enable) {
+  RuntimeEnabledFeatures::SetWebXRIncubationsEnabled(enable);
 }
 
 void WebRuntimeFeatures::EnablePresentationAPI(bool enable) {

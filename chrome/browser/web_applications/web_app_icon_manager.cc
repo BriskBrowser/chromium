@@ -10,6 +10,7 @@
 #include "base/logging.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
@@ -134,6 +135,10 @@ bool WriteDataBlocking(std::unique_ptr<FileUtilsWrapper> utils,
 
   // Commit: move whole app data dir to final destination in one mv operation.
   const base::FilePath app_dir = GetAppDirectory(web_apps_directory, app_id);
+
+  // Try to delete the destination. Needed for update.
+  utils->DeleteFileRecursively(app_dir);
+
   if (!utils->Move(app_temp_dir.GetPath(), app_dir)) {
     LOG(ERROR) << "Could not move temp WebApp directory to final destination.";
     return false;
@@ -194,17 +199,17 @@ SkBitmap ReadIconBlocking(std::unique_ptr<FileUtilsWrapper> utils,
 }
 
 // Performs blocking I/O. May be called on another thread.
-std::map<SquareSizePx, SkBitmap> ReadAllIconsBlocking(
+std::map<SquareSizePx, SkBitmap> ReadIconsBlocking(
     std::unique_ptr<FileUtilsWrapper> utils,
     base::FilePath web_apps_directory,
     AppId app_id,
-    const std::vector<SquareSizePx>& downloaded_icon_sizes) {
+    const std::vector<SquareSizePx>& icon_sizes) {
   base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
                                                 base::BlockingType::MAY_BLOCK);
 
   std::map<SquareSizePx, SkBitmap> result;
 
-  for (SquareSizePx icon_size_px : downloaded_icon_sizes) {
+  for (SquareSizePx icon_size_px : icon_sizes) {
     base::FilePath icon_file =
         GetIconFileName(web_apps_directory, app_id, icon_size_px);
 
@@ -289,37 +294,38 @@ void WebAppIconManager::DeleteData(AppId app_id, WriteDataCallback callback) {
       std::move(callback));
 }
 
-bool WebAppIconManager::HasIcon(const AppId& app_id,
-                                int icon_size_in_px) const {
+bool WebAppIconManager::HasIcons(
+    const AppId& app_id,
+    const std::vector<SquareSizePx>& icon_sizes_in_px) const {
   const WebApp* web_app = registrar_.GetAppById(app_id);
   if (!web_app)
     return false;
 
-  for (SquareSizePx size : web_app->downloaded_icon_sizes()) {
-    if (size == icon_size_in_px)
-      return true;
-  }
-
-  return false;
+  return base::STLIncludes(web_app->downloaded_icon_sizes(), icon_sizes_in_px);
 }
 
 bool WebAppIconManager::HasSmallestIcon(const AppId& app_id,
-                                        int icon_size_in_px) const {
+                                        SquareSizePx icon_size_in_px) const {
   int best_size_in_px = 0;
   return FindBestSizeInPx(app_id, icon_size_in_px, &best_size_in_px);
 }
 
-void WebAppIconManager::ReadIcon(const AppId& app_id,
-                                 int icon_size_in_px,
-                                 ReadIconCallback callback) const {
+void WebAppIconManager::ReadIcons(
+    const AppId& app_id,
+    const std::vector<SquareSizePx>& icon_sizes_in_px,
+    ReadIconsCallback callback) const {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  DCHECK(HasIcon(app_id, icon_size_in_px));
+  DCHECK(HasIcons(app_id, icon_sizes_in_px));
 
-  ReadIconInternal(app_id, icon_size_in_px, std::move(callback));
+  base::PostTaskAndReplyWithResult(
+      FROM_HERE, kTaskTraits,
+      base::BindOnce(ReadIconsBlocking, utils_->Clone(), web_apps_directory_,
+                     app_id, icon_sizes_in_px),
+      std::move(callback));
 }
 
 void WebAppIconManager::ReadAllIcons(const AppId& app_id,
-                                     ReadAllIconsCallback callback) const {
+                                     ReadIconsCallback callback) const {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   const WebApp* web_app = registrar_.GetAppById(app_id);
   if (!web_app) {
@@ -329,13 +335,13 @@ void WebAppIconManager::ReadAllIcons(const AppId& app_id,
 
   base::PostTaskAndReplyWithResult(
       FROM_HERE, kTaskTraits,
-      base::BindOnce(ReadAllIconsBlocking, utils_->Clone(), web_apps_directory_,
+      base::BindOnce(ReadIconsBlocking, utils_->Clone(), web_apps_directory_,
                      app_id, web_app->downloaded_icon_sizes()),
       std::move(callback));
 }
 
 void WebAppIconManager::ReadSmallestIcon(const AppId& app_id,
-                                         int icon_size_in_px,
+                                         SquareSizePx icon_size_in_px,
                                          ReadIconCallback callback) const {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
@@ -344,12 +350,16 @@ void WebAppIconManager::ReadSmallestIcon(const AppId& app_id,
       FindBestSizeInPx(app_id, icon_size_in_px, &best_size_in_px);
   DCHECK(has_smallest_icon);
 
-  ReadIconInternal(app_id, best_size_in_px, std::move(callback));
+  base::PostTaskAndReplyWithResult(
+      FROM_HERE, kTaskTraits,
+      base::BindOnce(ReadIconBlocking, utils_->Clone(), web_apps_directory_,
+                     app_id, best_size_in_px),
+      std::move(callback));
 }
 
 void WebAppIconManager::ReadSmallestCompressedIcon(
     const AppId& app_id,
-    int icon_size_in_px,
+    SquareSizePx icon_size_in_px,
     ReadCompressedIconCallback callback) const {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
@@ -380,16 +390,6 @@ bool WebAppIconManager::FindBestSizeInPx(const AppId& app_id,
   }
 
   return *best_size_in_px != std::numeric_limits<int>::max();
-}
-
-void WebAppIconManager::ReadIconInternal(const AppId& app_id,
-                                         int icon_size_in_px,
-                                         ReadIconCallback callback) const {
-  base::PostTaskAndReplyWithResult(
-      FROM_HERE, kTaskTraits,
-      base::BindOnce(ReadIconBlocking, utils_->Clone(), web_apps_directory_,
-                     app_id, icon_size_in_px),
-      std::move(callback));
 }
 
 }  // namespace web_app

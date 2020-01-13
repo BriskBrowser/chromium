@@ -4,9 +4,11 @@
 
 #include "chrome/browser/web_applications/web_app_icon_manager.h"
 
+#include <algorithm>
 #include <memory>
 
 #include "base/bind_helpers.h"
+#include "base/files/file_enumerator.h"
 #include "base/run_loop.h"
 #include "base/test/bind_test_util.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
@@ -19,6 +21,7 @@
 #include "chrome/browser/web_applications/test/web_app_test.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/browser/web_applications/web_app_registrar.h"
+#include "chrome/browser/web_applications/web_app_registry_update.h"
 #include "chrome/browser/web_applications/web_app_sync_bridge.h"
 #include "chrome/common/web_application_info.h"
 #include "chrome/test/base/testing_profile.h"
@@ -119,32 +122,103 @@ class WebAppIconManagerTest : public WebAppTest {
   TestFileUtils* file_utils_ = nullptr;
 };
 
-TEST_F(WebAppIconManagerTest, WriteAndReadIcon) {
+TEST_F(WebAppIconManagerTest, WriteAndReadIcons) {
   auto web_app = CreateWebApp();
   const AppId app_id = web_app->app_id();
 
-  const std::vector<int> sizes_px{icon_size::k512};
-  const std::vector<SkColor> colors{SK_ColorYELLOW};
+  const std::vector<int> sizes_px{icon_size::k256, icon_size::k512};
+  const std::vector<SkColor> colors{SK_ColorGREEN, SK_ColorYELLOW};
   WriteIcons(app_id, sizes_px, colors);
 
   web_app->SetDownloadedIconSizes(sizes_px);
 
   controller().RegisterApp(std::move(web_app));
 
-  EXPECT_TRUE(icon_manager().HasIcon(app_id, sizes_px[0]));
+  EXPECT_TRUE(icon_manager().HasIcons(app_id, sizes_px));
   {
     base::RunLoop run_loop;
 
-    icon_manager().ReadIcon(
-        app_id, sizes_px[0],
-        base::BindLambdaForTesting([&](const SkBitmap& bitmap) {
-          EXPECT_FALSE(bitmap.empty());
-          EXPECT_EQ(colors[0], bitmap.getColor(0, 0));
-          run_loop.Quit();
-        }));
+    icon_manager().ReadIcons(
+        app_id, sizes_px,
+        base::BindLambdaForTesting(
+            [&](std::map<SquareSizePx, SkBitmap> icon_bitmaps) {
+              EXPECT_EQ(2u, icon_bitmaps.size());
+
+              EXPECT_FALSE(icon_bitmaps[icon_size::k256].empty());
+              EXPECT_EQ(SK_ColorGREEN,
+                        icon_bitmaps[icon_size::k256].getColor(0, 0));
+
+              EXPECT_FALSE(icon_bitmaps[icon_size::k512].empty());
+              EXPECT_EQ(SK_ColorYELLOW,
+                        icon_bitmaps[icon_size::k512].getColor(0, 0));
+
+              run_loop.Quit();
+            }));
 
     run_loop.Run();
   }
+}
+
+TEST_F(WebAppIconManagerTest, OverwriteIcons) {
+  auto web_app = CreateWebApp();
+  const AppId app_id = web_app->app_id();
+
+  // Write initial red icons to be overwritten.
+  {
+    std::vector<int> sizes_px{icon_size::k32, icon_size::k64, icon_size::k48};
+    const std::vector<SkColor> colors{SK_ColorRED, SK_ColorRED, SK_ColorRED};
+    WriteIcons(app_id, sizes_px, colors);
+
+    web_app->SetDownloadedIconSizes(std::move(sizes_px));
+  }
+
+  controller().RegisterApp(std::move(web_app));
+
+  // k64 and k48 sizes to be overwritten. Skip k32 size and add new k96 size.
+  const std::vector<int> overwritten_sizes_px{icon_size::k48, icon_size::k64,
+                                              icon_size::k96};
+  {
+    std::map<SquareSizePx, SkBitmap> icon_bitmaps;
+    for (int size_px : overwritten_sizes_px)
+      icon_bitmaps[size_px] = CreateSquareIcon(size_px, SK_ColorGREEN);
+
+    base::RunLoop run_loop;
+
+    // Overwrite red icons with green ones.
+    icon_manager().WriteData(app_id, std::move(icon_bitmaps),
+                             base::BindLambdaForTesting([&](bool success) {
+                               EXPECT_TRUE(success);
+                               run_loop.Quit();
+                             }));
+
+    run_loop.Run();
+
+    ScopedRegistryUpdate update(&controller().sync_bridge());
+    update->UpdateApp(app_id)->SetDownloadedIconSizes(overwritten_sizes_px);
+  }
+
+  // Check that all icons are now green. Check that all red icons were deleted
+  // on disk (including the k32 size).
+  base::FilePath icons_dir = GetAppIconsDir(profile(), app_id);
+
+  std::vector<int> sizes_on_disk_px;
+
+  base::FileEnumerator enumerator(icons_dir, true, base::FileEnumerator::FILES);
+  for (base::FilePath path = enumerator.Next(); !path.empty();
+       path = enumerator.Next()) {
+    EXPECT_TRUE(path.MatchesExtension(FILE_PATH_LITERAL(".png")));
+
+    SkBitmap bitmap;
+    EXPECT_TRUE(ReadBitmap(&file_utils(), path, &bitmap));
+    EXPECT_FALSE(bitmap.empty());
+    EXPECT_EQ(bitmap.width(), bitmap.height());
+    EXPECT_EQ(SK_ColorGREEN, bitmap.getColor(0, 0));
+
+    sizes_on_disk_px.push_back(bitmap.width());
+  }
+
+  std::sort(sizes_on_disk_px.begin(), sizes_on_disk_px.end());
+  EXPECT_EQ(overwritten_sizes_px, sizes_on_disk_px);
 }
 
 TEST_F(WebAppIconManagerTest, ReadAllIcons) {
@@ -175,31 +249,32 @@ TEST_F(WebAppIconManagerTest, ReadAllIcons) {
   }
 }
 
-TEST_F(WebAppIconManagerTest, ReadIconFailed) {
+TEST_F(WebAppIconManagerTest, ReadIconsFailed) {
   auto web_app = CreateWebApp();
   const AppId app_id = web_app->app_id();
 
-  const int icon_size_px = icon_size::k256;
+  const std::vector<SquareSizePx> icon_sizes_px{icon_size::k256};
 
   // Set icon meta-info but don't write bitmap to disk.
-  web_app->SetDownloadedIconSizes({icon_size_px});
+  web_app->SetDownloadedIconSizes(icon_sizes_px);
 
   controller().RegisterApp(std::move(web_app));
 
-  // Check non-existing icon size.
-  EXPECT_FALSE(icon_manager().HasIcon(app_id, icon_size::k96));
-
-  EXPECT_TRUE(icon_manager().HasIcon(app_id, icon_size_px));
+  EXPECT_FALSE(icon_manager().HasIcons(app_id, {icon_size::k96}));
+  EXPECT_TRUE(icon_manager().HasIcons(app_id, {icon_size::k256}));
+  EXPECT_FALSE(
+      icon_manager().HasIcons(app_id, {icon_size::k96, icon_size::k256}));
 
   // Request existing icon size which doesn't exist on disk.
   base::RunLoop run_loop;
 
-  icon_manager().ReadIcon(
-      app_id, icon_size_px,
-      base::BindLambdaForTesting([&](const SkBitmap& bitmap) {
-        EXPECT_TRUE(bitmap.empty());
-        run_loop.Quit();
-      }));
+  icon_manager().ReadIcons(
+      app_id, icon_sizes_px,
+      base::BindLambdaForTesting(
+          [&](std::map<SquareSizePx, SkBitmap> icon_bitmaps) {
+            EXPECT_TRUE(icon_bitmaps.empty());
+            run_loop.Quit();
+          }));
 
   run_loop.Run();
 }
@@ -217,19 +292,22 @@ TEST_F(WebAppIconManagerTest, FindExact) {
 
   controller().RegisterApp(std::move(web_app));
 
-  EXPECT_FALSE(icon_manager().HasIcon(app_id, 40));
+  EXPECT_FALSE(icon_manager().HasIcons(app_id, {40}));
 
   {
     base::RunLoop run_loop;
 
-    EXPECT_TRUE(icon_manager().HasIcon(app_id, 20));
+    EXPECT_TRUE(icon_manager().HasIcons(app_id, {20}));
 
-    icon_manager().ReadIcon(
-        app_id, 20, base::BindLambdaForTesting([&](const SkBitmap& bitmap) {
-          EXPECT_FALSE(bitmap.empty());
-          EXPECT_EQ(SK_ColorBLUE, bitmap.getColor(0, 0));
-          run_loop.Quit();
-        }));
+    icon_manager().ReadIcons(
+        app_id, {20},
+        base::BindLambdaForTesting(
+            [&](std::map<SquareSizePx, SkBitmap> icon_bitmaps) {
+              EXPECT_EQ(1u, icon_bitmaps.size());
+              EXPECT_FALSE(icon_bitmaps[20].empty());
+              EXPECT_EQ(SK_ColorBLUE, icon_bitmaps[20].getColor(0, 0));
+              run_loop.Quit();
+            }));
 
     run_loop.Run();
   }
@@ -248,7 +326,7 @@ TEST_F(WebAppIconManagerTest, FindSmallest) {
 
   controller().RegisterApp(std::move(web_app));
 
-  EXPECT_FALSE(icon_manager().HasIcon(app_id, 70));
+  EXPECT_FALSE(icon_manager().HasSmallestIcon(app_id, 70));
 
   {
     base::RunLoop run_loop;
@@ -282,7 +360,6 @@ TEST_F(WebAppIconManagerTest, FindSmallest) {
 TEST_F(WebAppIconManagerTest, DeleteData_Success) {
   const AppId app1_id = GenerateAppIdFromURL(GURL("https://example.com/"));
   const AppId app2_id = GenerateAppIdFromURL(GURL("https://example.org/"));
-  const GURL icons_root_url;  // url is empty to indicate autogenerated icons.
 
   const std::vector<int> sizes_px{icon_size::k128};
   const std::vector<SkColor> colors{SK_ColorMAGENTA};

@@ -79,7 +79,9 @@
 #include "third_party/blink/renderer/core/frame/viewport_data.h"
 #include "third_party/blink/renderer/core/frame/visual_viewport.h"
 #include "third_party/blink/renderer/core/html/custom/custom_element_registry.h"
+#include "third_party/blink/renderer/core/html/forms/form_controller.h"
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
+#include "third_party/blink/renderer/core/html/plugin_document.h"
 #include "third_party/blink/renderer/core/input/event_handler.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/inspector/inspector_trace_events.h"
@@ -255,7 +257,7 @@ Document* LocalDOMWindow::CreateDocument(const String& mime_type,
     document = DOMImplementation::createDocument(
         mime_type, init,
         init.GetFrame() ? init.GetFrame()->InViewSourceMode() : false);
-    if (document->IsPluginDocument() &&
+    if (IsA<PluginDocument>(document) &&
         document->IsSandboxed(WebSandboxFlags::kPlugins)) {
       // document->Shutdown();
       document = MakeGarbageCollected<SinkDocument>(init);
@@ -324,7 +326,19 @@ void LocalDOMWindow::DispatchWindowLoadEvent() {
 
 void LocalDOMWindow::DocumentWasClosed() {
   DispatchWindowLoadEvent();
+
+  // An extension to step 4.5. or a part of step 4.6.3. of
+  // https://html.spec.whatwg.org/C/#traverse-the-history .
+  //
+  // 4.5. ..., invoke the reset algorithm of each of those elements.
+  // 4.6.3. Run any session history document visibility change steps ...
+  if (document_)
+    document_->GetFormController().RestoreImmediately();
+
+  // 4.6.4. Fire an event named pageshow at the Document object's relevant
+  // global object, ...
   EnqueueNonPersistedPageshowEvent();
+
   if (pending_state_object_)
     EnqueuePopstateEvent(std::move(pending_state_object_));
 }

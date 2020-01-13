@@ -419,6 +419,7 @@ Si completaste este instructivo, usa ChromeVox para navegar hasta el botón Cerr
 <translation id="3914732343065571127">Referencia de comandos de ChromeVox</translation>
 <translation id="3930383913623796990">Verde primavera</translation>
 <translation id="3930498801443296724">Cita inicial</translation>
+<translation id="3935615366277838204">Mayúscula <ph name="LETTER" /></translation>
 <translation id="3936394396199829062">Lavanda rojizo</translation>
 <translation id="3941269780691800708">Pronunciar el texto cuando pasas el puntero del mouse</translation>
 <translation id="394953087167197343">Indicar error ortográfico:</translation>
@@ -454,7 +455,7 @@ Si completaste este instructivo, usa ChromeVox para navegar hasta el botón Cerr
 <translation id="4161104397932142764">{COUNT,plural, =1{segundo}other{segundos}}</translation>
 <translation id="4161663686871496107">Los comentarios por voz de ChromeVox están listos.</translation>
 <translation id="4173994908659439270">No hay ningún campo de texto editable posterior.</translation>
-<translation id="4176463684765177261">Inhabilitada</translation>
+<translation id="4176463684765177261">Inhabilitado</translation>
 <translation id="4187322598335821254">Desliza hacia arriba o abajo para desplazarte entre las líneas</translation>
 <translation id="4188530942454211480">Frase anterior</translation>
 <translation id="4191918948604314587">Un botón</translation>
@@ -747,7 +748,7 @@ Si completaste este instructivo, usa ChromeVox para navegar hasta el botón Cerr
 <translation id="611827076493383239">vtd</translation>
 <translation id="6119955456199054975">Fin de celda</translation>
 <translation id="6122013438240733403">btn</translation>
-<translation id="6129953537138746214">Google Space</translation>
+<translation id="6129953537138746214">Espacio</translation>
 <translation id="6132506484792346370">Un cuadro de lista o uno combinado</translation>
 <translation id="6142308968191113180">Encabezado 4</translation>
 <translation id="6150023170003443621">Verde amarillo</translation>
@@ -792,7 +793,6 @@ Si completaste este instructivo, usa ChromeVox para navegar hasta el botón Cerr
 <translation id="6459511626086141404">Mapa de teclado plano</translation>
 <translation id="6468049171101508116">Botón Siguiente</translation>
 <translation id="646954774886932461">Índice</translation>
-<translation id="6479792383819319132">No hay un párrafo siguiente.</translation>
 <translation id="6493991254603208962">Disminuir brillo</translation>
 <translation id="6501595918865591267">Turquesa</translation>
 <translation id="6508059270146105198">Mover la pantalla de braille a la parte inferior de la página</translation>
@@ -815,7 +815,6 @@ Si completaste este instructivo, usa ChromeVox para navegar hasta el botón Cerr
 <translation id="6637586476836377253">rgstr</translation>
 <translation id="6657128831881431364">Barra de progreso</translation>
 <translation id="6659594942844771486">Pestaña</translation>
-<translation id="6675661017770918201">No hay un párrafo anterior.</translation>
 <translation id="667999046851023355">Documento</translation>
 <translation id="6688209025607531203">Una alerta no modal</translation>
 <translation id="6689672606256159458">Salmón oscuro</translation>
@@ -844,6 +843,7 @@ Si completaste este instructivo, usa ChromeVox para navegar hasta el botón Cerr
 <translation id="6865519907510167493">Error ortográfico</translation>
 <translation id="6871161210040114857">No distingue mayúscula de minúscula.</translation>
 <translation id="6877435256196695200">No hay ningún gráfico posterior.</translation>
+<translation id="688976158310523235">Menú de búsqueda</translation>
 <translation id="6897341342232909480">Mover hacia la izquierda</translation>
 <translation id="6901540140423170855">fecha</translation>
 <translation id="6910211073230771657">Eliminado</translation>
@@ -856,6 +856,7 @@ Si completaste este instructivo, usa ChromeVox para navegar hasta el botón Cerr
 <translation id="699159175332639490">Buscar + O + W</translation>
 <translation id="6994042831499278539">Referencia de glosario</translation>
 <translation id="6996566555547746822">Siguiente cuadro combinado</translation>
+<translation id="6997224546856374593">Cuando se lee texto en mayúscula:</translation>
 <translation id="700202842116345659">Entrada de bibliografía</translation>
 <translation id="7005146664810010831">No se encontró ninguna URL.</translation>
 <translation id="7010712454773919705">Tecla modificadora de ChromeVox</translation>
@@ -936,6 +937,7 @@ Para abrir el menú del navegador Chrome, presiona Alt + F.</translation>
 <translation id="744163271241493234">pwded</translation>
 <translation id="7491962110804786152">tab</translation>
 <translation id="7492049978501397201">Se ingresó un cuadro de diálogo.</translation>
+<translation id="7505149250476994901">Decir "mayúscula" antes de la letra</translation>
 <translation id="7518543783849163354">Para silenciar ChromeVox de forma temporal, presiona la tecla Ctrl.</translation>
 <translation id="7521682724501952239">Puedes usar ChromeVox con la pantalla táctil.</translation>
 <translation id="7532613204005497612">Junio</translation>
@@ -1207,6 +1209,7 @@ Para abrir el menú del navegador Chrome, presiona Alt + F.</translation>
 <translation id="9065283790526219006">+emergente</translation>
 <translation id="9066023754636984703">Presiona Búsqueda+A y, luego, J para ir a los detalles.</translation>
 <translation id="9067522039955793016">Salto de página</translation>
+<translation id="9074824103975499138">Busca los menús de ChromeVox</translation>
 <translation id="9077213568694924680">eliminado de la selección</translation>
 <translation id="9077305471618729969">Verde mar claro</translation>
 <translation id="9082874451376019682">No hay ningún control deslizante anterior.</translation>

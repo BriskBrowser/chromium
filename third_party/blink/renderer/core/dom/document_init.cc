@@ -30,8 +30,10 @@
 #include "third_party/blink/renderer/core/dom/document_init.h"
 
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/html/custom/v0_custom_element_registration_context.h"
+#include "third_party/blink/renderer/core/html/html_document.h"
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
 #include "third_party/blink/renderer/core/html/imports/html_imports_controller.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
@@ -239,7 +241,7 @@ DocumentInit& DocumentInit::WithNewRegistrationContext() {
 
 V0CustomElementRegistrationContext* DocumentInit::RegistrationContext(
     Document* document) const {
-  if (!document->IsHTMLDocument() && !document->IsXHTMLDocument())
+  if (!IsA<HTMLDocument>(document) && !document->IsXHTMLDocument())
     return nullptr;
 
   if (create_new_registration_context_)
@@ -284,8 +286,13 @@ DocumentInit& DocumentInit::WithContentSecurityPolicyFromContextDoc() {
 ContentSecurityPolicy* DocumentInit::GetContentSecurityPolicy() const {
   DCHECK(
       !(content_security_policy_ && content_security_policy_from_context_doc_));
-  if (context_document_ && content_security_policy_from_context_doc_)
-    return context_document_->GetContentSecurityPolicy();
+  if (context_document_ && content_security_policy_from_context_doc_) {
+    // Return a copy of the context documents' CSP. The return value will be
+    // modified, so this must be a copy.
+    ContentSecurityPolicy* csp = MakeGarbageCollected<ContentSecurityPolicy>();
+    csp->CopyStateFrom(context_document_->GetContentSecurityPolicy());
+    return csp;
+  }
   return content_security_policy_;
 }
 
@@ -300,6 +307,12 @@ DocumentInit& DocumentInit::WithFramePolicy(
     document_loader_->GetFrame()->Loader().SetFrameOwnerSandboxFlags(
         frame_policy_.value().sandbox_flags);
   }
+  return *this;
+}
+
+DocumentInit& DocumentInit::WithDocumentPolicy(
+    const DocumentPolicy::FeatureState& document_policy) {
+  document_policy_ = document_policy;
   return *this;
 }
 

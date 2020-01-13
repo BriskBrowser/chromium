@@ -278,7 +278,8 @@ BoxPainterBase::FillLayerInfo::FillLayerInfo(
     RespectImageOrientationEnum respect_image_orientation,
     bool include_left,
     bool include_right,
-    bool is_inline)
+    bool is_inline,
+    bool is_painting_scrolling_background)
     : image(layer.GetImage()),
       color(bg_color),
       respect_image_orientation(respect_image_orientation),
@@ -318,7 +319,7 @@ BoxPainterBase::FillLayerInfo::FillLayerInfo(
   // BorderFillBox radius clipping is taken care of by
   // BackgroundBleedClip{Only,Layer}
   is_rounded_fill =
-      has_rounded_border &&
+      has_rounded_border && !is_painting_scrolling_background &&
       !(is_border_fill && BleedAvoidanceIsClipping(bleed_avoidance));
 
   should_paint_image = image && image->CanRender();
@@ -375,13 +376,11 @@ FloatRect ComputeSubsetForBackground(const FloatRect& phase_and_size,
 FloatRect CorrectSrcRectForImageOrientation(BitmapImage* image,
                                             FloatRect original_rect) {
   ImageOrientation orientation = image->CurrentFrameOrientation();
-  if (orientation != kDefaultImageOrientation) {
-    AffineTransform forward_map =
-        orientation.TransformFromDefault(original_rect.Size());
-    AffineTransform inverse_map = forward_map.Inverse();
-    return inverse_map.MapRect(original_rect);
-  }
-  return original_rect;
+  DCHECK(orientation != kDefaultImageOrientation);
+  AffineTransform forward_map =
+      orientation.TransformFromDefault(original_rect.Size());
+  AffineTransform inverse_map = forward_map.Inverse();
+  return inverse_map.MapRect(original_rect);
 }
 
 // The unsnapped_subset_size should be the target painting area implied by the
@@ -440,7 +439,7 @@ void DrawTiledBackground(GraphicsContext& context,
     // rect to be in the unrotated image space, but we have computed it here in
     // the rotated space in order to position and size the background. Undo the
     // src rect rotation if necessaary.
-    if (respect_orientation && image->IsBitmapImage()) {
+    if (respect_orientation && !image->HasDefaultOrientation()) {
       visible_src_rect = CorrectSrcRectForImageOrientation(ToBitmapImage(image),
                                                            visible_src_rect);
     }
@@ -557,9 +556,8 @@ inline bool PaintFastBottomLayer(Node* node,
   const FloatSize intrinsic_tile_size =
       !has_intrinsic_size
           ? image_tile.Size()
-          : FloatSize(info.respect_image_orientation && image->IsBitmapImage()
-                          ? ToBitmapImage(image)->SizeRespectingOrientation()
-                          : image->Size());
+          : FloatSize(image->Size(info.respect_image_orientation));
+
   // Subset computation needs the same location as was used with
   // ComputePhaseForBackground above, but needs the unsnapped destination
   // size to correctly calculate sprite subsets in the presence of zoom. But if
@@ -585,7 +583,7 @@ inline bool PaintFastBottomLayer(Node* node,
   // to be in the unrotated image space, but we have computed it here in the
   // rotated space in order to position and size the background. Undo the src
   // rect rotation if necessaary.
-  if (info.respect_image_orientation && image->IsBitmapImage()) {
+  if (info.respect_image_orientation && !image->HasDefaultOrientation()) {
     src_rect =
         CorrectSrcRectForImageOrientation(ToBitmapImage(image), src_rect);
   }
@@ -784,7 +782,9 @@ void BoxPainterBase::PaintFillLayer(const PaintInfo& paint_info,
   if (rect.IsEmpty())
     return;
 
-  const FillLayerInfo info = GetFillLayerInfo(color, bg_layer, bleed_avoidance);
+  const FillLayerInfo info =
+      GetFillLayerInfo(color, bg_layer, bleed_avoidance,
+                       IsPaintingScrollingBackground(paint_info));
   // If we're not actually going to paint anything, abort early.
   if (!info.should_paint_image && !info.should_paint_color)
     return;

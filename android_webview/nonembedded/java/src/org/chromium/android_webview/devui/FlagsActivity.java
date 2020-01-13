@@ -24,6 +24,7 @@ import android.widget.ListView;
 import android.widget.Spinner;
 import android.widget.TextView;
 
+import org.chromium.android_webview.common.DeveloperModeUtils;
 import org.chromium.android_webview.common.Flag;
 import org.chromium.android_webview.common.ProductionSupportedFlagList;
 import org.chromium.android_webview.common.services.IDeveloperUiService;
@@ -51,7 +52,7 @@ public class FlagsActivity extends Activity {
     };
 
     private WebViewPackageError mDifferentPackageError;
-    private final Map<String, Boolean> mOverriddenFlags = new HashMap<>();
+    private Map<String, Boolean> mOverriddenFlags = new HashMap<>();
     private FlagsListAdapter mListAdapter;
 
     @Override
@@ -66,6 +67,12 @@ public class FlagsActivity extends Activity {
                 + "lose app data or compromise your security or privacy. Enabled features apply to "
                 + "WebViews across all apps on the device.");
 
+        // Restore flag overrides from the service process to repopulate the UI, if developer mode
+        // is enabled.
+        if (DeveloperModeUtils.isDeveloperModeEnabled(getPackageName())) {
+            mOverriddenFlags = DeveloperModeUtils.getFlagOverrides(getPackageName());
+        }
+
         mListAdapter = new FlagsListAdapter();
         flagsListView.setAdapter(mListAdapter);
 
@@ -76,10 +83,6 @@ public class FlagsActivity extends Activity {
                 new WebViewPackageError(this, findViewById(R.id.flags_activity_layout));
         // show the dialog once when the activity is created.
         mDifferentPackageError.showDialogIfDifferent();
-
-        // TODO(ntfschr): once there's a way to get the flag overrides out of the service, we should
-        // repopulate the UI based on that data (otherwise, we send an empty map to the service,
-        // which causes the service to stop itself).
     }
 
     @Override

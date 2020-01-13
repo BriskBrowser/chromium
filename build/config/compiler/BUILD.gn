@@ -146,7 +146,8 @@ declare_args() {
   # TODO(vitalybuka): investigate why some debug windows bots fail tests.
   # 'is_android' breaks content_shell_test_apk on android-kitkat-arm-rel.
   # 'use_xcode_clang' may call old clang.
-  init_stack_vars = !is_android && !(is_win && is_debug) && !use_xcode_clang && !is_official_build
+  init_stack_vars = !is_android && !(is_win && is_debug) && !use_xcode_clang &&
+                    !is_official_build
 }
 
 declare_args() {
@@ -612,34 +613,25 @@ config("compiler") {
     } else {
       ldflags += [ "-flto=thin" ]
 
+      # Enabling ThinLTO on Chrome OS too, in an effort to reduce the memory
+      # usage in crbug.com/1038040. Note this will increase build time in
+      # Chrome OS.
+
       # Limit the parallelism to avoid too aggressive competition between
       # linker jobs. This is still suboptimal to a potential dynamic
       # resource allocation scheme, but should be good enough.
       if (use_lld) {
         ldflags += [ "-Wl,--thinlto-jobs=" + max_jobs_per_link ]
 
-        # Caching on Chrome OS materially slows the PFQ down; disable it until
-        # we can figure out why. (crbug.com/964328)
-        if (!is_chromeos) {
-          # Limit the size of the ThinLTO cache to the lesser of 10% of
-          # available disk space, 10GB and 100000 files.
-          cache_policy =
-              "cache_size=10%:cache_size_bytes=10g:cache_size_files=100000"
-          ldflags += [
-            "-Wl,--thinlto-cache-dir=" +
-                rebase_path("$root_out_dir/thinlto-cache", root_build_dir),
-            "-Wl,--thinlto-cache-policy,$cache_policy",
-          ]
-        }
-
-        # Disable TypePromotion to work around compiler crash in Android LTO builds.
-        # TODO(crbug.com/1033863): Get this fixed upstream.
-        if (target_os != "chromeos") {
-          ldflags += [
-            "-Wl,-mllvm",
-            "-Wl,-disable-type-promotion=true",
-          ]
-        }
+        # Limit the size of the ThinLTO cache to the lesser of 10% of
+        # available disk space, 10GB and 100000 files.
+        cache_policy =
+            "cache_size=10%:cache_size_bytes=10g:cache_size_files=100000"
+        ldflags += [
+          "-Wl,--thinlto-cache-dir=" +
+              rebase_path("$root_out_dir/thinlto-cache", root_build_dir),
+          "-Wl,--thinlto-cache-policy,$cache_policy",
+        ]
       } else {
         ldflags += [ "-Wl,-plugin-opt,jobs=" + max_jobs_per_link ]
       }
@@ -668,6 +660,17 @@ config("compiler") {
       if (!is_win) {
         ldflags += [ "-fwhole-program-vtables" ]
       }
+    }
+
+    # This is done in Android case to keep binary size under linker limit for
+    # 32bit, especially since when ThinLTO is enabled Chrome Android build
+    # cannot yet support DWARF Fission. This workaround was copied from
+    # crosbug/1032159
+    if (is_android) {
+      ldflags += [
+        "-Wl,-mllvm",
+        "-Wl,-generate-type-units",
+      ]
     }
 
     # Work-around for http://openradar.appspot.com/20356002
@@ -1536,9 +1539,6 @@ config("default_warnings") {
 
           # TODO(https://crbug.com/1028110): Evaluate and possible enable.
           "-Wno-deprecated-copy",
-
-          # TODO(https://crbug.com/1031169): Clean up and enable.
-          "-Wno-misleading-indentation",
         ]
 
         if (is_win) {
@@ -1552,6 +1552,16 @@ config("default_warnings") {
           # TODO(https://crbug.com/995993): Clean up and enable.
           "-Wno-implicit-fallthrough",
         ]
+
+        if (llvm_force_head_revision) {
+          cflags += [
+            # TODO(https://crbug.com/1031169): Clean up and enable.
+            "-Wno-misleading-indentation",
+
+            # TODO(https://crbug.com/1039697): Evaluate and possibly enable.
+            "-Wno-range-loop-analysis",
+          ]
+        }
       }
     }
   }

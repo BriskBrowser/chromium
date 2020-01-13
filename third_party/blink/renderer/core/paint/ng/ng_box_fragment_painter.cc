@@ -1043,8 +1043,8 @@ void NGBoxFragmentPainter::PaintInlineItems(const PaintInfo& paint_info,
   }
 }
 
-// Paint a line box. This function paints only background of `::first-line`. In
-// all other cases, the container box paints background.
+// Paint a line box. This function paints hit tests and backgrounds of
+// `::first-line`. In all other cases, the container box paints background.
 inline void NGBoxFragmentPainter::PaintLineBox(
     const NGPhysicalFragment& line_box_fragment,
     const DisplayItemClient& display_item_client,
@@ -1060,15 +1060,12 @@ inline void NGBoxFragmentPainter::PaintLineBox(
     RecordHitTestDataForLine(paint_info, child_offset, line_box_fragment,
                              display_item_client);
   }
-
-  // Line boxes don't paint anything, except when its ::first-line style has
-  // a background.
-  if (!NGLineBoxFragmentPainter::NeedsPaint(line_box_fragment))
-    return;
-  NGLineBoxFragmentPainter line_box_painter(
-      line_box_fragment, line_box_paint_fragment, line_box_item,
-      PhysicalFragment(), paint_fragment_);
-  line_box_painter.PaintBackgroundBorderShadow(paint_info, child_offset);
+  if (NGLineBoxFragmentPainter::NeedsPaint(line_box_fragment)) {
+    NGLineBoxFragmentPainter line_box_painter(
+        line_box_fragment, line_box_paint_fragment, line_box_item,
+        PhysicalFragment(), paint_fragment_);
+    line_box_painter.PaintBackgroundBorderShadow(paint_info, child_offset);
+  }
 }
 
 void NGBoxFragmentPainter::PaintLineBoxChildren(
@@ -1323,7 +1320,7 @@ NGBoxFragmentPainter::MoveTo NGBoxFragmentPainter::PaintBoxItem(
 }
 
 bool NGBoxFragmentPainter::IsPaintingScrollingBackground(
-    const PaintInfo& paint_info) {
+    const PaintInfo& paint_info) const {
   if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled())
     return paint_info.IsPaintingScrollingBackground();
 
@@ -1417,7 +1414,8 @@ LayoutRectOutsets NGBoxFragmentPainter::ComputePadding() const {
 BoxPainterBase::FillLayerInfo NGBoxFragmentPainter::GetFillLayerInfo(
     const Color& color,
     const FillLayer& bg_layer,
-    BackgroundBleedAvoidance bleed_avoidance) const {
+    BackgroundBleedAvoidance bleed_avoidance,
+    bool is_painting_scrolling_background) const {
   const NGBorderEdges& border_edges = BorderEdges();
   const NGPhysicalBoxFragment& fragment = PhysicalFragment();
   return BoxPainterBase::FillLayerInfo(
@@ -1425,7 +1423,7 @@ BoxPainterBase::FillLayerInfo NGBoxFragmentPainter::GetFillLayerInfo(
       fragment.HasOverflowClip(), color, bg_layer, bleed_avoidance,
       LayoutObject::ShouldRespectImageOrientation(fragment.GetLayoutObject()),
       border_edges.line_left, border_edges.line_right,
-      fragment.GetLayoutObject()->IsInline());
+      fragment.GetLayoutObject()->IsInline(), is_painting_scrolling_background);
 }
 
 bool NGBoxFragmentPainter::IsInSelfHitTestingPhase(HitTestAction action) const {
@@ -1434,6 +1432,16 @@ bool NGBoxFragmentPainter::IsInSelfHitTestingPhase(HitTestAction action) const {
   if (const auto* box = ToLayoutBoxOrNull(PhysicalFragment().GetLayoutObject()))
     return box->IsInSelfHitTestingPhase(action);
   return action == kHitTestForeground;
+}
+
+bool NGBoxFragmentPainter::HitTestContext::AddNodeToResult(
+    Node* node,
+    const PhysicalRect& bounds_rect,
+    const PhysicalOffset& offset) const {
+  if (node && !result->InnerNode())
+    result->SetNodeAndPosition(node, location.Point() - offset);
+  return result->AddNodeToListBasedTestResult(node, location, bounds_rect) ==
+         kStopHitTesting;
 }
 
 bool NGBoxFragmentPainter::NodeAtPoint(HitTestResult& result,
@@ -1504,15 +1512,9 @@ bool NGBoxFragmentPainter::NodeAtPoint(const HitTestContext& hit_test,
     if (fragment.IsInlineBox())
       bounds_rect = PhysicalRect(PixelSnappedIntRect(bounds_rect));
     if (hit_test.location.Intersects(bounds_rect)) {
-      Node* node = fragment.NodeForHitTest();
-      if (!hit_test.result->InnerNode() && node) {
-        PhysicalOffset point = hit_test.location.Point() - physical_offset;
-        hit_test.result->SetNodeAndPosition(node, point);
-      }
-      if (hit_test.result->AddNodeToListBasedTestResult(
-              node, hit_test.location, bounds_rect) == kStopHitTesting) {
+      if (hit_test.AddNodeToResult(fragment.NodeForHitTest(), bounds_rect,
+                                   physical_offset))
         return true;
-      }
     }
   }
 
@@ -1550,15 +1552,9 @@ bool NGBoxFragmentPainter::HitTestTextFragment(
   if (!hit_test.location.Intersects(rect))
     return false;
 
-  Node* node = text_fragment.NodeForHitTest();
-  if (!hit_test.result->InnerNode() && node) {
-    PhysicalOffset point = hit_test.location.Point() - physical_offset +
-                           text_paint_fragment->InlineOffsetToContainerBox();
-    hit_test.result->SetNodeAndPosition(node, point);
-  }
-
-  return hit_test.result->AddNodeToListBasedTestResult(node, hit_test.location,
-                                                       rect) == kStopHitTesting;
+  return hit_test.AddNodeToResult(
+      text_fragment.NodeForHitTest(), rect,
+      physical_offset - text_paint_fragment->InlineOffsetToContainerBox());
 }
 
 bool NGBoxFragmentPainter::HitTestTextItem(const HitTestContext& hit_test,
@@ -1583,15 +1579,8 @@ bool NGBoxFragmentPainter::HitTestTextItem(const HitTestContext& hit_test,
   if (!hit_test.location.Intersects(rect))
     return false;
 
-  Node* node = text_item.NodeForHitTest();
-  if (!hit_test.result->InnerNode() && node) {
-    PhysicalOffset point =
-        hit_test.location.Point() - hit_test.inline_root_offset;
-    hit_test.result->SetNodeAndPosition(node, point);
-  }
-
-  return hit_test.result->AddNodeToListBasedTestResult(node, hit_test.location,
-                                                       rect) == kStopHitTesting;
+  return hit_test.AddNodeToResult(text_item.NodeForHitTest(), rect,
+                                  hit_test.inline_root_offset);
 }
 
 // Replicates logic in legacy InlineFlowBox::NodeAtPoint().
@@ -1640,14 +1629,8 @@ bool NGBoxFragmentPainter::HitTestLineBoxFragment(
       return false;
   }
 
-  Node* node = fragment.NodeForHitTest();
-  if (!hit_test.result->InnerNode() && node) {
-    const PhysicalOffset point =
-        hit_test.location.Point() - physical_offset + cursor.CurrentOffset();
-    hit_test.result->SetNodeAndPosition(node, point);
-  }
-  return hit_test.result->AddNodeToListBasedTestResult(
-             node, hit_test.location, bounds_rect) == kStopHitTesting;
+  return hit_test.AddNodeToResult(fragment.NodeForHitTest(), bounds_rect,
+                                  physical_offset - cursor.CurrentOffset());
 }
 
 bool NGBoxFragmentPainter::HitTestChildBoxFragment(
@@ -1708,6 +1691,50 @@ bool NGBoxFragmentPainter::HitTestChildBoxFragment(
   }
   return layout_box->NodeAtPoint(*hit_test.result, hit_test.location,
                                  physical_offset, hit_test.action);
+}
+
+bool NGBoxFragmentPainter::HitTestChildBoxItem(
+    const HitTestContext& hit_test,
+    const NGFragmentItem& item,
+    const NGInlineBackwardCursor& cursor) {
+  DCHECK_EQ(&item, cursor.CurrentItem());
+
+  if (const NGPhysicalBoxFragment* child_fragment = item.BoxFragment()) {
+    const PhysicalOffset child_offset =
+        hit_test.inline_root_offset + item.Offset();
+    return HitTestChildBoxFragment(hit_test, *child_fragment, cursor,
+                                   child_offset);
+  }
+
+  DCHECK(item.GetLayoutObject()->IsLayoutInline());
+  DCHECK(!ToLayoutInline(item.GetLayoutObject())->ShouldCreateBoxFragment());
+  if (NGInlineCursor descendants = cursor.CursorForDescendants()) {
+    if (HitTestItemsChildren(hit_test, descendants))
+      return true;
+  }
+
+  // Now hit test ourselves.
+  if (hit_test.action == kHitTestForeground &&
+      IsVisibleToHitTest(item, hit_test.result->GetHitTestRequest())) {
+    const PhysicalOffset child_offset =
+        hit_test.inline_root_offset + item.Offset();
+    PhysicalRect bounds_rect(child_offset, item.Size());
+    if (UNLIKELY(hit_test.result->GetHitTestRequest().GetType() &
+                 HitTestRequest::kHitTestVisualOverflow)) {
+      bounds_rect = item.SelfInkOverflow();
+      bounds_rect.Move(child_offset);
+    }
+    // TODO(kojii): Don't have good explanation why only inline box needs to
+    // snap, but matches to legacy and fixes crbug.com/976606.
+    bounds_rect = PhysicalRect(PixelSnappedIntRect(bounds_rect));
+    if (hit_test.location.Intersects(bounds_rect)) {
+      if (hit_test.AddNodeToResult(item.NodeForHitTest(), bounds_rect,
+                                   child_offset))
+        return true;
+    }
+  }
+
+  return false;
 }
 
 bool NGBoxFragmentPainter::HitTestChildren(
@@ -1815,20 +1842,13 @@ bool NGBoxFragmentPainter::HitTestItemsChildren(
                                  child_offset))
         return true;
     } else if (item->Type() == NGFragmentItem::kBox) {
-      if (const NGPhysicalBoxFragment* child_fragment = item->BoxFragment()) {
-        const PhysicalOffset child_offset =
-            hit_test.inline_root_offset + item->Offset();
-        if (HitTestChildBoxFragment(hit_test, *child_fragment, cursor,
-                                    child_offset))
-          return true;
-      }
+      if (HitTestChildBoxItem(hit_test, *item, cursor))
+        return true;
     } else {
       NOTREACHED();
     }
 
     cursor.MoveToPreviousSibling();
-
-    // TODO(kojii): Implement hit-testing culled inline box.
   }
 
   return false;

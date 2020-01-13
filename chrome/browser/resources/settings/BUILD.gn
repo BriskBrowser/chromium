@@ -105,11 +105,7 @@ group("closure_compile") {
   }
 
   if (is_chromeos) {
-    deps += [
-      "chromeos:closure_compile",
-      "multidevice_page:closure_compile",
-      "parental_controls_page:closure_compile",
-    ]
+    deps += [ "chromeos:closure_compile" ]
   }
 }
 
@@ -121,7 +117,6 @@ js_type_check("settings_resources") {
     ":open_window_proxy",
     ":page_visibility",
     ":route",
-    ":route_origin_behavior",
     ":search_settings",
   ]
 }
@@ -154,20 +149,25 @@ js_library("open_window_proxy") {
   ]
 }
 
-js_library("route_origin_behavior") {
-  deps = [
-    ":route",
-    "//ui/webui/resources/js:cr",
-  ]
-}
-
 js_library("route") {
   deps = [
     ":page_visibility",
+    ":router",
+    ":settings_routes",
     "//ui/webui/resources/js:cr",
     "//ui/webui/resources/js:load_time_data",
   ]
+}
+
+js_library("router") {
+  deps = [
+    ":settings_routes",
+    "//ui/webui/resources/js:cr",
+  ]
   externs_list = [ "$externs_path/metrics_private.js" ]
+}
+
+js_library("settings_routes") {
 }
 
 js_library("page_visibility") {
@@ -179,8 +179,10 @@ js_library("page_visibility") {
 
 js_library("search_settings") {
   deps = [
+    "//ui/webui/resources/js:assert",
     "//ui/webui/resources/js:cr",
     "//ui/webui/resources/js:search_highlight_utils",
+    "//ui/webui/resources/js:util",
   ]
   externs_list = [ "$externs_path/pending_polymer.js" ]
 }

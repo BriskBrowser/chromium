@@ -9,7 +9,6 @@
 Кейбір мүмкіндіктер қолжетімсіз болуы мүмкін және параметрлерге жасалған өзгертулер сақталмайды.</translation>
 <translation id="1088300314857992706"><ph name="USER_EMAIL_ADDRESS" /> бұрын Chrome браузерін пайдаланған</translation>
 <translation id="1097330777386562916">Chrome браузерінен шыққанда, cookie файлдары мен сайт деректерін тазарту</translation>
-<translation id="1104959162601287462">Chrome OS туралы</translation>
 <translation id="110877069173485804">Сізге арналған Chrome</translation>
 <translation id="1142745911746664600">Chrome браузерін жаңарту мүмкін емес</translation>
 <translation id="1154147086299354128">&amp;Chrome браузерінде ашу</translation>
@@ -21,7 +20,6 @@
 <translation id="1553358976309200471">Chrome жаңарту</translation>
 <translation id="1587223624401073077">Google Chrome камераңызды пайдалануда.</translation>
 <translation id="1587325591171447154"><ph name="FILE_NAME" /> қауіпті болғандықтан, Chrome оны бөгеді.</translation>
-<translation id="1590588151039584890">Chrome браузерін жаңарту үшін ол осы компьютердегі жұмысын тоқтатуы керек. Бұл компьютердегі есептік жазбасына кірген пайдаланушылардың сақталмаған өзгерістері жоғалып кетуі мүмкін.</translation>
 <translation id="1619887657840448962">Chrome браузерін қауіпсіз ету үшін, <ph name="IDS_EXTENSION_WEB_STORE_TITLE" /> тізімінде жоқ келесі кеңейтім  өшірілді, ол сізге ескертілмей қосылған болуы мүмкін.</translation>
 <translation id="1628000112320670027">Chrome жөнінде анықтама алу</translation>
 <translation id="1635734105302489219">Chrome браузерінен шыққанда, cookie файлдарын тазартасыз. Синхрондай беру үшін <ph name="COOKIE_SETTINGS_LINK" /> параметрін өзгертіңіз.</translation>
@@ -53,7 +51,7 @@
 <translation id="2290014774651636340">Google API пернелері жоқ. Кейбір Google Chrome функционалдықтары өшіріледі.</translation>
 <translation id="2290095356545025170">Google Chrome жою қажет пе?</translation>
 <translation id="2309047409763057870">Бұл – Google Chrome браузерінің қайта орнатылған нұсқасы және әдепкі браузер бола алмайды.</translation>
-<translation id="2341767445688917208">Chrome OS құпия сөздеріңізді синхрондай алмады. Қазір түзету.</translation>
+<translation id="2341767445688917208">Chrome OS құпия сөздеріңізді синхрондай алмады. Қазір түзетіңіз.</translation>
 <translation id="2348335408836342058">Chrome браузеріне бұл сайтта камераны және микрофонды пайдалану үшін рұқсат керек</translation>
 <translation id="2429317896000329049">Google Chrome деректеріңізді синхрондай алмады, себебі синхрондау функциясы доменіңіз үшін қолжетімді емес.</translation>
 <translation id="2467438592969358367">Google Chrome құпия сөздерді экспорттағысы келеді. Бұған рұқсат беру үшін Windows құпия сөзіңізді теріңіз.</translation>
@@ -146,7 +144,6 @@
 <translation id="5430073640787465221">Реттеулер файлы бұзылған немесе жарамсыз.
 
 Google Chrome параметрлеріңізді қалпына келтіре алмайды.</translation>
-<translation id="5543953544073077331">Chrome браузерінің басқа көшірмелері жұмыс істеп тұр. Жаңарту үшін оларды жабуыңыз керек.</translation>
 <translation id="556024056938947818">Google Chrome құпия сөздерді көрсетпек.</translation>
 <translation id="5566025111015594046">Google Chrome (mDNS-In)</translation>
 <translation id="5657226924540934362">Егер параметр бұл бетте көрсетілмесе, <ph name="LINK_BEGIN" />
@@ -196,7 +193,6 @@ Google Chrome параметрлеріңізді қалпына келтіре �
 <translation id="7408085963519505752">Chrome OS шарттары</translation>
 <translation id="7419046106786626209">Chrome OS деректеріңізді синхрондай алмады, себебі синхрондау функциясы доменіңіз үшін қолжетімді емес.</translation>
 <translation id="7486227612705979895">Chrome браузері мекенжай жолағында ұсыныстар жасау үшін Drive дискісіне кіреді</translation>
-<translation id="7531671357096394523">Chrome браузерінің барлық көшірмесінен шығыңыз</translation>
 <translation id="7535429826459677826">Google Chrome Dev</translation>
 <translation id="7573289029918943991">Құрылғыңызда операциялық жүйенің соңғы нұсқасы бар екенін тексеру үшін <ph name="LINK_BEGIN" />Chrome ОЖ параметрлері<ph name="LINK_END" /> бөлімінен қараңыз.</translation>
 <translation id="7589360514048265910">Бұл компьютер енді Google Chrome жүйесінің жаңартылған нұсқаларын алмайды, себебі Mac OS X 10.9 нұсқасына бұдан былай қолдау көрсетілмейді.</translation>
@@ -215,7 +211,7 @@ Google Chrome параметрлеріңізді қалпына келтіре �
 <translation id="7855730255114109580">Google Chrome жаңартылған</translation>
 <translation id="7890208801193284374">Компьютерді бөлісетін болсаңыз, достарыңыз бен жақындарыңыз интернетке бөлек кіріп, Chrome браузерін қалауларынша реттей алады.</translation>
 <translation id="7896673875602241923">Әлдекім бұл компьютерден Chrome жүйесіне <ph name="ACCOUNT_EMAIL_LAST" /> болып кірген. Ақпаратты бөлек сақтау үшін жаңа Chrome пайдаланушысын жасаңыз.</translation>
-<translation id="7916016681687251387">Chrome OS деректеріңізді синхрондай алмады. Қазір түзету.</translation>
+<translation id="7916016681687251387">Chrome OS деректеріңізді синхрондай алмады. Қазір түзетіңіз.</translation>
 <translation id="7962410387636238736">Windows XP және Windows Vista жүйелеріне қолдау көрсетілмейтіндіктен, бұл компьютер енді Google Chrome жаңартылған нұсқаларын қабылдамайды</translation>
 <translation id="8008534537613507642">Chrome қайта орнату</translation>
 <translation id="8013993649590906847">Егер суреттің пайдалы сипаттамасы болмаса, Chrome оны өзі ұсынып көреді. Сипаттамалар жасау үшін суреттер Google-ға жіберіледі.</translation>

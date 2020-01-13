@@ -45,7 +45,7 @@ const char* kElementIsNested = "Element is nested under a locked element.";
 
 // Helper function to convert a display locking state to a string. Used in
 // traces.
-std::string StateToString(DisplayLockContext::State state) {
+const char* StateToString(DisplayLockContext::State state) {
   switch (state) {
     case DisplayLockContext::kLocked:
       return "kLocked";
@@ -120,8 +120,14 @@ void DisplayLockContext::UpdateActivationObservationIfNeeded() {
     return;
   }
 
+  // We require observation if we are viewport-activatable, and one of the
+  // following is true:
+  // 1. We're locked, which means that we need to know when to unlock the
+  //    element
+  // 2. We're activated (in the CSS version), which means that we need to know
+  //    when we stop intersecting the viewport so that we can re-lock.
   bool should_observe =
-      IsLocked() &&
+      (IsLocked() || (!IsAttributeVersion(this) && IsActivated())) &&
       IsActivatable(DisplayLockActivationReason::kViewportIntersection) &&
       ConnectedToView();
   if (should_observe && !is_observed_) {
@@ -393,7 +399,7 @@ void DisplayLockContext::DidPaint(DisplayLockLifecycleTarget) {
 
 bool DisplayLockContext::IsActivatable(
     DisplayLockActivationReason reason) const {
-  return !IsLocked() || (activatable_mask_ & static_cast<uint16_t>(reason));
+  return activatable_mask_ & static_cast<uint16_t>(reason);
 }
 
 void DisplayLockContext::FireActivationEvent(Element* activated_element) {
@@ -414,7 +420,16 @@ void DisplayLockContext::CommitForActivationWithSignal(
                 weak_factory_.GetWeakPtr(), WrapPersistent(activated_element)));
 
   StartCommit();
-  is_activated_ = true;
+
+  if (!IsAttributeVersion(this)) {
+    css_is_activated_ = true;
+    // Since size containment depends on the activatability state, we should
+    // invalidate the style for this element, so that the style adjuster can
+    // properly remove the containment.
+    element_->SetNeedsStyleRecalc(
+        kLocalStyleChange,
+        StyleChangeReasonForTracing::Create(style_change_reason::kDisplayLock));
+  }
 
   // Since setting the attribute might trigger a commit if we are still locked,
   // we set it after we start the commit.
@@ -423,11 +438,12 @@ void DisplayLockContext::CommitForActivationWithSignal(
 }
 
 bool DisplayLockContext::IsActivated() const {
-  return is_activated_;
+  DCHECK(!IsAttributeVersion(this));
+  return css_is_activated_;
 }
 
 void DisplayLockContext::ClearActivated() {
-  is_activated_ = false;
+  css_is_activated_ = false;
 }
 
 bool DisplayLockContext::ShouldCommitForActivation(
@@ -757,13 +773,13 @@ void DisplayLockContext::DidMoveToNewDocument(Document& old_document) {
       document_->View()->RegisterForLifecycleNotifications(this);
   }
 
-  if (!IsActivatable(DisplayLockActivationReason::kAny)) {
-    old_document.RemoveActivationBlockingDisplayLock();
-    document_->AddActivationBlockingDisplayLock();
-  }
   if (IsLocked()) {
     old_document.RemoveLockedDisplayLock();
     document_->AddLockedDisplayLock();
+    if (!IsActivatable(DisplayLockActivationReason::kAny)) {
+      old_document.RemoveActivationBlockingDisplayLock();
+      document_->AddActivationBlockingDisplayLock();
+    }
   }
 }
 
@@ -952,13 +968,13 @@ operator=(State new_state) {
     return *this;
 
   if (state_ == kUnlocked) {
-    TRACE_EVENT_ASYNC_BEGIN0(
+    TRACE_EVENT_NESTABLE_ASYNC_BEGIN0(
         TRACE_DISABLED_BY_DEFAULT("blink.debug.display_lock"),
-        "LockedDisplayLock", this);
-  } else if (new_state == kUnlocked) {
-    TRACE_EVENT_ASYNC_END0(
+        "LockedDisplayLock", TRACE_ID_LOCAL(this));
+  } else {
+    TRACE_EVENT_NESTABLE_ASYNC_END0(
         TRACE_DISABLED_BY_DEFAULT("blink.debug.display_lock"),
-        "LockedDisplayLock", this);
+        StateToString(state_), TRACE_ID_LOCAL(this));
   }
 
   bool was_activatable =
@@ -966,22 +982,30 @@ operator=(State new_state) {
   bool was_locked = context_->IsLocked();
 
   state_ = new_state;
-  if (state_ != kUnlocked) {
-    TRACE_EVENT_ASYNC_STEP_INTO0(
+
+  if (state_ == kUnlocked) {
+    TRACE_EVENT_NESTABLE_ASYNC_END0(
         TRACE_DISABLED_BY_DEFAULT("blink.debug.display_lock"),
-        "LockedDisplayLock", this, StateToString(state_));
+        "LockedDisplayLock", TRACE_ID_LOCAL(this));
+  } else {
+    TRACE_EVENT_NESTABLE_ASYNC_BEGIN0(
+        TRACE_DISABLED_BY_DEFAULT("blink.debug.display_lock"),
+        StateToString(state_), TRACE_ID_LOCAL(this));
   }
 
   if (!context_->document_)
     return *this;
 
-  UpdateActivationBlockingCount(
-      was_activatable,
-      context_->IsActivatable(DisplayLockActivationReason::kAny));
+  bool is_activatable =
+      context_->IsActivatable(DisplayLockActivationReason::kAny);
+  bool is_locked = context_->IsLocked();
+
+  UpdateActivationBlockingCount(!was_locked || was_activatable,
+                                !is_locked || is_activatable);
 
   // Adjust the total number of locked display locks.
   auto& document = *context_->document_;
-  if (context_->IsLocked() != was_locked) {
+  if (is_locked != was_locked) {
     if (was_locked)
       document.RemoveLockedDisplayLock();
     else

@@ -8,6 +8,9 @@
 #include "ash/public/cpp/shelf_model.h"
 #include "base/containers/flat_tree.h"
 #include "base/time/time.h"
+#include "chrome/browser/apps/app_service/app_service_proxy.h"
+#include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
+#include "chrome/browser/chromeos/crostini/crostini_features.h"
 #include "chrome/browser/chromeos/crostini/crostini_force_close_watcher.h"
 #include "chrome/browser/chromeos/crostini/crostini_registry_service.h"
 #include "chrome/browser/chromeos/crostini/crostini_registry_service_factory.h"
@@ -97,6 +100,13 @@ void AppServiceAppWindowCrostiniTracker::OnWindowVisibilityChanged(
       crostini::CrostiniRegistryServiceFactory::GetForProfile(
           chromeos::ProfileHelper::Get()->GetProfileByAccountId(
               primary_account_id));
+
+  // Windows without an application id set will get filtered out here.
+  const std::string& crostini_shelf_app_id =
+      registry_service->GetCrostiniShelfAppId(
+          exo::GetShellApplicationId(window), exo::GetShellStartupId(window));
+  if (crostini_shelf_app_id.empty())
+    return;
 
   // At this point, all remaining windows are Crostini windows. Firstly, we add
   // support for forcibly closing it. We use the registration to retrieve the
@@ -199,6 +209,12 @@ void AppServiceAppWindowCrostiniTracker::Restart(const ash::ShelfID& shelf_id,
 
 std::string AppServiceAppWindowCrostiniTracker::GetShelfAppId(
     aura::Window* window) const {
+  // Only handle the app associated with the primary user.
+  if (!crostini::CrostiniFeatures::Get()->IsUIAllowed(
+          app_service_controller_->owner()->profile())) {
+    return std::string();
+  }
+
   // Transient windows are set up after window init, so remove them here.
   // Crostini shouldn't need to know about ARC app windows.
   if (wm::GetTransientParent(window) ||
@@ -214,6 +230,19 @@ std::string AppServiceAppWindowCrostiniTracker::GetShelfAppId(
         crostini::CrostiniAppIdFromAppName(browser->app_name());
     if (!app_id)
       return std::string();
+
+    // The browser window could be added to InstanceRegistry using Chrome
+    // application's app id, so if the window is for Crostini app, e.g.
+    // terminal, the Chrome instance should be deleted, otherwise, it could
+    // cause inconsistent error.
+    auto* proxy_ = apps::AppServiceProxyFactory::GetForProfile(
+        app_service_controller_->owner()->profile());
+    const ash::ShelfID shelf_id = proxy_->InstanceRegistry().GetShelfId(window);
+    if (shelf_id.app_id != app_id) {
+      app_service_controller_->app_service_instance_helper()->OnInstances(
+          shelf_id.app_id, window, std::string(),
+          apps::InstanceState::kDestroyed);
+    }
     return app_id.value();
   }
 

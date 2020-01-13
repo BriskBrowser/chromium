@@ -9,7 +9,6 @@
 Bəzi funksiyalar əlçatmaz ola bilər ki, nəticədə tərcihlərə edilən dəyişikliklər saxlanmaya bilər.</translation>
 <translation id="1088300314857992706"><ph name="USER_EMAIL_ADDRESS" /> əvvəl Chrome istifadə edirdi</translation>
 <translation id="1097330777386562916">Chrome'dan çıxdıqda kuki və sayt datasını silin</translation>
-<translation id="1104959162601287462">&amp;Chrome OS haqqında</translation>
 <translation id="110877069173485804">Bu, Sizin Chrome'dur</translation>
 <translation id="1142745911746664600">Chrome'u güncəlləmək alınmadı</translation>
 <translation id="1154147086299354128">&amp;Chrome'da açın</translation>
@@ -21,7 +20,6 @@ Bəzi funksiyalar əlçatmaz ola bilər ki, nəticədə tərcihlərə edilən d�
 <translation id="1553358976309200471">Chrome'u güncəlləşdirin</translation>
 <translation id="1587223624401073077">Google Chrome kameranızı istifadə edir.</translation>
 <translation id="1587325591171447154"><ph name="FILE_NAME" /> təhlükəli olduğu üçün Chrome onu blok etdi.</translation>
-<translation id="1590588151039584890">Güncəlləmək üçün bu kompüterdə Chrome dayandırılmalıdır. Bu, həmin kompüterə daxil olmuş digər istifadəçilərin yadda saxlanılmayan dəyişikliklərinin silinməsinə səbəb ola bilər.</translation>
 <translation id="1619887657840448962">Chrome'u təhlükəsiz etmək üçün, <ph name="IDS_EXTENSION_WEB_STORE_TITLE" /> siyahısında olmayan və xəbəriniz olmadan əlavə edilən artırmanı deaktiv etdik.</translation>
 <translation id="1628000112320670027">Chrome ilə yardım alın</translation>
 <translation id="1635734105302489219">Chrome'dan çıxdıqda kukiləri sildiniz. Sinxronizasiyanı davam etdirmək üçün bu <ph name="COOKIE_SETTINGS_LINK" /> ayarını dəyişin.</translation>
@@ -142,7 +140,6 @@ Bəzi funksiyalar əlçatmaz ola bilər. Xüsusi profil direktoriyası göstəri
 <translation id="5386244825306882791">O, həmçinin Chrome'u başlatdığınız zaman və ya Omnibox'dan axtarış etdiyiniz zaman göstərilən səhifəyə nəzarət edir.</translation>
 <translation id="5394833366792865639">Chrome tabı paylaşın</translation>
 <translation id="5430073640787465221">Tərcih faylınız zədələnib və ya yanlışdır.  Google Chrome ayarlarınızı bərpa edə bilmir.</translation>
-<translation id="5543953544073077331">Chrome'un digər nüsxələri işləyir. Güncəlləmək üçün onları bağlayın.</translation>
 <translation id="556024056938947818">Google Chrome parolları göstərməyə cəhd edir.</translation>
 <translation id="5566025111015594046">Google Chrome (mDNS-In)</translation>
 <translation id="5657226924540934362">Hər hansı ayar bu səhifədə göstərilməsə, <ph name="LINK_BEGIN" />
@@ -192,7 +189,6 @@ Bəzi funksiyalar əlçatmaz ola bilər. Xüsusi profil direktoriyası göstəri
 <translation id="7408085963519505752">Chrome OS şərtləri</translation>
 <translation id="7419046106786626209">Chrome OS datanızı sinxronizasiya edə bilmədi, çünki sinxronizasiya domeniniz üçün əlçatan deyil.</translation>
 <translation id="7486227612705979895">Ünvan panelində təkliflər irəli sürmək üçün Chrome Diskinizə daxil olacaq</translation>
-<translation id="7531671357096394523">Bütün Chrome nüsxələrindən çıxın.</translation>
 <translation id="7535429826459677826">Google Chrome Dev</translation>
 <translation id="7573289029918943991">Cihazınızın güncəl olub-olmadığına baxmaq üçün <ph name="LINK_BEGIN" />Chrome OS Ayarlarına<ph name="LINK_END" /> keçin</translation>
 <translation id="7589360514048265910">Bu kompüterdə Mac OS X 10.9 artıq dəstəklənmədiyi üçün daha Google Chrome güncəlləmələri almayacaq.</translation>

@@ -286,6 +286,7 @@ jumbo_component("gfx") {
     ":gfx_switches",
     ":memory_buffer_sources",
     ":native_widget_types",
+    ":resize_image_dimensions",
     ":selection_bound_sources",
     "//base",
     "//skia",
@@ -298,7 +299,6 @@ jumbo_component("gfx") {
   ]
   deps = [
     ":gfx_export",
-    ":resize_image_dimensions",
     "//base",
     "//base:base_static",
     "//base:i18n",
@@ -710,10 +710,7 @@ test("gfx_unittests") {
     ]
   }
   if (is_win) {
-    sources += [
-      "font_fallback_win_unittest.cc",
-      "range/range_win_unittest.cc",
-    ]
+    sources += [ "font_fallback_win_unittest.cc" ]
   }
   if (is_ios) {
     sources += [
@@ -782,7 +779,6 @@ test("gfx_unittests") {
       "transform_util_unittest.cc",
       "utf16_indexing_unittest.cc",
     ]
-    data += [ "$root_out_dir/ui_test.pak" ]
   }
 
   if (is_win) {
@@ -799,6 +795,7 @@ test("gfx_unittests") {
     "//base",
     "//base/test:test_support",
     "//skia",
+    "//skia:skcms",
     "//testing/gtest",
     "//third_party/icu:icuuc",
     "//third_party/libpng",
@@ -807,7 +804,6 @@ test("gfx_unittests") {
     "//ui/gfx/animation",
     "//ui/gfx/geometry",
     "//ui/gfx/range",
-    "//ui/resources:ui_test_pak",
   ]
 
   if (!is_ios) {
@@ -819,7 +815,7 @@ test("gfx_unittests") {
   }
 
   data_deps = [
-    "//ui/resources:ui_test_pak",
+    "//ui/resources:ui_test_pak_data",
   ]
 
   if (is_mac || is_ios) {

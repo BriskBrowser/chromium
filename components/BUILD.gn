@@ -50,10 +50,6 @@ test("components_unittests") {
   if (is_android || is_linux || is_mac || is_win) {
     data = [
       "test/data/",
-
-      # TODO(dpranke): Remove the next two lines after GN has rolled to 339778.
-      "$root_out_dir/components_tests_resources.pak",
-      "$root_out_dir/ui_test.pak",
     ]
   }
 
@@ -259,10 +255,11 @@ test("components_unittests") {
       "//components/performance_manager:unit_tests",
       "//components/policy/content:unit_tests",
       "//components/previews/content:unit_tests",
-      "//components/safe_browsing/common:unit_tests",
-      "//components/safe_browsing/password_protection:password_protection_unittest",
-      "//components/safe_browsing/triggers:unit_tests",
-      "//components/safe_browsing/web_ui:unit_tests",
+      "//components/safe_browsing/content/password_protection:password_protection_unittest",
+      "//components/safe_browsing/content/triggers:unit_tests",
+      "//components/safe_browsing/content/web_ui:unit_tests",
+      "//components/safe_browsing/core/common:unit_tests",
+      "//components/safe_browsing/core/triggers:unit_tests",
       "//components/security_interstitials/content:unit_tests",
       "//components/security_state/content:unit_tests",
       "//components/services/heap_profiling:unit_tests",
@@ -295,7 +292,7 @@ test("components_unittests") {
     data_deps = [
       ":components_tests_pak",
       "//third_party/mesa_headers",
-      "//ui/resources:ui_test_pak",
+      "//ui/resources:ui_test_pak_data",
     ]
   }  # iOS/!iOS
 
@@ -320,6 +317,7 @@ test("components_unittests") {
       "//components/gcm_driver/instance_id/android:instance_id_driver_test_support_java",
       "//components/invalidation/impl",
       "//components/invalidation/impl:java",
+      "//components/paint_preview/browser/android:java",
       "//components/paint_preview/player/android:unit_tests",
       "//components/policy/android:policy_java",
       "//components/signin/core/browser",
@@ -397,8 +395,8 @@ test("components_unittests") {
   }
   if (safe_browsing_mode == 1) {
     deps += [
-      "//components/safe_browsing:verdict_cache_manager_unittest",
-      "//components/safe_browsing/db:unit_tests_desktop",
+      "//components/safe_browsing/core:verdict_cache_manager_unittest",
+      "//components/safe_browsing/core/db:unit_tests_desktop",
     ]
   } else if (safe_browsing_mode == 2) {
     deps += [ "//components/safe_browsing/android:unit_tests_mobile" ]
@@ -406,7 +404,7 @@ test("components_unittests") {
 
   if (!is_ios) {
     deps += [
-      "//components/safe_browsing/realtime:unit_tests",
+      "//components/safe_browsing/core/realtime:unit_tests",
       "//components/webrtc_logging/browser:unit_tests",
       "//components/webrtc_logging/common:unit_tests",
     ]
@@ -669,15 +667,13 @@ if (!is_ios && !is_fuchsia) {
 
     data_deps = [
       ":components_tests_pak",
-      "//ui/resources:ui_test_pak",
+      "//ui/resources:ui_test_pak_data",
 
       # Needed for isolate script to execute.
       "//testing:run_perf_test",
     ]
 
     data = [
-      "$root_out_dir/components_tests_resources.pak",
-      "$root_out_dir/ui_test.pak",
       "//components/subresource_filter/core/common/perftests/data/",
       "//third_party/subresource-filter-ruleset/data/",
     ]
@@ -692,11 +688,11 @@ if (!is_ios && !is_fuchsia) {
     }
 
     if (!is_android) {
-      sources += [ "safe_browsing/db/v4_store_perftest.cc" ]
+      sources += [ "safe_browsing/core/db/v4_store_perftest.cc" ]
       deps += [
-        "//components/safe_browsing/db:v4_protocol_manager_util",
-        "//components/safe_browsing/db:v4_store",
-        "//components/safe_browsing/db:v4_test_util",
+        "//components/safe_browsing/core/db:v4_protocol_manager_util",
+        "//components/safe_browsing/core/db:v4_store",
+        "//components/safe_browsing/core/db:v4_test_util",
         "//crypto",
       ]
     }

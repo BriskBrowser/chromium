@@ -128,6 +128,7 @@ public class FeatureUtilities {
         cacheStartSurfaceEnabled();
         cacheNativeTabSwitcherUiFlags();
         cacheHomepageLocationPolicyEnabled();
+        cachePaintPreviewTestEnabled();
 
         // Propagate REACHED_CODE_PROFILER feature value to LibraryLoader. This can't be done in
         // LibraryLoader itself because it lives in //base and can't depend on ChromeFeatureList.
@@ -403,6 +404,11 @@ public class FeatureUtilities {
     private static void cacheStartSurfaceEnabled() {
         cacheFlag(ChromePreferenceKeys.FLAGS_CACHED_START_SURFACE_ENABLED,
                 ChromeFeatureList.START_SURFACE_ANDROID);
+        String feature = ChromeFeatureList.getFieldTrialParamByFeature(
+                ChromeFeatureList.START_SURFACE_ANDROID, "start_surface_variation");
+        SharedPreferencesManager.getInstance().writeBoolean(
+                ChromePreferenceKeys.START_SURFACE_SINGLE_PANE_ENABLED_KEY,
+                feature.equals("single"));
     }
 
     /**
@@ -412,6 +418,19 @@ public class FeatureUtilities {
         return isFlagEnabled(ChromePreferenceKeys.FLAGS_CACHED_START_SURFACE_ENABLED, false);
     }
 
+    private static void cachePaintPreviewTestEnabled() {
+        cacheFlag(ChromePreferenceKeys.FLAGS_CACHED_PAINT_PREVIEW_TEST_ENABLED_KEY,
+                ChromeFeatureList.PAINT_PREVIEW_TEST);
+    }
+
+    /**
+     * @return Whether the Paint Preview tapture test is enabled
+     */
+    public static boolean isPaintPreviewTestEnabled() {
+        return isFlagEnabled(
+                ChromePreferenceKeys.FLAGS_CACHED_PAINT_PREVIEW_TEST_ENABLED_KEY, false);
+    }
+
     @VisibleForTesting
     static void cacheNativeTabSwitcherUiFlags() {
         if (isEligibleForTabUiExperiments()) {
@@ -419,6 +438,14 @@ public class FeatureUtilities {
             cacheTabGroupsAndroidEnabled();
             cacheDuetTabStripIntegrationAndroidEnabled();
         }
+    }
+
+    /**
+     * @return Whether the Start Surface SinglePane is enabled.
+     */
+    public static boolean isStartSurfaceSinglePaneEnabled() {
+        return isStartSurfaceEnabled()
+                && isFlagEnabled(ChromePreferenceKeys.START_SURFACE_SINGLE_PANE_ENABLED_KEY, false);
     }
 
     @VisibleForTesting

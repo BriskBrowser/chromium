@@ -16,6 +16,8 @@
 #include "chrome/browser/autocomplete/in_memory_url_index_factory.h"
 #include "chrome/browser/autocomplete/remote_suggestions_service_factory.h"
 #include "chrome/browser/autocomplete/shortcuts_backend_factory.h"
+#include "chrome/browser/bitmap_fetcher/bitmap_fetcher_service.h"
+#include "chrome/browser/bitmap_fetcher/bitmap_fetcher_service_factory.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -57,10 +59,6 @@
 #include "chrome/browser/upgrade_detector/upgrade_detector.h"
 #endif
 
-#if defined(OS_CHROMEOS)
-#include "chromeos/constants/chromeos_features.h"
-#endif
-
 namespace {
 
 #if !defined(OS_ANDROID)
@@ -79,22 +77,11 @@ const char* const kChromeSettingsSubPages[] = {
 };
 #endif  // !defined(OS_ANDROID)
 
-#if defined(OS_CHROMEOS)
-const char* const kChromeOSSettingsSubPages[] = {
-    chrome::kAccessibilitySubPage, chrome::kBluetoothSubPage,
-    chrome::kDateTimeSubPage,      chrome::kDisplaySubPage,
-    chrome::kInternetSubPage,      chrome::kNativePrintingSettingsSubPage,
-    chrome::kPowerSubPage,         chrome::kStylusSubPage,
-    chrome::kWiFiSettingsSubPage,
-};
-#endif  // defined(OS_CHROMEOS)
-
 }  // namespace
 
 ChromeAutocompleteProviderClient::ChromeAutocompleteProviderClient(
     Profile* profile)
     : profile_(profile),
-      bitmap_fetcher_helper_(profile),
       scheme_classifier_(profile),
       url_consent_helper_(
           unified_consent::UrlKeyedDataCollectionConsentHelper::
@@ -236,18 +223,6 @@ std::vector<base::string16> ChromeAutocompleteProviderClient::GetBuiltinURLs() {
   }
 #endif
 
-#if defined(OS_CHROMEOS)
-  // TODO(crbug/950007): Delete this after the settings split is complete since
-  // the OS setting routes should not show up as an autocomplete suggestion in
-  // browser.
-  if (!base::FeatureList::IsEnabled(chromeos::features::kSplitSettings)) {
-    for (size_t i = 0; i < base::size(kChromeOSSettingsSubPages); i++) {
-      builtins.push_back(settings +
-                         base::ASCIIToUTF16(kChromeOSSettingsSubPages[i]));
-    }
-  }
-#endif
-
   return builtins;
 }
 
@@ -322,7 +297,9 @@ void ChromeAutocompleteProviderClient::PrefetchImage(const GURL& url) {
   // Note: Android uses different image fetching mechanism to avoid
   // penalty of copying byte buffers from C++ to Java.
 #if !defined(OS_ANDROID)
-  bitmap_fetcher_helper_.PrefetchImage(url);
+  BitmapFetcherService* bitmap_fetcher_service =
+      BitmapFetcherServiceFactory::GetForBrowserContext(profile_);
+  bitmap_fetcher_service->Prefetch(url);
 #endif  // !defined(OS_ANDROID)
 }
 

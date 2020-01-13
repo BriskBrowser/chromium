@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/feature_list.h"
 #include "base/run_loop.h"
 #include "base/scoped_observer.h"
 #include "base/stl_util.h"
@@ -60,11 +61,6 @@
 #include "ui/events/event_constants.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/geometry/point.h"
-
-#if defined(OS_CHROMEOS)
-#include "chrome/browser/ui/settings_window_manager_chromeos.h"
-#include "chromeos/constants/chromeos_features.h"
-#endif
 
 using base::ASCIIToUTF16;
 using base::UTF16ToUTF8;
@@ -536,14 +532,8 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewTest, BackspaceInKeywordMode) {
             UTF16ToUTF8(omnibox_view->GetText()));
 }
 
-// TODO(https://crbug.com/1030551): This test flakily times out on ASAN and
-// TSAN.
-#if defined(ADDRESS_SANITIZER) || defined(THREAD_SANITIZER)
-#define MAYBE_DesiredTLD DISABLED_DesiredTLD
-#else
-#define MAYBE_DesiredTLD DesiredTLD
-#endif
-IN_PROC_BROWSER_TEST_F(OmniboxViewTest, MAYBE_DesiredTLD) {
+// TODO(https://crbug.com/1030551): This test flakily times out.
+IN_PROC_BROWSER_TEST_F(OmniboxViewTest, DISABLED_DesiredTLD) {
   OmniboxView* omnibox_view = NULL;
   ASSERT_NO_FATAL_FAILURE(GetOmniboxView(&omnibox_view));
   OmniboxPopupModel* popup_model = omnibox_view->model()->popup_model();
@@ -653,14 +643,8 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewTest, AltEnter) {
   ASSERT_NO_FATAL_FAILURE(WaitForTabOpenOrClose(tab_count + 1));
 }
 
-// TODO(https://crbug.com/1030551): This test flakily times out on ASAN and
-// TSAN.
-#if defined(ADDRESS_SANITIZER) || defined(THREAD_SANITIZER)
-#define MAYBE_EnterToSearch DISABLED_EnterToSearch
-#else
-#define MAYBE_EnterToSearch EnterToSearch
-#endif
-IN_PROC_BROWSER_TEST_F(OmniboxViewTest, MAYBE_EnterToSearch) {
+// TODO(https://crbug.com/1030551): This test flakily times out.
+IN_PROC_BROWSER_TEST_F(OmniboxViewTest, DISABLED_EnterToSearch) {
   OmniboxView* omnibox_view = NULL;
   ASSERT_NO_FATAL_FAILURE(GetOmniboxView(&omnibox_view));
   OmniboxPopupModel* popup_model = omnibox_view->model()->popup_model();
@@ -1332,6 +1316,11 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewTest, TabAcceptKeyword) {
 #if !defined(OS_MACOSX)
 // Mac intentionally does not support this behavior.
 IN_PROC_BROWSER_TEST_F(OmniboxViewTest, WrappingTabTraverseResultsTest) {
+  if (base::FeatureList::IsEnabled(
+          omnibox::kOmniboxSuggestionTransparencyOptions)) {
+    return;
+  }
+
   OmniboxView* omnibox_view = nullptr;
   ASSERT_NO_FATAL_FAILURE(GetOmniboxView(&omnibox_view));
   OmniboxPopupModel* popup_model = omnibox_view->model()->popup_model();
@@ -1630,42 +1619,14 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewTest, Paste) {
   // TODO(msw): Test that AltGr+V does not paste.
 }
 
-class OmniboxViewTestWithoutSplitSettings : public OmniboxViewTest {
- public:
-  OmniboxViewTestWithoutSplitSettings() {
-#if defined(OS_CHROMEOS)
-    feature_list_.InitAndDisableFeature(chromeos::features::kSplitSettings);
-#endif
-  }
-
- private:
-  base::test::ScopedFeatureList feature_list_;
-};
-
-IN_PROC_BROWSER_TEST_F(OmniboxViewTestWithoutSplitSettings, EditSearchEngines) {
+IN_PROC_BROWSER_TEST_F(OmniboxViewTest, EditSearchEngines) {
   OmniboxView* omnibox_view = nullptr;
   ASSERT_NO_FATAL_FAILURE(GetOmniboxView(&omnibox_view));
-#if defined(OS_CHROMEOS)
-  // Install the Settings App.
-  web_app::WebAppProvider::Get(browser()->profile())
-      ->system_web_app_manager()
-      .InstallSystemAppsForTesting();
-
-  EXPECT_FALSE(
-      chrome::SettingsWindowManager::GetInstance()->FindBrowserForProfile(
-          browser()->profile()));
-#endif
   EXPECT_TRUE(chrome::ExecuteCommand(browser(), IDC_EDIT_SEARCH_ENGINES));
   ASSERT_NO_FATAL_FAILURE(WaitForAutocompleteControllerDone());
-#if defined(OS_CHROMEOS)
-  EXPECT_TRUE(
-      chrome::SettingsWindowManager::GetInstance()->FindBrowserForProfile(
-          browser()->profile()));
-#else
   const std::string target_url =
       std::string(chrome::kChromeUISettingsURL) + chrome::kSearchEnginesSubPage;
   EXPECT_EQ(ASCIIToUTF16(target_url), omnibox_view->GetText());
-#endif
   EXPECT_FALSE(omnibox_view->model()->popup_model()->IsOpen());
 }
 

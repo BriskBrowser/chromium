@@ -369,6 +369,11 @@ const char kFocusMode[] = "Focus Mode";
 const char kFocusModeDescription[] =
     "If enabled, allows the user to switch to Focus Mode";
 
+const char kFontAccessAPIName[] = "Font Access APIs";
+const char kFontAccessAPIDescription[] =
+    "Enables the experimental Font Access APIs, giving websites access "
+    "to enumerate local fonts and access their table data.";
+
 const char kFontSrcLocalMatchingName[] =
     "Match @font-face { src: local(<name>) } names by PostScript and full font "
     "name.";
@@ -643,6 +648,11 @@ extern const char kDesktopPWAsLocalUpdatingName[] =
 extern const char kDesktopPWAsLocalUpdatingDescription[] =
     "Enable installed PWAs to update their app manifest data when the site "
     "manifest data has changed.";
+
+extern const char kDesktopPWAsTabStripName[] = "Desktop PWA tab strips";
+extern const char kDesktopPWAsTabStripDescription[] =
+    "Experimental UI for exploring what PWA windows would look like with a tab "
+    "strip.";
 
 const char kEnableSystemWebAppsName[] = "System Web Apps";
 const char kEnableSystemWebAppsDescription[] =
@@ -986,6 +996,11 @@ const char kEnableWasmThreadsName[] = "WebAssembly threads support";
 const char kEnableWasmThreadsDescription[] =
     "Enables support for the WebAssembly Threads proposal. Implies "
     "#shared-array-buffer and #enable-webassembly.";
+
+const char kEnableWasmTieringName[] = "WebAssembly tiering";
+const char kEnableWasmTieringDescription[] =
+    "Enables tiered compilation of WebAssembly (will tier up to TurboFan if "
+    "#enable-webassembly-baseline is enabled.";
 
 const char kEvDetailsInPageInfoName[] = "EV certificate details in Page Info.";
 const char kEvDetailsInPageInfoDescription[] =
@@ -1405,12 +1420,6 @@ const char kOmniboxExperimentalSuggestScoringDescription[] =
     "Enables an experimental scoring mode for suggestions when Google is the "
     "default search engine.";
 
-const char kOmniboxGroupSuggestionsBySearchVsUrlName[] =
-    "Omnibox Group Suggestions By Search vs URL";
-const char kOmniboxGroupSuggestionsBySearchVsUrlDescription[] =
-    "Group suggestions by major type, search then navigation, except for "
-    "the default match which must be first.";
-
 const char kOmniboxLocalEntitySuggestionsName[] =
     "Omnibox Local Entity Suggestions";
 const char kOmniboxLocalEntitySuggestionsDescription[] =
@@ -1700,6 +1709,11 @@ const char kPrivacySettingsRedesignDescription[] =
     "Redesign of the privacy settings card to make it more prominent and "
     "and easier to use.";
 
+const char kProfileCardName[] = "Profile Card";
+const char kProfileCardDescription[] =
+    "Allows users to open the profile card to see more informations about "
+    "the content creators.";
+
 const char kProminentDarkModeActiveTabTitleName[] =
     "Prominent Dark Mode Active Tab Titles";
 const char kProminentDarkModeActiveTabTitleDescription[] =
@@ -1834,12 +1848,6 @@ const char kSendTabToSelfWhenSignedInDescription[] =
     "Allows use of the send-tab-to-self feature for users who are signed-in "
     "but not necessarily syncing. The tab-share data is thus ephemeral, "
     "rather than persistent sync data.";
-
-const char kServiceWorkerImportedScriptUpdateCheckName[] =
-    "Enable update check for service worker importScripts() resources";
-const char kServiceWorkerImportedScriptUpdateCheckDescription[] =
-    "Extend byte-for-byte update check for scripts that are imported by the "
-    "service worker script via importScripts().";
 
 const char kServiceWorkerLongRunningMessageName[] =
     "Service worker long running message dispatch.";
@@ -2346,26 +2354,31 @@ const char kWebXrDescription[] =
     "Enables access to experimental APIs to interact with Virtual Reality (VR) "
     "and Augmented Reality (AR) devices.";
 
+const char kWebXrForceRuntimeName[] = "Force WebXr Runtime";
+const char kWebXrForceRuntimeDescription[] =
+    "Force the browser to use a particular runtime, even if it would not "
+    "usually be enabled or would otherwise not be selected based on the "
+    "attached hardware.";
+
+const char kWebXrRuntimeChoiceNone[] = "No Runtime";
+const char kWebXrRuntimeChoiceOrientationSensors[] = "Orientation sensors";
+const char kWebXrRuntimeChoiceOculus[] = "Oculus";
+const char kWebXrRuntimeChoiceOpenVR[] = "SteamVR (OpenVR)";
+const char kWebXrRuntimeChoiceOpenXR[] = "OpenXR";
+const char kWebXrRuntimeChoiceWindowsMixedReality[] = "Windows Mixed Reality";
+
 const char kWebXrArModuleName[] = "WebXR AR Module";
 const char kWebXrArModuleDescription[] =
     "Enables access to Augmented Reality features defined in the WebXR AR "
     "Module";
 
-const char kWebXrArDOMOverlayName[] = "WebXR AR DOM Overlay";
-const char kWebXrArDOMOverlayDescription[] =
-    "Enables experimental use of a DOM overlay in WebXR AR sessions";
-
-const char kWebXrAnchorsName[] = "WebXR Anchors";
-const char kWebXrAnchorsDescription[] =
-    "Enables access to anchors via WebXR API.";
-
 const char kWebXrHitTestName[] = "WebXR Hit Test";
 const char kWebXrHitTestDescription[] =
     "Enables access to raycasting against estimated XR scene geometry.";
 
-const char kWebXrPlaneDetectionName[] = "WebXR Plane Detection";
-const char kWebXrPlaneDetectionDescription[] =
-    "Enables access to planes detected in the user's environment.";
+const char kWebXrIncubationsName[] = "WebXR Incubations";
+const char kWebXrIncubationsDescription[] =
+    "Enables experimental features for WebXR.";
 
 const char kZeroCopyName[] = "Zero-copy rasterizer";
 const char kZeroCopyDescription[] =
@@ -3050,6 +3063,10 @@ const char kGoogleBrandedContextMenuDescription[] =
     "Shows a Google icon next to context menu items powered by Google "
     "services.";
 
+const char kSyncSetupFriendlySettingsName[] = "Sync setup friendly settings";
+const char kSyncSetupFriendlySettingsDescription[] =
+    "Enable the new sync setup friendly settings";
+
 #endif  // !defined(OS_ANDROID)
 
 // Windows ---------------------------------------------------------------------
@@ -3343,6 +3360,15 @@ const char kCrostiniAppSearchDescription[] =
 const char kCrostiniBackupName[] = "Crostini Backup";
 const char kCrostiniBackupDescription[] = "Enable Crostini export and import.";
 
+const char kCrostiniPortForwardingName[] = "Crostini Port Forwarding";
+const char kCrostiniPortForwardingDescription[] =
+    "Enable Crostini port forwarding.";
+
+const char kCrostiniDiskResizingName[] = "Allow resizing Crostini disks";
+const char kCrostiniDiskResizingDescription[] =
+    "Use preallocated user-resizeable disks for Crostini instead of sparse "
+    "automatically sized disks.";
+
 const char kCrostiniUseBusterImageName[] = "New Crostini containers use Buster";
 const char kCrostiniUseBusterImageDescription[] =
     "New Crostini containers use Debian Buster images instead of Debian "
@@ -3569,6 +3595,11 @@ const char kEnableZeroStateSuggestionsDescription[] =
     "Enable Zero State Suggestions feature in Launcher, which will show "
     "suggestions when launcher search box is active with an empty query";
 
+const char kEnableSuggestedFilesName[] = "Enable Suggested Files";
+const char kEnableSuggestedFilesDescription[] =
+    "Enable Suggested Files feature in Launcher, which will show file "
+    "suggestions in the suggestion chips when the launcher is opened";
+
 const char kEnterpriseReportingInChromeOSName[] =
     "Enterprise cloud reporting in Chrome OS";
 const char kEnterpriseReportingInChromeOSDescription[] =
@@ -3758,10 +3789,6 @@ const char kSmartTextSelectionName[] = "Smart Text Selection";
 const char kSmartTextSelectionDescription[] =
     "Shows quick actions for text "
     "selections in the context menu.";
-
-const char kSplitSettingsName[] = "Split OS and browser settings";
-const char kSplitSettingsDescription[] =
-    "Show separate settings for the OS and browser";
 
 const char kSplitSettingsSyncName[] = "Split OS and browser sync";
 const char kSplitSettingsSyncDescription[] =
@@ -3980,46 +4007,11 @@ const char kDcheckIsFatalDescription[] =
     "rather than crashing. If enabled, DCHECKs will crash the calling process.";
 #endif  // defined(DCHECK_IS_CONFIGURABLE)
 
-#if BUILDFLAG(ENABLE_VR)
-
-const char kWebXrOrientationSensorDeviceName[] = "Orientation sensors for XR";
-const char kWebXrOrientationSensorDeviceDescription[] =
-    "Allow use of orientation sensors for XR if present";
-
-#if BUILDFLAG(ENABLE_OCULUS_VR)
-const char kOculusVRName[] = "Oculus hardware support";
-const char kOculusVRDescription[] =
-    "If enabled, Chrome will use Oculus devices for VR (supported only on "
-    "Windows 10 or later).";
-#endif  // ENABLE_OCULUS_VR
-
-#if BUILDFLAG(ENABLE_OPENVR)
-const char kOpenVRName[] = "OpenVR hardware support";
-const char kOpenVRDescription[] =
-    "If enabled, Chrome will use OpenVR devices for VR (supported only on "
-    "Windows 10 or later).";
-#endif  // ENABLE_OPENVR
-
-#if BUILDFLAG(ENABLE_WINDOWS_MR)
-const char kWindowsMixedRealityName[] = "Windows Mixed Reality support";
-const char kWindowsMixedRealityDescription[] =
-    "If enabled, Chrome will use Windows Mixed Reality devices for VR"
-    " (supported only on Windows 10 or later).";
-#endif  // ENABLE_WINDOWS_MR
-
-#if BUILDFLAG(ENABLE_OPENXR)
-const char kOpenXRName[] = "OpenXR support";
-const char kOpenXRDescription[] =
-    "If enabled, Chrome will use OpenXR Backend for VR.";
-#endif  // ENABLE_OPENXR
-
-#if !defined(OS_ANDROID)
+#if BUILDFLAG(ENABLE_VR) && !defined(OS_ANDROID)
 const char kXRSandboxName[] = "XR device sandboxing";
 const char kXRSandboxDescription[] =
     "If enabled, Chrome will host VR APIs in a restricted process on desktop.";
-#endif  // !defined(OS_ANDROID)
-
-#endif  // ENABLE_VR
+#endif  // ENABLE_VR && !defined(OS_ANDROID)
 
 #if BUILDFLAG(ENABLE_NACL)
 const char kNaclName[] = "Native Client";
@@ -4027,6 +4019,13 @@ const char kNaclDescription[] =
     "Support Native Client for all web applications, even those that were not "
     "installed from the Chrome Web Store.";
 #endif  // ENABLE_NACL
+
+#if BUILDFLAG(ENABLE_PAINT_PREVIEW) && defined(OS_ANDROID)
+const char kPaintPreviewTestName[] = "Paint Preview Test";
+const char kPaintPreviewTestDescription[] =
+    "If enabled a menu item is added to the Android main menu to test paint "
+    "previews.";
+#endif  // ENABLE_PAINT_PREVIEW && defined(OS_ANDROID)
 
 #if BUILDFLAG(ENABLE_PLUGINS)
 

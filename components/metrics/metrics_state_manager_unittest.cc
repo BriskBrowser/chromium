@@ -58,10 +58,10 @@ class MetricsStateManagerTest : public testing::Test {
   std::unique_ptr<MetricsStateManager> CreateStateManager() {
     return MetricsStateManager::Create(
         &prefs_, enabled_state_provider_.get(), base::string16(),
-        base::Bind(&MetricsStateManagerTest::MockStoreClientInfoBackup,
-                   base::Unretained(this)),
-        base::Bind(&MetricsStateManagerTest::LoadFakeClientInfoBackup,
-                   base::Unretained(this)));
+        base::BindRepeating(&MetricsStateManagerTest::MockStoreClientInfoBackup,
+                            base::Unretained(this)),
+        base::BindRepeating(&MetricsStateManagerTest::LoadFakeClientInfoBackup,
+                            base::Unretained(this)));
   }
 
   // Sets metrics reporting as enabled for testing.
@@ -365,6 +365,18 @@ TEST_F(MetricsStateManagerTest, ForceClientIdCreation) {
     EXPECT_EQ(prefs_.GetInt64(prefs::kMetricsReportingEnabledTimestamp),
               stored_client_info_backup_->reporting_enabled_date);
   }
+}
+
+TEST_F(MetricsStateManagerTest,
+       ForceClientIdCreation_ConsentIntitially_NoInstallDate) {
+  // Confirm that the initial ForceClientIdCreation call creates the install
+  // date and then backs it up via MockStoreClientInfoBackup.
+  EXPECT_FALSE(stored_client_info_backup_);
+  EnableMetricsReporting();
+  std::unique_ptr<MetricsStateManager> state_manager(CreateStateManager());
+
+  ASSERT_TRUE(stored_client_info_backup_);
+  EXPECT_NE(0, stored_client_info_backup_->installation_date);
 }
 
 #if !defined(OS_WIN)

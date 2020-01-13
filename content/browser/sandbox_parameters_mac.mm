@@ -219,6 +219,7 @@ void SetupSandboxParameters(service_manager::SandboxType sandbox_type,
                             sandbox::SeatbeltExecClient* client) {
   switch (sandbox_type) {
     case service_manager::SandboxType::kAudio:
+    case service_manager::SandboxType::kSoda:
     case service_manager::SandboxType::kNaClLoader:
     case service_manager::SandboxType::kPdfCompositor:
     case service_manager::SandboxType::kRenderer:
@@ -239,7 +240,6 @@ void SetupSandboxParameters(service_manager::SandboxType sandbox_type,
       SetupPPAPISandboxParameters(client);
 #endif
       break;
-    case service_manager::SandboxType::kProfiling:
     case service_manager::SandboxType::kUtility:
       SetupUtilitySandboxParameters(client, command_line);
       break;

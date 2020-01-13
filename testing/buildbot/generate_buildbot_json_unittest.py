@@ -573,6 +573,17 @@ FOO_TEST_SUITE = """\
 }
 """
 
+FOO_TEST_SUITE_NOT_SORTED = """\
+{
+  'basic_suites': {
+    'foo_tests': {
+      'foo_test': {},
+      'a_test': {},
+    },
+  },
+}
+"""
+
 FOO_TEST_SUITE_WITH_ARGS = """\
 {
   'basic_suites': {
@@ -609,6 +620,46 @@ FOO_TEST_SUITE_WITH_ENABLE_FEATURES = """\
         'args': [
           '--enable-features=Foo,Bar',
         ],
+      },
+    },
+  },
+}
+"""
+
+FOO_TEST_SUITE_WITH_REMOVE_WATERFALL_MIXIN = """\
+{
+  'basic_suites': {
+    'foo_tests': {
+      'foo_test': {
+        'remove_mixins': ['waterfall_mixin'],
+        'swarming': {
+          'dimension_sets': [
+            {
+              'integrity': 'high',
+            }
+          ],
+          'expiration': 120,
+        },
+      },
+    },
+  },
+}
+"""
+
+FOO_TEST_SUITE_WITH_REMOVE_BUILDER_MIXIN = """\
+{
+  'basic_suites': {
+    'foo_tests': {
+      'foo_test': {
+        'remove_mixins': ['builder_mixin'],
+        'swarming': {
+          'dimension_sets': [
+            {
+              'integrity': 'high',
+            }
+          ],
+          'expiration': 120,
+        },
       },
     },
   },
@@ -907,6 +958,37 @@ EXCEPTIONS_UNSORTED = """\
     'modifications': {
       'Fake Tester': {
         'foo': 'bar',
+      },
+    },
+  },
+}
+"""
+
+EXCEPTIONS_PER_TEST_UNSORTED = """\
+{
+  'suite_d': {
+    'modifications': {
+      'Other Tester': {
+        'foo': 'baz',
+      },
+      'Fake Tester': {
+        'foo': 'baz',
+      },
+    },
+  },
+}
+"""
+
+EXCEPTIONS_DUPS_REMOVE_FROM = """\
+{
+  'suite_d': {
+    'remove_from': [
+      'Fake Tester',
+      'Fake Tester',
+    ],
+    'modifications': {
+      'Fake Tester': {
+        'foo': 'baz',
       },
     },
   },
@@ -2454,9 +2536,9 @@ class UnitTest(unittest.TestCase):
       fbb.check_input_file_consistency(verbose=True)
     joined_lines = '\n'.join(fbb.printed_lines)
     self.assertRegexpMatches(
-      joined_lines, '.*\+chromium\..*test.*')
+      joined_lines, '.*\+ chromium\..*test.*')
     self.assertRegexpMatches(
-      joined_lines, '.*\-chromium\..*test.*')
+      joined_lines, '.*\- chromium\..*test.*')
     fbb.printed_lines = []
     self.assertFalse(fbb.printed_lines)
 
@@ -2486,14 +2568,56 @@ class UnitTest(unittest.TestCase):
     fbb = FakeBBGen(TEST_SUITE_SORTING_WATERFALL,
                     TEST_SUITE_SORTED,
                     LUCI_MILO_CFG,
+                    exceptions=EXCEPTIONS_DUPS_REMOVE_FROM)
+    with self.assertRaises(generate_buildbot_json.BBGenErr):
+      fbb.check_input_file_consistency(verbose=True)
+    joined_lines = ' '.join(fbb.printed_lines)
+    self.assertRegexpMatches(
+        joined_lines, '.*\- Fake Tester.*')
+    fbb.printed_lines = []
+    self.assertFalse(fbb.printed_lines)
+
+  def test_test_suite_exceptions_no_dups_remove_from(self):
+    fbb = FakeBBGen(TEST_SUITE_SORTING_WATERFALL,
+                    TEST_SUITE_SORTED,
+                    LUCI_MILO_CFG,
+                    exceptions=EXCEPTIONS_SORTED)
+    fbb.check_input_file_consistency(verbose=True)
+    self.assertFalse(fbb.printed_lines)
+
+    fbb = FakeBBGen(TEST_SUITE_SORTING_WATERFALL,
+                    TEST_SUITE_SORTED,
+                    LUCI_MILO_CFG,
+                    exceptions=EXCEPTIONS_PER_TEST_UNSORTED)
+    with self.assertRaises(generate_buildbot_json.BBGenErr):
+      fbb.check_input_file_consistency(verbose=True)
+    joined_lines = ' '.join(fbb.printed_lines)
+    self.assertRegexpMatches(
+        joined_lines, '.*\+ Fake Tester.*')
+    self.assertRegexpMatches(
+        joined_lines, '.*\- Fake Tester.*')
+    fbb.printed_lines = []
+    self.assertFalse(fbb.printed_lines)
+
+  def test_test_suite_exceptions_per_test_must_be_sorted(self):
+    fbb = FakeBBGen(TEST_SUITE_SORTING_WATERFALL,
+                    TEST_SUITE_SORTED,
+                    LUCI_MILO_CFG,
+                    exceptions=EXCEPTIONS_SORTED)
+    fbb.check_input_file_consistency(verbose=True)
+    self.assertFalse(fbb.printed_lines)
+
+    fbb = FakeBBGen(TEST_SUITE_SORTING_WATERFALL,
+                    TEST_SUITE_SORTED,
+                    LUCI_MILO_CFG,
                     exceptions=EXCEPTIONS_UNSORTED)
     with self.assertRaises(generate_buildbot_json.BBGenErr):
       fbb.check_input_file_consistency(verbose=True)
     joined_lines = ' '.join(fbb.printed_lines)
     self.assertRegexpMatches(
-        joined_lines, '.*\+suite_.*')
+        joined_lines, '.*\+ suite_.*')
     self.assertRegexpMatches(
-        joined_lines, '.*\-suite_.*')
+        joined_lines, '.*\- suite_.*')
     fbb.printed_lines = []
     self.assertFalse(fbb.printed_lines)
 
@@ -2516,9 +2640,9 @@ class UnitTest(unittest.TestCase):
         fbb.check_input_file_consistency(verbose=True)
       joined_lines = ' '.join(fbb.printed_lines)
       self.assertRegexpMatches(
-          joined_lines, '.*\+suite_.*')
+          joined_lines, '.*\+ suite_.*')
       self.assertRegexpMatches(
-          joined_lines, '.*\-suite_.*')
+          joined_lines, '.*\- suite_.*')
       fbb.printed_lines = []
       self.assertFalse(fbb.printed_lines)
 
@@ -2547,6 +2671,24 @@ FOO_GTESTS_BUILDER_MIXIN_WATERFALL = """\
     'machines': {
       'Fake Tester': {
         'mixins': ['builder_mixin'],
+        'swarming': {},
+        'test_suites': {
+          'gtest_tests': 'foo_tests',
+        },
+      },
+    },
+  },
+]
+"""
+
+FOO_GTESTS_WATERFALL_MIXIN_BUILDER_REMOVE_MIXIN_WATERFALL = """\
+[
+  {
+    'mixins': ['waterfall_mixin'],
+    'name': 'chromium.test',
+    'machines': {
+      'Fake Tester': {
+        'remove_mixins': ['waterfall_mixin'],
         'swarming': {},
         'test_suites': {
           'gtest_tests': 'foo_tests',
@@ -2848,6 +2990,33 @@ WATERFALL_MIXIN_WATERFALL_OUTPUT = """\
 }
 """
 
+WATERFALL_MIXIN_REMOVE_WATERFALL_OUTPUT = """\
+{
+  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
+  "AAAAA2 See generate_buildbot_json.py to make changes": {},
+  "Fake Tester": {
+    "gtest_tests": [
+      {
+        "merge": {
+          "args": [],
+          "script": "//testing/merge_scripts/standard_gtest_merge.py"
+        },
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "integrity": "high"
+            }
+          ],
+          "expiration": 120
+        },
+        "test": "foo_test"
+      }
+    ]
+  }
+}
+"""
+
 WATERFALL_MIXIN_WATERFALL_EXCEPTION_OUTPUT = """\
 {
   "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
@@ -3031,11 +3200,11 @@ class MixinTests(unittest.TestCase):
                     mixins=SWARMING_MIXINS_UNSORTED)
     with self.assertRaises(generate_buildbot_json.BBGenErr):
       fbb.check_input_file_consistency(verbose=True)
-    joined_lines = ' '.join(fbb.printed_lines)
+    joined_lines = '\n'.join(fbb.printed_lines)
     self.assertRegexpMatches(
-        joined_lines, '.*\+._mixin.*')
+        joined_lines, '.*\+ ._mixin.*')
     self.assertRegexpMatches(
-        joined_lines, '.*\-._mixin.*')
+        joined_lines, '.*\- ._mixin.*')
     fbb.printed_lines = []
     self.assertFalse(fbb.printed_lines)
 
@@ -3153,9 +3322,23 @@ class MixinTests(unittest.TestCase):
         generate_buildbot_json.BBGenErr,
         'The following files have invalid keys: mixins.pyl'):
       fbb.check_input_file_consistency(verbose=True)
-    joined_lines = ' '.join(fbb.printed_lines)
+    joined_lines = '\n'.join(fbb.printed_lines)
     self.assertRegexpMatches(
-        joined_lines, 'Key .* is duplicated')
+        joined_lines, '.*\- builder_mixin')
+    fbb.printed_lines = []
+    self.assertFalse(fbb.printed_lines)
+
+  def test_no_duplicate_keys_basic_test_suite(self):
+    fbb = FakeBBGen(FOO_GTESTS_WATERFALL,
+                    FOO_TEST_SUITE_NOT_SORTED,
+                    LUCI_MILO_CFG)
+    with self.assertRaisesRegexp(
+        generate_buildbot_json.BBGenErr,
+        'The following files have invalid keys: test_suites.pyl'):
+      fbb.check_input_file_consistency(verbose=True)
+    joined_lines = '\n'.join(fbb.printed_lines)
+    self.assertRegexpMatches(joined_lines, '.*\- a_test')
+    self.assertRegexpMatches(joined_lines, '.*\+ a_test')
     fbb.printed_lines = []
     self.assertFalse(fbb.printed_lines)
 
@@ -3212,6 +3395,33 @@ class MixinTests(unittest.TestCase):
         generate_buildbot_json.BBGenErr,
         'Cannot apply \$mixin_append to non-list "swarming".'):
       fbb.check_output_file_consistency(verbose=True)
+    self.assertFalse(fbb.printed_lines)
+
+  def test_remove_mixin_builder_remove_waterfall(self):
+    fbb = FakeBBGen(FOO_GTESTS_WATERFALL_MIXIN_BUILDER_REMOVE_MIXIN_WATERFALL,
+                    FOO_TEST_SUITE,
+                    LUCI_MILO_CFG,
+                    mixins=SWARMING_MIXINS)
+    fbb.files['chromium.test.json'] = WATERFALL_MIXIN_REMOVE_WATERFALL_OUTPUT
+    fbb.check_output_file_consistency(verbose=True)
+    self.assertFalse(fbb.printed_lines)
+
+  def test_remove_mixin_test_remove_waterfall(self):
+    fbb = FakeBBGen(FOO_GTESTS_WATERFALL_MIXIN_WATERFALL,
+                    FOO_TEST_SUITE_WITH_REMOVE_WATERFALL_MIXIN,
+                    LUCI_MILO_CFG,
+                    mixins=SWARMING_MIXINS)
+    fbb.files['chromium.test.json'] = WATERFALL_MIXIN_REMOVE_WATERFALL_OUTPUT
+    fbb.check_output_file_consistency(verbose=True)
+    self.assertFalse(fbb.printed_lines)
+
+  def test_remove_mixin_test_remove_builder(self):
+    fbb = FakeBBGen(FOO_GTESTS_BUILDER_MIXIN_WATERFALL,
+                    FOO_TEST_SUITE_WITH_REMOVE_BUILDER_MIXIN,
+                    LUCI_MILO_CFG,
+                    mixins=SWARMING_MIXINS)
+    fbb.files['chromium.test.json'] = WATERFALL_MIXIN_REMOVE_WATERFALL_OUTPUT
+    fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
 TEST_SUITE_WITH_PARAMS = """\

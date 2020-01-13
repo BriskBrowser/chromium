@@ -102,7 +102,7 @@ namespace {
 // Convert VideoFrameLayout to ImageProcessor::PortConfig.
 base::Optional<ImageProcessor::PortConfig> VideoFrameLayoutToPortConfig(
     const VideoFrameLayout& layout,
-    const gfx::Size& visible_size,
+    const gfx::Rect& visible_rect,
     const std::vector<VideoFrame::StorageType>& preferred_storage_types) {
   auto fourcc =
       Fourcc::FromVideoPixelFormat(layout.format(), !layout.is_multi_planar());
@@ -112,7 +112,7 @@ base::Optional<ImageProcessor::PortConfig> VideoFrameLayoutToPortConfig(
     return base::nullopt;
   }
   return ImageProcessor::PortConfig(*fourcc, layout.coded_size(),
-                                    layout.planes(), visible_size,
+                                    layout.planes(), visible_rect,
                                     preferred_storage_types);
 }
 }  // namespace
@@ -321,12 +321,13 @@ bool V4L2VideoEncodeAccelerator::CreateImageProcessor(
   // However, it doesn't matter VideoFrame::STORAGE_OWNED_MEMORY is specified
   // for |input_storage_type| here, as long as VideoFrame on Process()'s data
   // can be accessed by VideoFrame::data().
-  auto input_config = VideoFrameLayoutToPortConfig(
-      input_layout, visible_size, {VideoFrame::STORAGE_OWNED_MEMORY});
+  auto input_config =
+      VideoFrameLayoutToPortConfig(input_layout, gfx::Rect(visible_size),
+                                   {VideoFrame::STORAGE_OWNED_MEMORY});
   if (!input_config)
     return false;
   auto output_config = VideoFrameLayoutToPortConfig(
-      output_layout, visible_size,
+      output_layout, gfx::Rect(visible_size),
       {VideoFrame::STORAGE_DMABUFS, VideoFrame::STORAGE_OWNED_MEMORY});
   if (!output_config)
     return false;
@@ -568,6 +569,8 @@ size_t V4L2VideoEncodeAccelerator::CopyIntoOutputBuffer(
   parser.SetStream(bitstream_data, bitstream_size);
   H264NALU nalu;
 
+  bool inserted_sps = false;
+  bool inserted_pps = false;
   while (parser.AdvanceToNextNALU(&nalu) == H264Parser::kOk) {
     // nalu.size is always without the start code, regardless of the NALU type.
     if (nalu.size + kH264StartCodeSize > remaining_dst_size) {
@@ -581,6 +584,7 @@ size_t V4L2VideoEncodeAccelerator::CopyIntoOutputBuffer(
         memcpy(cached_sps_.data(), nalu.data, nalu.size);
         cached_h264_header_size_ =
             cached_sps_.size() + cached_pps_.size() + 2 * kH264StartCodeSize;
+        inserted_sps = true;
         break;
 
       case H264NALU::kPPS:
@@ -588,9 +592,14 @@ size_t V4L2VideoEncodeAccelerator::CopyIntoOutputBuffer(
         memcpy(cached_pps_.data(), nalu.data, nalu.size);
         cached_h264_header_size_ =
             cached_sps_.size() + cached_pps_.size() + 2 * kH264StartCodeSize;
+        inserted_pps = true;
         break;
 
       case H264NALU::kIDRSlice:
+        if (inserted_sps && inserted_pps) {
+          // Already inserted SPS and PPS. No need to inject.
+          break;
+        }
         // Only inject if we have both headers cached, and enough space for both
         // the headers and the NALU itself.
         if (cached_sps_.empty() || cached_pps_.empty()) {
@@ -603,10 +612,14 @@ size_t V4L2VideoEncodeAccelerator::CopyIntoOutputBuffer(
           break;
         }
 
-        CopyNALUPrependingStartCode(cached_sps_.data(), cached_sps_.size(),
-                                    &dst_ptr, &remaining_dst_size);
-        CopyNALUPrependingStartCode(cached_pps_.data(), cached_pps_.size(),
-                                    &dst_ptr, &remaining_dst_size);
+        if (!inserted_sps) {
+          CopyNALUPrependingStartCode(cached_sps_.data(), cached_sps_.size(),
+                                      &dst_ptr, &remaining_dst_size);
+        }
+        if (!inserted_pps) {
+          CopyNALUPrependingStartCode(cached_pps_.data(), cached_pps_.size(),
+                                      &dst_ptr, &remaining_dst_size);
+        }
         VLOGF(2) << "Stream header injected before IDR";
         break;
     }
@@ -897,7 +910,11 @@ void V4L2VideoEncodeAccelerator::Enqueue() {
       encoder_state_ = kFlushing;
       break;
     }
-    if (!EnqueueInputRecord())
+    auto input_buffer = input_queue_->GetFreeBuffer();
+    // input_buffer cannot be base::nullopt since we checked for
+    // input_queue_->FreeBuffersCount() > 0 before entering the loop.
+    DCHECK(input_buffer);
+    if (!EnqueueInputRecord(std::move(*input_buffer)))
       return;
   }
   if (old_inputs_queued == 0 && input_queue_->QueuedBuffersCount() != 0) {
@@ -918,8 +935,8 @@ void V4L2VideoEncodeAccelerator::Enqueue() {
 
   // Enqueue all the outputs we can.
   const size_t old_outputs_queued = output_queue_->QueuedBuffersCount();
-  while (output_queue_->FreeBuffersCount() > 0) {
-    if (!EnqueueOutputRecord())
+  while (auto output_buffer = output_queue_->GetFreeBuffer()) {
+    if (!EnqueueOutputRecord(std::move(*output_buffer)))
       return;
   }
   if (old_outputs_queued == 0 && output_queue_->QueuedBuffersCount() != 0) {
@@ -1057,10 +1074,10 @@ void V4L2VideoEncodeAccelerator::PumpBitstreamBuffers() {
   }
 }
 
-bool V4L2VideoEncodeAccelerator::EnqueueInputRecord() {
+bool V4L2VideoEncodeAccelerator::EnqueueInputRecord(
+    V4L2WritableBufferRef input_buf) {
   DVLOGF(4);
   DCHECK_CALLED_ON_VALID_SEQUENCE(encoder_sequence_checker_);
-  DCHECK_GT(input_queue_->FreeBuffersCount(), 0u);
   DCHECK(!encoder_input_queue_.empty());
   TRACE_EVENT0("media,gpu", "V4L2VEA::EnqueueInputRecord");
 
@@ -1080,8 +1097,6 @@ bool V4L2VideoEncodeAccelerator::EnqueueInputRecord() {
 
   scoped_refptr<VideoFrame> frame = frame_info.frame;
 
-  V4L2WritableBufferRef input_buf = input_queue_->GetFreeBuffer();
-  DCHECK(input_buf.IsValid());
   size_t buffer_id = input_buf.BufferId();
 
   struct timeval timestamp;
@@ -1181,15 +1196,13 @@ bool V4L2VideoEncodeAccelerator::EnqueueInputRecord() {
   return true;
 }
 
-bool V4L2VideoEncodeAccelerator::EnqueueOutputRecord() {
+bool V4L2VideoEncodeAccelerator::EnqueueOutputRecord(
+    V4L2WritableBufferRef output_buf) {
   DVLOGF(4);
   DCHECK_CALLED_ON_VALID_SEQUENCE(encoder_sequence_checker_);
-  DCHECK_GT(output_queue_->FreeBuffersCount(), 0u);
   TRACE_EVENT0("media,gpu", "V4L2VEA::EnqueueOutputRecord");
 
   // Enqueue an output (VIDEO_CAPTURE) buffer.
-  V4L2WritableBufferRef output_buf = output_queue_->GetFreeBuffer();
-  DCHECK(output_buf.IsValid());
   if (!std::move(output_buf).QueueMMap()) {
     VLOGF(1) << "Failed to QueueMMap.";
     return false;

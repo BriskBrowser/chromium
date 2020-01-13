@@ -58,7 +58,7 @@ const extensions::Extension* GetExtensionByPath(
 // order matches, the return value is empty; otherwise, it contains the error.
 std::string VerifyToolbarOrderForBar(
     const ToolbarActionsBar* actions_bar,
-    BrowserActionTestUtil* browser_action_test_util,
+    ExtensionActionTestHelper* browser_action_test_util,
     const char* expected_names[],
     size_t total_size,
     size_t visible_count) {
@@ -172,7 +172,8 @@ void ToolbarActionsBarUnitTest::SetUp() {
           profile());
 
   ToolbarActionsBar::disable_animations_for_testing_ = true;
-  browser_action_test_util_ = BrowserActionTestUtil::Create(browser(), false);
+  browser_action_test_util_ =
+      ExtensionActionTestHelper::Create(browser(), false);
 
   overflow_browser_action_test_util_ =
       browser_action_test_util_->CreateOverflowBar(browser());
@@ -619,13 +620,13 @@ TEST_P(ToolbarActionsBarUnitTest, ReuploadExtensionFailed) {
       extensions::ExtensionRegistry::Get(profile());
 
   extensions::TestExtensionDir ext_dir;
-  const char kManifest[] =
-      "{"
-      "  'name': 'Test',"
-      "  'version': '1',"
-      "  'manifest_version': 2"
-      "}";
-  ext_dir.WriteManifestWithSingleQuotes(kManifest);
+  constexpr char kManifest[] =
+      R"({
+           "name": "Test",
+           "version": "1",
+           "manifest_version": 2
+         })";
+  ext_dir.WriteManifest(kManifest);
 
   scoped_refptr<extensions::UnpackedInstaller> installer =
       extensions::UnpackedInstaller::Create(service);
@@ -657,15 +658,15 @@ TEST_P(ToolbarActionsBarUnitTest, ReuploadExtensionFailed) {
   // Replace the extension's valid manifest with one containing errors. In this
   // case, the error is that both the 'browser_action' and 'page_action' keys
   // are specified instead of only one.
-  const char kManifestWithErrors[] =
-      "{"
-      "  'name': 'Test',"
-      "  'version': '1',"
-      "  'manifest_version': 2,"
-      "  'page_action' : {},"
-      "  'browser_action' : {}"
-      "}";
-  ext_dir.WriteManifestWithSingleQuotes(kManifestWithErrors);
+  constexpr char kManifestWithErrors[] =
+      R"({
+           "name": "Test",
+           "version": "1",
+           "manifest_version": 2,
+           "page_action" : {},
+           "browser_action" : {}
+         })";
+  ext_dir.WriteManifest(kManifestWithErrors);
 
   // Reload the extension again. Check that the updated extension cannot be
   // loaded due to the manifest errors.

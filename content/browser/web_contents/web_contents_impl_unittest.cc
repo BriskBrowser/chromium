@@ -324,9 +324,7 @@ class TestWebContentsObserver : public WebContentsObserver {
     EXPECT_TRUE(web_contents()->CompletedFirstVisuallyNonEmptyPaint());
   }
 
-  void DidChangeThemeColor(base::Optional<SkColor> theme_color) override {
-    last_theme_color_ = theme_color;
-  }
+  void DidChangeThemeColor() override { ++theme_color_change_calls_; }
 
   void DidChangeVerticalScrollDirection(
       viz::VerticalScrollDirection scroll_direction) override {
@@ -340,7 +338,7 @@ class TestWebContentsObserver : public WebContentsObserver {
   }
 
   const GURL& last_url() const { return last_url_; }
-  base::Optional<SkColor> last_theme_color() const { return last_theme_color_; }
+  int theme_color_change_calls() const { return theme_color_change_calls_; }
   base::Optional<viz::VerticalScrollDirection> last_vertical_scroll_direction()
       const {
     return last_vertical_scroll_direction_;
@@ -357,7 +355,7 @@ class TestWebContentsObserver : public WebContentsObserver {
 
  private:
   GURL last_url_;
-  base::Optional<SkColor> last_theme_color_;
+  int theme_color_change_calls_ = 0;
   base::Optional<viz::VerticalScrollDirection> last_vertical_scroll_direction_;
   bool observed_did_first_visually_non_empty_paint_ = false;
   int num_is_connected_to_bluetooth_device_changed_ = 0;
@@ -1271,7 +1269,7 @@ TEST_F(WebContentsImplTest, CrossSiteNavigationBackOldNavigationIgnored) {
   // Before that commits, go back again.
   auto back_navigation2 =
       NavigationSimulatorImpl::CreateHistoryNavigation(-1, contents());
-  back_navigation2->set_drop_swap_out_ack(true);
+  back_navigation2->set_drop_unload_ack(true);
   back_navigation2->ReadyToCommit();
   EXPECT_TRUE(contents()->CrossProcessNavigationPending());
   EXPECT_TRUE(contents()->GetPendingMainFrame());
@@ -3359,27 +3357,27 @@ TEST_F(WebContentsImplTest, ThemeColorChangeDependingOnFirstVisiblePaint) {
   rfh->InitializeRenderFrameIfNeeded();
 
   EXPECT_EQ(base::nullopt, contents()->GetThemeColor());
-  EXPECT_EQ(base::nullopt, observer.last_theme_color());
+  EXPECT_EQ(0, observer.theme_color_change_calls());
 
   // Theme color changes should not propagate past the WebContentsImpl before
   // the first visually non-empty paint has occurred.
   rfh->DidChangeThemeColor(SK_ColorRED);
 
   EXPECT_EQ(SK_ColorRED, contents()->GetThemeColor());
-  EXPECT_EQ(base::nullopt, observer.last_theme_color());
+  EXPECT_EQ(0, observer.theme_color_change_calls());
 
   // Simulate that the first visually non-empty paint has occurred. This will
   // propagate the current theme color to the delegates.
   RenderViewHostTester::SimulateFirstPaint(test_rvh());
 
   EXPECT_EQ(SK_ColorRED, contents()->GetThemeColor());
-  EXPECT_EQ(SK_ColorRED, observer.last_theme_color());
+  EXPECT_EQ(1, observer.theme_color_change_calls());
 
   // Additional changes made by the web contents should propagate as well.
   rfh->DidChangeThemeColor(SK_ColorGREEN);
 
   EXPECT_EQ(SK_ColorGREEN, contents()->GetThemeColor());
-  EXPECT_EQ(SK_ColorGREEN, observer.last_theme_color());
+  EXPECT_EQ(2, observer.theme_color_change_calls());
 }
 
 TEST_F(WebContentsImplTest, ParseDownloadHeaders) {
@@ -3612,6 +3610,38 @@ TEST_F(WebContentsImplTest, Bluetooth) {
   EXPECT_EQ(observer.num_is_connected_to_bluetooth_device_changed(), 2);
   EXPECT_FALSE(observer.last_is_connected_to_bluetooth_device());
   EXPECT_FALSE(contents()->IsConnectedToBluetoothDevice());
+}
+
+TEST_F(WebContentsImplTest, FaviconURLsSet) {
+  const FaviconURL kFavicon(GURL("https://example.com/favicon.ico"),
+                            FaviconURL::IconType::kFavicon, {});
+
+  contents()->NavigateAndCommit(GURL("https://example.com"));
+  EXPECT_EQ(0u, contents()->GetFaviconURLs().size());
+
+  contents()->OnUpdateFaviconURL(contents()->GetMainFrame(), {kFavicon});
+  EXPECT_EQ(1u, contents()->GetFaviconURLs().size());
+
+  contents()->OnUpdateFaviconURL(contents()->GetMainFrame(),
+                                 {kFavicon, kFavicon});
+  EXPECT_EQ(2u, contents()->GetFaviconURLs().size());
+
+  contents()->OnUpdateFaviconURL(contents()->GetMainFrame(), {kFavicon});
+  EXPECT_EQ(1u, contents()->GetFaviconURLs().size());
+}
+
+TEST_F(WebContentsImplTest, FaviconURLsResetWithNavigation) {
+  const FaviconURL kFavicon(GURL("https://example.com/favicon.ico"),
+                            FaviconURL::IconType::kFavicon, {});
+
+  contents()->NavigateAndCommit(GURL("https://example.com"));
+  EXPECT_EQ(0u, contents()->GetFaviconURLs().size());
+
+  contents()->OnUpdateFaviconURL(contents()->GetMainFrame(), {kFavicon});
+  EXPECT_EQ(1u, contents()->GetFaviconURLs().size());
+
+  contents()->NavigateAndCommit(GURL("https://example.com/navigation.html"));
+  EXPECT_EQ(0u, contents()->GetFaviconURLs().size());
 }
 
 }  // namespace content

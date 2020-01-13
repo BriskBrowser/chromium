@@ -68,6 +68,7 @@ class TabStrip;
 class TabStripRegionView;
 class ToolbarButtonProvider;
 class ToolbarView;
+class TopContainerLoadingBar;
 class TopContainerView;
 class TopControlsSlideControllerTest;
 class WebContentsCloseHandler;
@@ -497,6 +498,7 @@ class BrowserView : public BrowserWindow,
   void OnGestureEvent(ui::GestureEvent* event) override;
   void ViewHierarchyChanged(
       const views::ViewHierarchyChangedDetails& details) override;
+  void AddedToWidget() override;
   void PaintChildren(const views::PaintInfo& paint_info) override;
   void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
   void ChildPreferredSizeChanged(View* child) override;
@@ -577,9 +579,6 @@ class BrowserView : public BrowserWindow,
   // tab navigations and need to give users a visual clue as to what tabs are
   // affected.
   void RevealTabStripIfNeeded();
-
-  // Constructs and initializes the child views.
-  void InitViews();
 
   // Make sure the WebUI tab strip exists if it should.
   void MaybeInitializeWebUITabStrip();
@@ -752,6 +751,9 @@ class BrowserView : public BrowserWindow,
 
   // Separator between top container and contents.
   views::View* contents_separator_ = nullptr;
+
+  // Loading bar (part of top container for / WebUI tab strip).
+  TopContainerLoadingBar* loading_bar_ = nullptr;
 
   // The do-nothing view which controls the z-order of the find bar widget
   // relative to views which paint into layers and views with an associated

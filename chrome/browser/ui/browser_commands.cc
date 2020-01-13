@@ -24,6 +24,7 @@
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/media/router/media_router_dialog_controller.h"  // nogncheck
 #include "chrome/browser/media/router/media_router_feature.h"
+#include "chrome/browser/media/router/media_router_metrics.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile.h"
@@ -108,7 +109,6 @@
 #include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/extensions/settings_api_bubble_helpers.h"
-#include "chrome/browser/ui/web_applications/web_app_dialog_utils.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
 #include "chrome/common/extensions/extension_metrics.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
@@ -759,13 +759,21 @@ bool CanDuplicateKeyboardFocusedTab(const Browser* browser) {
   return CanDuplicateTabAt(browser, *GetKeyboardFocusedTabIndex(browser));
 }
 
-bool CanMoveTabToNewWindow(Browser* browser) {
-  return browser->tab_strip_model()->count() > 1;
+bool CanMoveActiveTabToNewWindow(Browser* browser) {
+  return CanMoveTabToNewWindow(browser,
+                               browser->tab_strip_model()->active_index());
 }
 
-void MoveTabToNewWindow(Browser* browser) {
-  int index = browser->tab_strip_model()->active_index();
-  auto contents = browser->tab_strip_model()->DetachWebContentsAt(index);
+void MoveActiveTabToNewWindow(Browser* browser) {
+  MoveTabToNewWindow(browser, browser->tab_strip_model()->active_index());
+}
+bool CanMoveTabToNewWindow(Browser* browser, int tab_index) {
+  return browser->tab_strip_model()->count() > 1 &&
+         CanDuplicateTabAt(browser, tab_index);
+}
+
+void MoveTabToNewWindow(Browser* browser, int tab_index) {
+  auto contents = browser->tab_strip_model()->DetachWebContentsAt(tab_index);
   CHECK(contents);
   CreateAndShowNewWindowWithContents(std::move(contents), browser);
 }
@@ -1127,7 +1135,7 @@ bool CanRouteMedia(Browser* browser) {
          !IsShowingWebContentsModalDialog(browser);
 }
 
-void RouteMedia(Browser* browser) {
+void RouteMediaInvokedFromAppMenu(Browser* browser) {
   DCHECK(CanRouteMedia(browser));
 
   media_router::MediaRouterDialogController* dialog_controller =
@@ -1136,7 +1144,8 @@ void RouteMedia(Browser* browser) {
   if (!dialog_controller)
     return;
 
-  dialog_controller->ShowMediaRouterDialog();
+  dialog_controller->ShowMediaRouterDialog(
+      media_router::MediaRouterDialogOpenOrigin::APP_MENU);
 }
 
 void EmailPageLocation(Browser* browser) {
@@ -1419,20 +1428,6 @@ bool CanViewSource(const Browser* browser) {
                                              ->GetController()
                                              .CanViewSource();
 }
-
-#if BUILDFLAG(ENABLE_EXTENSIONS)
-void CreateBookmarkAppFromCurrentWebContents(Browser* browser,
-                                             bool force_shortcut_app) {
-  // TODO(alancutter): Legacy metric to remove in ~M80.
-  base::RecordAction(UserMetricsAction("CreateHostedApp"));
-  web_app::CreateWebAppFromCurrentWebContents(browser, force_shortcut_app,
-                                              base::DoNothing());
-}
-
-bool CanCreateBookmarkApp(const Browser* browser) {
-  return web_app::CanCreateWebApp(browser);
-}
-#endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
 #if !defined(TOOLKIT_VIEWS)
 base::Optional<int> GetKeyboardFocusedTabIndex(const Browser* browser) {

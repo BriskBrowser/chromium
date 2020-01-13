@@ -4,6 +4,8 @@
 
 import copy
 
+import web_idl
+
 from . import name_style
 from .codegen_format import NonRenderable
 from .path_manager import PathManager
@@ -21,6 +23,7 @@ class CodeGenContext(object):
 
     # "for_world" attribute values
     MAIN_WORLD = "main"
+    NON_MAIN_WORLDS = "other"
     ALL_WORLDS = "all"
 
     @classmethod
@@ -50,6 +53,7 @@ class CodeGenContext(object):
             "constructor": None,
             "constructor_group": None,
             "dict_member": None,
+            "exposed_construct": None,
             "operation": None,
             "operation_group": None,
 
@@ -167,7 +171,7 @@ class CodeGenContext(object):
     @property
     def idl_location(self):
         idl_def = self.member_like or self.idl_definition
-        if idl_def:
+        if idl_def and not isinstance(idl_def, web_idl.Union):
             location = idl_def.debug_info.location
             text = PathManager.relpath_to_project_root(location.filepath)
             if location.line_number is not None:
@@ -223,7 +227,8 @@ class CodeGenContext(object):
     @property
     def property_(self):
         return (self.attribute or self.constant or self.constructor_group
-                or self.dict_member or self.operation_group)
+                or self.dict_member or self.exposed_construct
+                or self.operation_group)
 
     @property
     def return_type(self):

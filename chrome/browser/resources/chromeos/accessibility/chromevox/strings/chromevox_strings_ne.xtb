@@ -419,6 +419,7 @@
 <translation id="3914732343065571127">ChromeVox को आदेशसम्बन्धी सन्दर्भ</translation>
 <translation id="3930383913623796990">वासन्ती हरियो</translation>
 <translation id="3930498801443296724">उद्धरण</translation>
+<translation id="3935615366277838204">ठूला अक्षर <ph name="LETTER" /></translation>
 <translation id="3936394396199829062">लाभेन्डर ब्लस</translation>
 <translation id="3941269780691800708">माउस मुन्तिरको पाठ पढ्नुहोस्।</translation>
 <translation id="394953087167197343">गलत हिज्जे इङ्गित गर्नुहोस्:</translation>
@@ -792,7 +793,6 @@
 <translation id="6459511626086141404">समातल कुञ्जीनक्सा</translation>
 <translation id="6468049171101508116">अर्को बटन</translation>
 <translation id="646954774886932461">अनुक्रमणिका</translation>
-<translation id="6479792383819319132">यसपछि कुनै पनि अनुच्छेद छैन।</translation>
 <translation id="6493991254603208962">उज्यालो कम</translation>
 <translation id="6501595918865591267">टर्कोइस</translation>
 <translation id="6508059270146105198">ब्रेल प्रदर्शनलाई पृष्ठको तल पट्टी सार्नुहोस्</translation>
@@ -815,7 +815,6 @@
 <translation id="6637586476836377253">लग</translation>
 <translation id="6657128831881431364">प्रगति पट्टी</translation>
 <translation id="6659594942844771486">ट्याब</translation>
-<translation id="6675661017770918201">यसअघि कुनै पनि अनुच्छेद छैन।</translation>
 <translation id="667999046851023355">कागजात</translation>
 <translation id="6688209025607531203">एउटा मोडल बाहेकको सतर्कता</translation>
 <translation id="6689672606256159458">गाढा साल्मोन</translation>
@@ -844,6 +843,7 @@
 <translation id="6865519907510167493">गलत हिज्जे</translation>
 <translation id="6871161210040114857">केस बेवास्ता गर्दै।</translation>
 <translation id="6877435256196695200">अर्को ग्राफिक छैण।</translation>
+<translation id="688976158310523235">खोजसम्बन्धी मेनु</translation>
 <translation id="6897341342232909480">बायाँ सार्नुहोस्</translation>
 <translation id="6901540140423170855">मिति</translation>
 <translation id="6910211073230771657">मेटाइएको</translation>
@@ -856,6 +856,7 @@
 <translation id="699159175332639490">Search + O + W</translation>
 <translation id="6994042831499278539">शब्दावलीको सन्दर्भ</translation>
 <translation id="6996566555547746822">अर्को कम्बो बक्स</translation>
+<translation id="6997224546856374593">ठूला अक्षरहरू पढ्दा:</translation>
 <translation id="700202842116345659">ग्रन्थसूचीको प्रविष्टि</translation>
 <translation id="7005146664810010831">युआरएल फेला परेन</translation>
 <translation id="7010712454773919705">ChromeVox परिमार्जक कुञ्जी</translation>
@@ -936,6 +937,7 @@ Chrome ब्राउजरको मेनु खोल्न Alt+F थिच�
 <translation id="744163271241493234">pwded</translation>
 <translation id="7491962110804786152">ट्याब</translation>
 <translation id="7492049978501397201">प्रविष्ट गरिएको संवाद</translation>
+<translation id="7505149250476994901">अक्षर पढ्नुअघि "ठूला अक्षर" भन्नुहोस्</translation>
 <translation id="7518543783849163354">ChromeVox लाई बोल्नबाट अस्थायी रूपमा रोक्न कन्ट्रोल कुञ्जी थिच्नुहोस्।</translation>
 <translation id="7521682724501952239">तपाईं टचस्क्रिनमार्फत ChromeVox प्रयोग गर्न सक्नुहुन्छ।</translation>
 <translation id="7532613204005497612">जुन</translation>
@@ -1207,6 +1209,7 @@ Chrome ब्राउजरको मेनु खोल्न Alt+F थिच�
 <translation id="9065283790526219006">+ पपअप</translation>
 <translation id="9066023754636984703">विवरणहरूमा जान खोज +A, J थिच्नुहोस्।</translation>
 <translation id="9067522039955793016">पृष्ठ विच्छेद</translation>
+<translation id="9074824103975499138">ChromeVox का मेनुहरू खोज्नुहोस्</translation>
 <translation id="9077213568694924680">चयनबाट हटाइएको</translation>
 <translation id="9077305471618729969">हल्का समुद्री हरियो</translation>
 <translation id="9082874451376019682">कुनै अघिल्लो स्लाइडर छैन।</translation>

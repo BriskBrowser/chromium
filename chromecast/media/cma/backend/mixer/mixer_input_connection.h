@@ -16,6 +16,7 @@
 #include "base/synchronization/lock.h"
 #include "base/thread_annotations.h"
 #include "base/timer/timer.h"
+#include "chromecast/media/audio/audio_clock_simulator.h"
 #include "chromecast/media/audio/audio_fader.h"
 #include "chromecast/media/audio/audio_provider.h"
 #include "chromecast/media/audio/mixer_service/mixer_service.pb.h"
@@ -23,6 +24,7 @@
 #include "chromecast/media/cma/backend/mixer/mixer_input.h"
 #include "chromecast/public/media/media_pipeline_backend.h"
 #include "chromecast/public/volume_control.h"
+#include "media/base/media_util.h"
 
 namespace base {
 class SequencedTaskRunner;
@@ -90,6 +92,7 @@ class MixerInputConnection : public mixer_service::MixerSocket::Delegate,
   void OnInactivityTimeout();
   void RestartPlaybackAt(int64_t timestamp, int64_t pts);
   void SetMediaPlaybackRate(double rate);
+  void SetAudioClockRate(double rate);
   void SetPaused(bool paused);
 
   // MixerInput::Source implementation:
@@ -175,6 +178,7 @@ class MixerInputConnection : public mixer_service::MixerSocket::Delegate,
   int extra_delay_frames_ GUARDED_BY(lock_) = 0;
   int current_buffer_offset_ GUARDED_BY(lock_) = 0;
   AudioFader fader_ GUARDED_BY(lock_);
+  AudioClockSimulator audio_clock_simulator_ GUARDED_BY(lock_);
   bool zero_fader_frames_ GUARDED_BY(lock_) = false;
   bool started_ GUARDED_BY(lock_) = false;
   double playback_rate_ GUARDED_BY(lock_) = 1.0;
@@ -190,6 +194,7 @@ class MixerInputConnection : public mixer_service::MixerSocket::Delegate,
   // to us.
   int64_t playback_start_pts_ GUARDED_BY(lock_) = INT64_MIN;
   int remaining_silence_frames_ GUARDED_BY(lock_) = 0;
+  ::media::NullMediaLog media_log_;
   std::unique_ptr<::media::AudioRendererAlgorithm> rate_shifter_
       GUARDED_BY(lock_);
   std::unique_ptr<::media::AudioBus> rate_shifter_output_ GUARDED_BY(lock_);

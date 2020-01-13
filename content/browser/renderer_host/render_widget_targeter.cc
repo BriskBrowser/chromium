@@ -106,7 +106,7 @@ RenderWidgetTargeter::TargetingRequest::TargetingRequest(
     const ui::LatencyInfo& latency) {
   this->root_view = std::move(root_view);
   this->location = ComputeEventLocation(event);
-  this->event = ui::WebInputEventTraits::Clone(event);
+  this->event = event.Clone();
   this->latency = latency;
 }
 
@@ -144,16 +144,6 @@ bool RenderWidgetTargeter::TargetingRequest::MergeEventIfPossible(
     return true;
   }
   return false;
-}
-
-void RenderWidgetTargeter::TargetingRequest::StartQueueingTimeTracker() {
-  tracker =
-      std::make_unique<TracingUmaTracker>("Event.AsyncTargeting.TimeInQueue");
-}
-
-void RenderWidgetTargeter::TargetingRequest::StopQueueingTimeTracker() {
-  if (tracker)
-    tracker->StopAndRecord();
 }
 
 bool RenderWidgetTargeter::TargetingRequest::IsWebInputEventRequest() const {
@@ -223,7 +213,6 @@ void RenderWidgetTargeter::FindTargetAndCallback(
 
 void RenderWidgetTargeter::ResolveTargetingRequest(TargetingRequest request) {
   if (request_in_flight_) {
-    request.StartQueueingTimeTracker();
     requests_.push(std::move(request));
     return;
   }
@@ -340,7 +329,6 @@ void RenderWidgetTargeter::FlushEventQueue() {
     if (!request.GetRootView())
       continue;
 
-    request.StopQueueingTimeTracker();
     // Only notify the delegate once that the current event queue is being
     // flushed. Once all the events are flushed, notify the delegate again.
     if (!events_being_flushed) {

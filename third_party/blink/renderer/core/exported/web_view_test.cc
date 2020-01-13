@@ -99,6 +99,7 @@
 #include "third_party/blink/renderer/core/html/forms/external_date_time_chooser.h"
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
 #include "third_party/blink/renderer/core/html/forms/html_text_area_element.h"
+#include "third_party/blink/renderer/core/html/html_document.h"
 #include "third_party/blink/renderer/core/html/html_iframe_element.h"
 #include "third_party/blink/renderer/core/html/html_object_element.h"
 #include "third_party/blink/renderer/core/inspector/dev_tools_emulator.h"
@@ -143,7 +144,6 @@
 #endif
 
 #if BUILDFLAG(ENABLE_UNHANDLED_TAP)
-#include "mojo/public/cpp/bindings/strong_binding.h"
 #include "third_party/blink/public/mojom/unhandled_tap_notifier/unhandled_tap_notifier.mojom-blink.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support.h"
 #endif  // BUILDFLAG(ENABLE_UNHANDLED_TAP)
@@ -612,7 +612,7 @@ TEST_F(WebViewTest, FocusIsInactive) {
   web_view->MainFrameWidget()->SetFocus(true);
   web_view->SetIsActive(true);
   WebLocalFrameImpl* frame = web_view->MainFrameImpl();
-  EXPECT_TRUE(frame->GetFrame()->GetDocument()->IsHTMLDocument());
+  EXPECT_TRUE(IsA<HTMLDocument>(frame->GetFrame()->GetDocument()));
 
   Document* document = frame->GetFrame()->GetDocument();
   EXPECT_TRUE(document->hasFocus());
@@ -2390,9 +2390,10 @@ TEST_F(WebViewTest, BackForwardRestoreScroll) {
       main_frame_local->Loader().GetDocumentLoader()->GetHistoryItem();
 
   // Click an anchor
-  main_frame_local->Loader().StartNavigation(FrameLoadRequest(
+  FrameLoadRequest request_a(
       main_frame_local->GetDocument(),
-      ResourceRequest(main_frame_local->GetDocument()->CompleteURL("#a"))));
+      ResourceRequest(main_frame_local->GetDocument()->CompleteURL("#a")));
+  main_frame_local->Loader().StartNavigation(request_a);
   Persistent<HistoryItem> item2 =
       main_frame_local->Loader().GetDocumentLoader()->GetHistoryItem();
 
@@ -2410,9 +2411,10 @@ TEST_F(WebViewTest, BackForwardRestoreScroll) {
       WebWidget::LifecycleUpdateReason::kTest);
 
   // Click a different anchor
-  main_frame_local->Loader().StartNavigation(FrameLoadRequest(
+  FrameLoadRequest request_b(
       main_frame_local->GetDocument(),
-      ResourceRequest(main_frame_local->GetDocument()->CompleteURL("#b"))));
+      ResourceRequest(main_frame_local->GetDocument()->CompleteURL("#b")));
+  main_frame_local->Loader().StartNavigation(request_b);
   Persistent<HistoryItem> item3 =
       main_frame_local->Loader().GetDocumentLoader()->GetHistoryItem();
   web_view_impl->MainFrameWidget()->UpdateAllLifecyclePhases(

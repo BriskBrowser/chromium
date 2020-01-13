@@ -36,6 +36,7 @@
 #include "ui/display/display_observer.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/message_center/message_center_observer.h"
 #include "ui/wm/public/activation_change_observer.h"
 
 namespace ui {
@@ -64,18 +65,20 @@ class ShelfWidget;
 // To respond to bounds changes in the status area StatusAreaLayoutManager works
 // closely with ShelfLayoutManager.
 // On mus, widget bounds management is handled by the window manager.
-class ASH_EXPORT ShelfLayoutManager : public AppListControllerObserver,
-                                      public ShellObserver,
-                                      public SplitViewObserver,
-                                      public OverviewObserver,
-                                      public ::wm::ActivationChangeObserver,
-                                      public LockStateObserver,
-                                      public WmDefaultLayoutManager,
-                                      public display::DisplayObserver,
-                                      public SessionObserver,
-                                      public WallpaperControllerObserver,
-                                      public LocaleChangeObserver,
-                                      public DesksController::Observer {
+class ASH_EXPORT ShelfLayoutManager
+    : public AppListControllerObserver,
+      public ShellObserver,
+      public SplitViewObserver,
+      public OverviewObserver,
+      public ::wm::ActivationChangeObserver,
+      public LockStateObserver,
+      public WmDefaultLayoutManager,
+      public display::DisplayObserver,
+      public SessionObserver,
+      public WallpaperControllerObserver,
+      public LocaleChangeObserver,
+      public DesksController::Observer,
+      public message_center::MessageCenterObserver {
  public:
   // Suspend work area updates within its scope. Note that relevant
   // ShelfLayoutManager must outlive this class.
@@ -109,9 +112,8 @@ class ASH_EXPORT ShelfLayoutManager : public AppListControllerObserver,
   // bounds in tablet mode.
   gfx::Rect GetIdealBoundsForWorkAreaCalculation() const;
 
-  // Stops any animations, sets the bounds of the shelf and status widgets, and
-  // changes the work area
-  void LayoutShelf();
+  // Sets the bounds of the shelf and status widgets.
+  void LayoutShelf(bool animate = false);
 
   // Updates the visibility state.
   void UpdateVisibilityState();
@@ -388,6 +390,10 @@ class ASH_EXPORT ShelfLayoutManager : public AppListControllerObserver,
     session_manager::SessionState session_state;
   };
 
+  // MessageCenterObserver:
+  void OnCenterVisibilityChanged(
+      message_center::Visibility visibility) override;
+
   // Suspends/resumes work area updates.
   void SuspendWorkAreaUpdate();
   void ResumeWorkAreaUpdate();
@@ -404,17 +410,11 @@ class ASH_EXPORT ShelfLayoutManager : public AppListControllerObserver,
   // behavior setting.
   ShelfVisibilityState CalculateShelfVisibility();
 
-  // Stops any animations and sets the bounds of the shelf and status widgets.
-  void LayoutShelfAndUpdateBounds();
-
   // Updates the shelf dim state.
   void UpdateShelfIconOpacity();
 
   // Updates the bounds and opacity of the shelf and status widgets.
-  // If |observer| is specified, it will be called back when the animations, if
-  // any, are complete.
-  void UpdateBoundsAndOpacity(bool animate,
-                              ui::ImplicitAnimationObserver* observer);
+  void UpdateBoundsAndOpacity(bool animate);
 
   // Returns true if a maximized or fullscreen window is being dragged from the
   // top of the display or from the caption area. Note currently for this case
@@ -510,7 +510,9 @@ class ASH_EXPORT ShelfLayoutManager : public AppListControllerObserver,
                   float scroll_y);
   void CompleteDrag(const ui::LocatedEvent& event_in_screen);
   void CompleteAppListDrag(const ui::LocatedEvent& event_in_screen);
-  void CancelDrag();
+  void CancelDrag(
+      base::Optional<DragWindowFromShelfController::ShelfWindowDragResult>
+          window_drag_result);
   void CompleteDragWithChangedVisibility();
 
   float GetAppListBackgroundOpacityOnShelfOpacity();
@@ -535,10 +537,9 @@ class ASH_EXPORT ShelfLayoutManager : public AppListControllerObserver,
 
   // Maybe start/update/end the window drag when swiping up from the shelf.
   bool MaybeStartDragWindowFromShelf(const ui::LocatedEvent& event_in_screen,
-                                     base::Optional<float> scroll_y);
+                                     const gfx::Vector2dF& scroll);
   void MaybeUpdateWindowDrag(const ui::LocatedEvent& event_in_screen,
-                             float scroll_x,
-                             float scroll_y);
+                             const gfx::Vector2dF& scroll);
   base::Optional<DragWindowFromShelfController::ShelfWindowDragResult>
   MaybeEndWindowDrag(const ui::LocatedEvent& event_in_screen);
   // If overview session is active, goes to home screen if the gesture should
@@ -626,9 +627,6 @@ class ASH_EXPORT ShelfLayoutManager : public AppListControllerObserver,
 
   // Manage the auto-hide state during drag.
   ShelfAutoHideState drag_auto_hide_state_ = SHELF_AUTO_HIDE_SHOWN;
-
-  // Used to delay updating shelf background.
-  UpdateShelfObserver* update_shelf_observer_ = nullptr;
 
   // Whether background blur is enabled.
   const bool is_background_blur_enabled_;

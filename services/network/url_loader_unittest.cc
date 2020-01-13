@@ -1579,7 +1579,7 @@ TEST_F(URLLoaderTest, UploadFileWithoutNetworkServiceClient) {
 
 class CallbackSavingNetworkContextClient : public TestNetworkContextClient {
  public:
-  void OnFileUploadRequested(uint32_t process_id,
+  void OnFileUploadRequested(int32_t process_id,
                              bool async,
                              const std::vector<base::FilePath>& file_paths,
                              OnFileUploadRequestedCallback callback) override {
@@ -2679,8 +2679,8 @@ class MockNetworkContextClient : public TestNetworkContextClient {
   ~MockNetworkContextClient() override = default;
 
   void OnAuthRequired(const base::Optional<base::UnguessableToken>& window_id,
-                      uint32_t process_id,
-                      uint32_t routing_id,
+                      int32_t process_id,
+                      int32_t routing_id,
                       uint32_t request_id,
                       const GURL& url,
                       bool first_auth_attempt,
@@ -2713,8 +2713,8 @@ class MockNetworkContextClient : public TestNetworkContextClient {
 
   void OnCertificateRequested(
       const base::Optional<base::UnguessableToken>& window_id,
-      uint32_t process_id,
-      uint32_t routing_id,
+      int32_t process_id,
+      int32_t routing_id,
       uint32_t request_id,
       const scoped_refptr<net::SSLCertRequestInfo>& cert_info,
       mojo::PendingRemote<mojom::ClientCertificateResponder>
@@ -2753,12 +2753,12 @@ class MockNetworkContextClient : public TestNetworkContextClient {
       int32_t process_id,
       int32_t routing_id,
       const GURL& url,
-      const GURL& site_for_cookies,
+      const net::SiteForCookies& site_for_cookies,
       const std::vector<net::CookieWithStatus>& cookie_list) override {
     for (const auto& cookie_and_status : cookie_list) {
       reported_response_cookies_.push_back(
-          CookieInfo(url, site_for_cookies, cookie_and_status.cookie,
-                     cookie_and_status.status));
+          CookieInfo(url, site_for_cookies.RepresentativeUrl(),
+                     cookie_and_status.cookie, cookie_and_status.status));
     }
     if (wait_for_reported_response_cookies_ &&
         reported_response_cookies_.size() >=
@@ -2772,12 +2772,12 @@ class MockNetworkContextClient : public TestNetworkContextClient {
       int32_t process_id,
       int32_t routing_id,
       const GURL& url,
-      const GURL& site_for_cookies,
+      const net::SiteForCookies& site_for_cookies,
       const std::vector<net::CookieWithStatus>& cookie_list) override {
     for (const auto& cookie_and_status : cookie_list) {
-      reported_request_cookies_.push_back(CookieInfo(url, site_for_cookies,
-                                                     cookie_and_status.cookie,
-                                                     cookie_and_status.status));
+      reported_request_cookies_.push_back(
+          CookieInfo(url, site_for_cookies.RepresentativeUrl(),
+                     cookie_and_status.cookie, cookie_and_status.status));
     }
     if (wait_for_reported_request_cookies_ &&
         reported_request_cookies_.size() >=

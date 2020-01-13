@@ -66,6 +66,17 @@ void FakeLocalFrameHost::SuddenTerminationDisablerChanged(
 void FakeLocalFrameHost::HadStickyUserActivationBeforeNavigationChanged(
     bool value) {}
 
+void FakeLocalFrameHost::BubbleLogicalScrollInParentFrame(
+    blink::mojom::blink::ScrollDirection direction,
+    ui::input_types::ScrollGranularity granularity) {}
+
+void FakeLocalFrameHost::DidAccessInitialDocument() {}
+
+void FakeLocalFrameHost::DidBlockNavigation(
+    const KURL& blocked_url,
+    const KURL& initiator_url,
+    mojom::NavigationBlockedReason reason) {}
+
 void FakeLocalFrameHost::BindFrameHostReceiver(
     mojo::ScopedInterfaceEndpointHandle handle) {
   receiver_.Bind(mojo::PendingAssociatedReceiver<mojom::blink::LocalFrameHost>(

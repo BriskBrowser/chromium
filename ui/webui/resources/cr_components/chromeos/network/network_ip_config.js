@@ -124,7 +124,7 @@ Polymer({
      */
     ipConfigFields_: {
       type: Array,
-      value: function() {
+      value() {
         return [
           'ipv4.ipAddress',
           'ipv4.routingPrefix',
@@ -143,7 +143,7 @@ Polymer({
   savedStaticIp_: undefined,
 
   /** @private */
-  managedPropertiesChanged_: function(newValue, oldValue) {
+  managedPropertiesChanged_(newValue, oldValue) {
     if (!this.managedProperties) {
       return;
     }
@@ -167,9 +167,13 @@ Polymer({
       let ipv6 = this.getIPConfigUIProperties_(
           OncMojo.getIPConfigForType(properties, 'IPv6'));
 
-      // If ipv6 address is not set, show appropriate message.
-      ipv6 = ipv6 || {};
-      ipv6.ipAddress = ipv6.ipAddress || this.i18n('ipAddressNotAvailable');
+      // If connected and the IP address is automatic and set, show message if
+      // the ipv6 address is not set.
+      if (OncMojo.connectionStateIsConnected(properties.connectionState) &&
+          this.automatic_ && ipv4 && ipv4.ipAddress) {
+        ipv6 = ipv6 || {};
+        ipv6.ipAddress = ipv6.ipAddress || this.i18n('ipAddressNotAvailable');
+      }
 
       this.ipConfig_ = {ipv4: ipv4, ipv6: ipv6};
     } else {
@@ -183,13 +187,13 @@ Polymer({
    * @return {boolean}
    * @private
    */
-  canChangeIPConfigType_: function(managedProperties) {
+  canChangeIPConfigType_(managedProperties) {
     const ipConfigType = managedProperties.ipAddressConfigType;
     return !ipConfigType || !this.isNetworkPolicyEnforced(ipConfigType);
   },
 
   /** @private */
-  onAutomaticChange_: function() {
+  onAutomaticChange_() {
     if (!this.automatic_) {
       const defaultIpv4 = {
         gateway: '192.168.1.1',
@@ -227,7 +231,7 @@ Polymer({
    *     defined.
    * @private
    */
-  getIPConfigUIProperties_: function(ipconfig) {
+  getIPConfigUIProperties_(ipconfig) {
     if (!ipconfig) {
       return undefined;
     }
@@ -253,7 +257,7 @@ Polymer({
    *     length.
    * @private
    */
-  getIPConfigProperties_: function(ipconfig) {
+  getIPConfigProperties_(ipconfig) {
     const result = {};
     for (const key in ipconfig) {
       const value = ipconfig[key];
@@ -273,7 +277,7 @@ Polymer({
    * @return {boolean}
    * @private
    */
-  hasIpConfigFields_: function() {
+  hasIpConfigFields_() {
     if (!this.ipConfigFields_) {
       return false;
     }
@@ -291,7 +295,7 @@ Polymer({
    *     for the given path.
    * @private
    */
-  getIPFieldEditType_: function(path) {
+  getIPFieldEditType_(path) {
     if (!this.managedProperties) {
       return undefined;
     }
@@ -305,7 +309,7 @@ Polymer({
    * @return {Object} An object with the edit type for each editable field.
    * @private
    */
-  getIPEditFields_: function() {
+  getIPEditFields_() {
     if (this.automatic_ || !this.managedProperties) {
       return {};
     }
@@ -323,7 +327,7 @@ Polymer({
    *     network-property-list change event.
    * @private
    */
-  onIPChange_: function(event) {
+  onIPChange_(event) {
     if (!this.ipConfig_) {
       return;
     }
@@ -335,7 +339,7 @@ Polymer({
   },
 
   /** @private */
-  sendStaticIpConfig_: function() {
+  sendStaticIpConfig_() {
     // This will also set IPAddressConfigType to STATIC.
     this.fire('ip-change', {
       field: 'staticIpConfig',

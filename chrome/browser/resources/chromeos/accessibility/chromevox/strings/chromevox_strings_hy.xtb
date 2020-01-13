@@ -418,6 +418,7 @@
 <translation id="3914732343065571127">ChromeVox-ի հրահանգներ</translation>
 <translation id="3930383913623796990">Գարնանային կանաչ</translation>
 <translation id="3930498801443296724">Մեջբերում</translation>
+<translation id="3935615366277838204">Մեծատառ <ph name="LETTER" /></translation>
 <translation id="3936394396199829062">Ալ նարդոս</translation>
 <translation id="3941269780691800708">Հնչեցնել նշորդի տակի տեքստը</translation>
 <translation id="394953087167197343">Նշել ուղղագրական սխալը՝</translation>
@@ -791,7 +792,6 @@
 <translation id="6459511626086141404">Սովորական դասավորություն</translation>
 <translation id="6468049171101508116">Հաջորդ կոճակը</translation>
 <translation id="646954774886932461">Այբբենական ցանկ</translation>
-<translation id="6479792383819319132">Հաջորդող պարբերություն չկա:</translation>
 <translation id="6493991254603208962">Պակասեցնել պայծառությունը</translation>
 <translation id="6501595918865591267">Փիրուզագույն</translation>
 <translation id="6508059270146105198">Տեղափոխել Բրայլի ցուցադրիչը էջի ներքև</translation>
@@ -814,7 +814,6 @@
 <translation id="6637586476836377253">log</translation>
 <translation id="6657128831881431364">Ընթացագոտի</translation>
 <translation id="6659594942844771486">Ներդիր</translation>
-<translation id="6675661017770918201">Նախորդող պարբերություն չկա:</translation>
 <translation id="667999046851023355">Փաստաթուղթ</translation>
 <translation id="6688209025607531203">Ոչ մոդալ ծանուցում</translation>
 <translation id="6689672606256159458">Կարմրանարնջագույն</translation>
@@ -843,6 +842,7 @@
 <translation id="6865519907510167493">Ուղղագրական սխալ</translation>
 <translation id="6871161210040114857">Ոչ դուրճազգայուն:</translation>
 <translation id="6877435256196695200">Հաջորդ գծապատկեր չկա:</translation>
+<translation id="688976158310523235">Որոնման ընտրացանկ</translation>
 <translation id="6897341342232909480">Տեղափոխել ձախ</translation>
 <translation id="6901540140423170855">date</translation>
 <translation id="6910211073230771657">Ջնջված</translation>
@@ -855,6 +855,7 @@
 <translation id="699159175332639490">Search+O+W</translation>
 <translation id="6994042831499278539">Մեջբերում բառացանկից</translation>
 <translation id="6996566555547746822">Հաջորդ համակցված տուփը</translation>
+<translation id="6997224546856374593">Մեծատառերը կարդալիս՝</translation>
 <translation id="700202842116345659">Բիբլիոգրաֆիական գրառում</translation>
 <translation id="7005146664810010831">URL չի գտնվել</translation>
 <translation id="7010712454773919705">ChromeVox-ի կերպափոխիչ ստեղն</translation>
@@ -935,6 +936,7 @@ Chrome դիտարկիչի ընտրացանկը բացելու համար սեղ�
 <translation id="744163271241493234">pwded</translation>
 <translation id="7491962110804786152">tab</translation>
 <translation id="7492049978501397201">Բացվել է երկխոսության պատուհան</translation>
+<translation id="7505149250476994901">Տառից առաջ արտասանեք «մեծատառ»</translation>
 <translation id="7518543783849163354">ChromeVox-ի ձայնը ժամանակավորապես անջատելու համար սեղմեք Control ստեղնը:</translation>
 <translation id="7521682724501952239">Դուք կարող եք օգտագործել ChromeVox-ը հպէկրանի միջոցով</translation>
 <translation id="7532613204005497612">հունիս</translation>
@@ -1206,6 +1208,7 @@ Chrome դիտարկիչի ընտրացանկը բացելու համար սեղ�
 <translation id="9065283790526219006">+ելնող պատուհան</translation>
 <translation id="9066023754636984703">Սեղմեք Search+A, J ստեղները՝ մանրամասներին անցնելու համար։</translation>
 <translation id="9067522039955793016">Էջի ընդհատում</translation>
+<translation id="9074824103975499138">Որոնեք ChromeVox-ի ընտրացանկերում</translation>
 <translation id="9077213568694924680">հեռացվեց ընտրվածքից</translation>
 <translation id="9077305471618729969">Բաց կապտականաչ</translation>
 <translation id="9082874451376019682">Նախորդ սահիչ չկա:</translation>

@@ -176,7 +176,6 @@ ResourceRequest FrameLoader::ResourceRequestForReload(
 FrameLoader::FrameLoader(LocalFrame* frame)
     : frame_(frame),
       progress_tracker_(MakeGarbageCollected<ProgressTracker>(frame)),
-      in_restore_scroll_(false),
       forced_sandbox_flags_(WebSandboxFlags::kNone),
       dispatching_did_clear_window_object_in_main_world_(false),
       detached_(false),
@@ -450,8 +449,7 @@ void FrameLoader::DidFinishSameDocumentNavigation(
                                        : SerializedScriptValue::NullValue());
 
   if (view_state) {
-    RestoreScrollPositionAndViewState(frame_load_type,
-                                      true /* is_same_document */, *view_state,
+    RestoreScrollPositionAndViewState(frame_load_type, *view_state,
                                       history_item->ScrollRestorationType());
   }
 
@@ -610,16 +608,14 @@ DetermineRequestDestinationFromNavigationType(
   return network::mojom::RequestDestination::kDocument;
 }
 
-void FrameLoader::StartNavigation(const FrameLoadRequest& passed_request,
+void FrameLoader::StartNavigation(FrameLoadRequest& request,
                                   WebFrameLoadType frame_load_type) {
   CHECK(!IsBackForwardLoadType(frame_load_type));
-  DCHECK(passed_request.GetTriggeringEventInfo() !=
-         TriggeringEventInfo::kUnknown);
+  DCHECK(request.GetTriggeringEventInfo() != TriggeringEventInfo::kUnknown);
   DCHECK(frame_->GetDocument());
   if (HTMLFrameOwnerElement* element = frame_->DeprecatedLocalOwner())
     element->CancelPendingLazyLoad();
 
-  FrameLoadRequest request(passed_request);
   ResourceRequest& resource_request = request.GetResourceRequest();
   const KURL& url = resource_request.Url();
   Document* origin_document = request.OriginDocument();
@@ -1034,12 +1030,12 @@ void FrameLoader::StopAllLoaders() {
 }
 
 void FrameLoader::DidAccessInitialDocument() {
-  if (frame_->IsMainFrame()) {
+  if (frame_->IsMainFrame() && !has_accessed_initial_document_) {
+    has_accessed_initial_document_ = true;
     // Forbid script execution to prevent re-entering V8, since this is called
     // from a binding security check.
     ScriptForbiddenScope forbid_scripts;
-    if (Client())
-      Client()->DidAccessInitialDocument();
+    frame_->GetLocalFrameHostRemote().DidAccessInitialDocument();
   }
 }
 
@@ -1175,20 +1171,17 @@ void FrameLoader::CommitDocumentLoader(
 void FrameLoader::RestoreScrollPositionAndViewState() {
   if (!frame_->GetPage() || !GetDocumentLoader() ||
       !GetDocumentLoader()->GetHistoryItem() ||
-      !GetDocumentLoader()->GetHistoryItem()->GetViewState() ||
-      in_restore_scroll_) {
+      !GetDocumentLoader()->GetHistoryItem()->GetViewState()) {
     return;
   }
-  base::AutoReset<bool> in_restore_scroll(&in_restore_scroll_, true);
   RestoreScrollPositionAndViewState(
-      GetDocumentLoader()->LoadType(), false /* is_same_document */,
+      GetDocumentLoader()->LoadType(),
       *GetDocumentLoader()->GetHistoryItem()->GetViewState(),
       GetDocumentLoader()->GetHistoryItem()->ScrollRestorationType());
 }
 
 void FrameLoader::RestoreScrollPositionAndViewState(
     WebFrameLoadType load_type,
-    bool is_same_document,
     const HistoryItem::ViewState& view_state,
     HistoryScrollRestorationType scroll_restoration_type) {
   LocalFrameView* view = frame_->View();

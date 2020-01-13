@@ -145,7 +145,7 @@ IN_PROC_BROWSER_TEST_F(NativeFileSystemBrowserTest, SaveFile) {
             content::EvalJs(web_contents,
                             "(async () => {"
                             "  let e = await self.chooseFileSystemEntries("
-                            "      {type: 'saveFile'});"
+                            "      {type: 'save-file'});"
                             "  self.entry = e;"
                             "  return e.name; })()"));
 
@@ -192,7 +192,7 @@ IN_PROC_BROWSER_TEST_F(NativeFileSystemBrowserTest, OpenFile) {
             content::EvalJs(web_contents,
                             "(async () => {"
                             "  let e = await self.chooseFileSystemEntries("
-                            "      {type: 'openFile'});"
+                            "      {type: 'open-file'});"
                             "  self.entry = e;"
                             "  return e.name; })()"));
 
@@ -241,7 +241,7 @@ IN_PROC_BROWSER_TEST_F(NativeFileSystemBrowserTest, FullscreenOpenFile) {
             content::EvalJs(web_contents,
                             "(async () => {"
                             "  let e = await self.chooseFileSystemEntries("
-                            "      {type: 'openFile'});"
+                            "      {type: 'open-file'});"
                             "  self.entry = e;"
                             "  return e.name; })()"));
 
@@ -325,7 +325,7 @@ IN_PROC_BROWSER_TEST_F(NativeFileSystemBrowserTest, SafeBrowsing) {
             content::EvalJs(web_contents,
                             "(async () => {"
                             "  let e = await self.chooseFileSystemEntries("
-                            "      {type: 'saveFile'});"
+                            "      {type: 'save-file'});"
                             "  const w = await e.createWriter();"
                             "  await w.write(0, 'abc');"
                             "  await w.close();"

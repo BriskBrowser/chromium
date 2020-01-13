@@ -38,6 +38,7 @@
 #include "content/browser/scheduler/browser_task_executor.h"
 #include "content/browser/startup_data_impl.h"
 #include "content/browser/startup_helper.h"
+#include "content/browser/storage_partition_impl.h"
 #include "content/browser/tracing/memory_instrumentation_util.h"
 #include "content/browser/tracing/tracing_controller_impl.h"
 #include "content/public/app/content_main.h"
@@ -216,6 +217,16 @@ BrowserTestBase::~BrowserTestBase() {
 
 void BrowserTestBase::SetUp() {
   set_up_called_ = true;
+
+  if (!UseProductionQuotaSettings()) {
+    // By default use hardcoded quota settings to have a consistent testing
+    // environment.
+    const int kQuota = 5 * 1024 * 1024;
+    quota_settings_ =
+        std::make_unique<storage::QuotaSettings>(kQuota * 5, kQuota, 0, 0);
+    StoragePartitionImpl::SetDefaultQuotaSettingsForTesting(
+        quota_settings_.get());
+  }
 
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
 
@@ -514,10 +525,16 @@ void BrowserTestBase::TearDown() {
   ui::test::EventGeneratorDelegate::SetFactoryFunction(
       ui::test::EventGeneratorDelegate::FactoryFunction());
 #endif
+
+  StoragePartitionImpl::SetDefaultQuotaSettingsForTesting(nullptr);
 }
 
 bool BrowserTestBase::AllowFileAccessFromFiles() {
   return true;
+}
+
+bool BrowserTestBase::UseProductionQuotaSettings() {
+  return false;
 }
 
 void BrowserTestBase::SimulateNetworkServiceCrash() {
@@ -748,13 +765,18 @@ void BrowserTestBase::InitializeNetworkProcess() {
     // TODO(jam: expand this when we try to make browser_tests and
     // components_browsertests work.
     if (rule.resolver_type ==
-        net::RuleBasedHostResolverProc::Rule::kResolverTypeFail) {
+            net::RuleBasedHostResolverProc::Rule::kResolverTypeFail ||
+        rule.resolver_type ==
+            net::RuleBasedHostResolverProc::Rule::kResolverTypeFailTimeout) {
       // The host "wpad" is added automatically in TestHostResolver, so we don't
       // need to send it to NetworkServiceTest.
       if (rule.host_pattern != "wpad") {
         network::mojom::RulePtr mojo_rule = network::mojom::Rule::New();
         mojo_rule->resolver_type =
-            network::mojom::ResolverType::kResolverTypeFail;
+            (rule.resolver_type ==
+             net::RuleBasedHostResolverProc::Rule::kResolverTypeFail)
+                ? network::mojom::ResolverType::kResolverTypeFail
+                : network::mojom::ResolverType::kResolverTypeFailTimeout;
         mojo_rule->host_pattern = rule.host_pattern;
         mojo_rules.push_back(std::move(mojo_rule));
       }
@@ -766,8 +788,9 @@ void BrowserTestBase::InitializeNetworkProcess() {
          rule.resolver_type !=
              net::RuleBasedHostResolverProc::Rule::kResolverTypeIPLiteral) ||
         rule.address_family != net::AddressFamily::ADDRESS_FAMILY_UNSPECIFIED ||
-        !!rule.latency_ms)
+        !!rule.latency_ms) {
       continue;
+    }
     network::mojom::RulePtr mojo_rule = network::mojom::Rule::New();
     if (rule.resolver_type ==
         net::RuleBasedHostResolverProc::Rule::kResolverTypeSystem) {
@@ -781,6 +804,8 @@ void BrowserTestBase::InitializeNetworkProcess() {
     }
     mojo_rule->host_pattern = rule.host_pattern;
     mojo_rule->replacement = rule.replacement;
+    mojo_rule->host_resolver_flags = rule.host_resolver_flags;
+    mojo_rule->canonical_name = rule.canonical_name;
     mojo_rules.push_back(std::move(mojo_rule));
   }
 

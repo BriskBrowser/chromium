@@ -76,16 +76,6 @@
   [self.consumer setPopupMenuItems:self.popupMenuItems];
 }
 
-#pragma mark - ContainedPresenterDelegate
-
-- (void)containedPresenterDidPresent:(id<ContainedPresenter>)presenter {
-  // noop.
-}
-
-- (void)containedPresenterDidDismiss:(id<ContainedPresenter>)presenter {
-  // noop.
-}
-
 #pragma mark - PopupMenuPresenterDelegate
 
 - (void)popupMenuPresenterWillDismiss:(PopupMenuPresenter*)presenter {
@@ -111,6 +101,10 @@
     }
     case PopupMenuActionShowSaveCardOptions: {
       [self.dispatcher displayModalInfobar:InfobarType::kInfobarTypeSaveCard];
+      break;
+    }
+    case PopupMenuActionShowTranslateOptions: {
+      [self.dispatcher displayModalInfobar:InfobarType::kInfobarTypeTranslate];
       break;
     }
     default:

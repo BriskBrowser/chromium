@@ -210,7 +210,7 @@
 <translation id="1914326953223720820">Shërbimi i shpaketimit</translation>
 <translation id="1915697529809968049">Të përdoret Touch ID në vend të CVC?</translation>
 <translation id="1916770123977586577">Për të aplikuar cilësimet e përparuara në këtë sajt, ringarkoje këtë faqe</translation>
-<translation id="1917876262703816781">Një nxjerrje e paautorizuar e të dhënave në një sajt ose aplikacion ka ekspozuar fjalëkalimin tënd. Chrome rekomandon që të ndryshosh fjalëkalimin tënd në <ph name="ORIGIN" /> tani.</translation>
+<translation id="1917876262703816781">Një nxjerrje e paautorizuar të dhënash në një sajt apo në një prej aplikacioneve të tua e ka ekspozuar fjalëkalimin tënd. Chrome rekomandon që ta kontrollosh menjëherë fjalëkalimin tënd në <ph name="ORIGIN" />.</translation>
 <translation id="1919345977826869612">Reklamat</translation>
 <translation id="1919367280705858090">Merr ndihmë për një mesazh specifik gabimi</translation>
 <translation id="192020519938775529">{COUNT,plural, =0{Asnjë}=1{1 sajt}other{# sajte}}</translation>
@@ -707,6 +707,7 @@
 <translation id="4340982228985273705">Ky kompjuter nuk është zbuluar si i menaxhuar nga ndërmarrja, prandaj politika mund të instalojë automatikisht vetëm shtesat e strehuara në "Dyqanin e uebit të Chrome". URL-ja e përditësimit të "Dyqanit të uebit të Chrome" është "<ph name="CWS_UPDATE_URL" />".</translation>
 <translation id="4346197816712207223">Kartat e pranuara të kreditit</translation>
 <translation id="4346833872170306413">Roc-16K</translation>
+<translation id="4349531505348777662">Sapo fute fjalëkalimin tënd në një sajt mashtrues. Chrome rekomandon që të shkosh te <ph name="WEBSITE_1" />, <ph name="WEBSITE_2" /> dhe sajte të tjera ku e përdor këtë fjalëkalim dhe ta ndryshosh atë tani.</translation>
 <translation id="4356973930735388585">Sulmuesit në këtë sajt mund të përpiqen të instalojnë programe të rrezikshme në kompjuterin tënd që vjedhin ose fshijnë informacionet e tua (për shembull, fotografi, fjalëkalime, mesazhe dhe karta krediti).</translation>
 <translation id="4358059973562876591">Shabllonet që ke specifikuar mund të mos zbatohen për shkak të një gabimi me politikën DnsOverHttpsMode.</translation>
 <translation id="4358461427845829800">Menaxho mënyrat e pagesës...</translation>
@@ -896,7 +897,7 @@
 <translation id="5287240709317226393">Shfaq kukit</translation>
 <translation id="5287456746628258573">Ky sajt përdor një konfigurim të vjetruar të sigurisë, i cili mund t'i ekspozojë informacionet e tua (p.sh. fjalëkalimin ose numrat e kartës së kreditit) kur dërgohen te ky sajt.</translation>
 <translation id="5288108484102287882">Vërtetimi i vlerave të politikës ka ngritur shqetësime</translation>
-<translation id="5295292838686006428">Një nxjerrje e paautorizuar e të dhënave në një sajt ose aplikacion ka ekspozuar fjalëkalimin tënd. Chrome rekomandon që të kontrollosh fjalëkalimet e tua të ruajtura tani.</translation>
+<translation id="5295292838686006428">Një nxjerrje e paautorizuar të dhënash në një sajt apo në një prej aplikacioneve të tua e ka ekspozuar fjalëkalimin tënd. Chrome rekomandon që t’i kontrollosh menjëherë fjalëkalimet e tua të ruajtura.</translation>
 <translation id="5299298092464848405">Gabim gjatë analizimit të politikës</translation>
 <translation id="5300589172476337783">Shfaq</translation>
 <translation id="5308380583665731573">Lidh</translation>
@@ -918,6 +919,7 @@
 <translation id="5386426401304769735">Zinxhiri i certifikatës për këtë sajt përmban një certifikatë të nënshkruar me SHA-1.</translation>
 <translation id="538659543871111977">A4-Tab</translation>
 <translation id="5396631636586785122">Qepje anësore djathtas</translation>
+<translation id="5400836586163650660">Gri</translation>
 <translation id="540969355065856584">Ky server nuk mund të provojë se është <ph name="DOMAIN" />; certifikata e tij e sigurisë është e pavlefshme në këtë moment. Kjo mund të shkaktohet për shkak të konfigurimit të pasaktë ose në rast të ndërhyrjes së ndonjë sulmuesi në lidhjen tënde.</translation>
 <translation id="5421136146218899937">Pastro të dhënat e shfletimit...</translation>
 <translation id="5430298929874300616">Hiqe faqeshënuesin</translation>
@@ -1232,6 +1234,7 @@
 <translation id="6970216967273061347">Distrikti</translation>
 <translation id="6973656660372572881">Janë specifikuar serverë përfaqësues fiksë dhe një URL e skriptit .pac.</translation>
 <translation id="6973932557599545801">Më vjen keq që nuk mund të të ndihmoj. Vazhdo vetë.</translation>
+<translation id="6975012522936652259">Sapo fute fjalëkalimin tënd në një sajt mashtrues. Chromium rekomandon që të shkosh te <ph name="WEBSITE_1" />, <ph name="WEBSITE_2" /> dhe sajte të tjera ku e përdor këtë fjalëkalim dhe ta ndryshosh atë tani.</translation>
 <translation id="6979158407327259162">Disku i Google</translation>
 <translation id="6979440798594660689">Heshtje (e parazgjedhur)</translation>
 <translation id="6989763994942163495">Trego cilësimet e përparuara...</translation>
@@ -1339,7 +1342,7 @@ Detaje shtesë:
 <translation id="7473891865547856676">Jo, faleminderit</translation>
 <translation id="7481312909269577407">Përpara</translation>
 <translation id="7485870689360869515">Nuk u gjetën të dhëna.</translation>
-<translation id="7495290002932347110">Një nxjerrje e paautorizuar e të dhënave në një sajt ose aplikacion ka ekspozuar fjalëkalimin tënd. Chrome rekomandon që të kontrollosh fjalëkalimet e tua të ruajtura dhe të ndryshosh fjalëkalimin tënd në <ph name="ORIGIN" /> tani.</translation>
+<translation id="7495290002932347110">Një nxjerrje e paautorizuar të dhënash në një sajt apo në një prej aplikacioneve të tua e ka ekspozuar fjalëkalimin tënd. Chrome rekomandon që t’i kontrollosh menjëherë fjalëkalimet e tua të ruajtura si dhe ta ndryshosh fjalëkalimin tënd në <ph name="ORIGIN" />.</translation>
 <translation id="7498234416455752244">Vazhdo redaktimin</translation>
 <translation id="7508255263130623398">ID-ja e kthyer e pajisjes së politikës është bosh ose nuk përputhet me ID-në e pajisjes aktuale</translation>
 <translation id="7508870219247277067">Jeshile avokadoje</translation>
@@ -1363,6 +1366,7 @@ Detaje shtesë:
 <translation id="7567204685887185387">Ky server nuk mund të dëshmonte se është <ph name="DOMAIN" />; certifikata e tij e sigurisë mund të jetë lëshuar në mënyrë mashtruese. Kjo mund të shkaktohet nga një konfigurim i pasaktë ose ndërhyrja e një sulmuesi në lidhjen tënde.</translation>
 <translation id="7569952961197462199">Të hiqet karta e kreditit nga Chrome?</translation>
 <translation id="7569983096843329377">E zezë</translation>
+<translation id="7575207903026901870">Butoni "Hiq sugjerimin", shtyp Enter për ta hequr këtë sugjerim</translation>
 <translation id="7578104083680115302">Paguaj me shpejtësi në sajte dhe aplikacione mes pajisjeve të ndryshme duke përdorur kartat që ke ruajtur me Google.</translation>
 <translation id="7592362899630581445">Certifikata e serverit shkel kufizimet për serverin.</translation>
 <translation id="7598391785903975535">Më pak se <ph name="UPPER_ESTIMATE" /></translation>
@@ -1608,6 +1612,7 @@ Detaje shtesë:
 <translation id="8891727572606052622">Modalitet i pavlefshëm përfaqësuesi.</translation>
 <translation id="8903921497873541725">Zmadho</translation>
 <translation id="890485472659500557">Engineering-C</translation>
+<translation id="890493561996401738">Butoni "Hiq sugjerimin", shtyp Enter për ta hequr, <ph name="REMOVE_BUTTON_FOCUSED_FRIENDLY_MATCH_TEXT" /></translation>
 <translation id="8910670906166981838">Ke kaluar në modalitetin "e fshehtë"</translation>
 <translation id="8912362522468806198">Llogaria e Google</translation>
 <translation id="8918231688545606538">Kjo faqe është e dyshimtë</translation>
@@ -1698,6 +1703,7 @@ Detaje shtesë:
 <translation id="988159990683914416">Ndërtimi i zhvilluesit</translation>
 <translation id="989988560359834682">Redakto adresën</translation>
 <translation id="992115559265932548"><ph name="MICROSOFT_ACTIVE_DIRECTORY" /></translation>
+<translation id="992256792861109788">Rozë</translation>
 <translation id="992432478773561401">"<ph name="SOFTWARE_NAME" />" nuk është instaluar mirë në kompjuter ose në rrjet:
     &lt;ul&gt;
     &lt;li&gt;Provo të çinstalosh ose të çaktivizosh "<ph name="SOFTWARE_NAME" />"&lt;/li&gt;

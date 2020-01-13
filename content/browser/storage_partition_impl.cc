@@ -27,6 +27,7 @@
 #include "base/time/default_clock.h"
 #include "build/build_config.h"
 #include "components/leveldb_proto/public/proto_database_provider.h"
+#include "components/services/storage/public/mojom/indexed_db_control.mojom.h"
 #include "content/browser/background_fetch/background_fetch_context.h"
 #include "content/browser/blob_storage/blob_registry_wrapper.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
@@ -63,6 +64,7 @@
 #include "content/public/browser/network_service_instance.h"
 #include "content/public/browser/permission_controller.h"
 #include "content/public/browser/session_storage_usage_info.h"
+#include "content/public/browser/storage_notification_service.h"
 #include "content/public/browser/storage_usage_info.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_features.h"
@@ -86,6 +88,7 @@
 #include "storage/browser/blob/blob_storage_context.h"
 #include "storage/browser/database/database_tracker.h"
 #include "storage/browser/quota/quota_manager.h"
+#include "storage/browser/quota/quota_settings.h"
 #include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
 
 #if defined(OS_ANDROID)
@@ -104,6 +107,8 @@ using CookieDeletionFilterPtr = network::mojom::CookieDeletionFilterPtr;
 namespace content {
 
 namespace {
+
+const storage::QuotaSettings* g_test_quota_settings;
 
 // A callback to create a URLLoaderFactory that is used in tests.
 StoragePartitionImpl::CreateNetworkFactoryCallback&
@@ -1202,6 +1207,24 @@ void StoragePartitionImpl::Initialize() {
   scoped_refptr<storage::QuotaManagerProxy> quota_manager_proxy =
       quota_manager_->proxy();
 
+  StorageNotificationService* storage_notification_service =
+      browser_context_->GetStorageNotificationService();
+  if (storage_notification_service) {
+    base::RepeatingCallback<void(const url::Origin)>
+        send_notification_function = base::BindRepeating(
+            [](scoped_refptr<base::SequencedTaskRunner> runner,
+               const base::RepeatingCallback<void(url::Origin)>& callback,
+               const url::Origin origin) {
+              base::PostTask(FROM_HERE, {BrowserThread::UI},
+                             base::BindRepeating(callback, std::move(origin)));
+            },
+            base::CreateSingleThreadTaskRunner({BrowserThread::UI}),
+            storage_notification_service
+                ->GetStoragePressureNotificationClosure());
+
+    quota_manager_->SetStoragePressureCallback(send_notification_function);
+  }
+
   // Each consumer is responsible for registering its QuotaClient during
   // its construction.
   filesystem_context_ =
@@ -1383,7 +1406,7 @@ StoragePartitionImpl::GetCookieManagerForBrowserProcess() {
 void StoragePartitionImpl::CreateRestrictedCookieManager(
     network::mojom::RestrictedCookieManagerRole role,
     const url::Origin& origin,
-    const GURL& site_for_cookies,
+    const net::SiteForCookies& site_for_cookies,
     const url::Origin& top_frame_origin,
     bool is_service_worker,
     int process_id,
@@ -1437,6 +1460,25 @@ IdleManager* StoragePartitionImpl::GetIdleManager() {
 LockManager* StoragePartitionImpl::GetLockManager() {
   DCHECK(initialized_);
   return lock_manager_.get();
+}
+
+storage::mojom::IndexedDBControl& StoragePartitionImpl::GetIndexedDBControl() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  DCHECK(
+      !(indexed_db_control_.is_bound() && !indexed_db_control_.is_connected()))
+      << "Rebinding is not supported yet.";
+
+  if (indexed_db_control_.is_bound())
+    return *indexed_db_control_;
+
+  IndexedDBContextImpl* idb_context = GetIndexedDBContext();
+  idb_context->IDBTaskRunner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&IndexedDBContextImpl::Bind,
+                     base::WrapRefCounted(idb_context),
+                     indexed_db_control_.BindNewPipeAndPassReceiver()));
+
+  return *indexed_db_control_;
 }
 
 IndexedDBContextImpl* StoragePartitionImpl::GetIndexedDBContext() {
@@ -1597,8 +1639,8 @@ void StoragePartitionImpl::OpenSessionStorage(
 
 void StoragePartitionImpl::OnAuthRequired(
     const base::Optional<base::UnguessableToken>& window_id,
-    uint32_t process_id,
-    uint32_t routing_id,
+    int32_t process_id,
+    int32_t routing_id,
     uint32_t request_id,
     const GURL& url,
     bool first_auth_attempt,
@@ -1632,8 +1674,8 @@ void StoragePartitionImpl::OnAuthRequired(
 
 void StoragePartitionImpl::OnCertificateRequested(
     const base::Optional<base::UnguessableToken>& window_id,
-    uint32_t process_id,
-    uint32_t routing_id,
+    int32_t process_id,
+    int32_t routing_id,
     uint32_t request_id,
     const scoped_refptr<net::SSLCertRequestInfo>& cert_info,
     mojo::PendingRemote<network::mojom::ClientCertificateResponder>
@@ -1660,8 +1702,8 @@ void StoragePartitionImpl::OnCertificateRequested(
 }
 
 void StoragePartitionImpl::OnSSLCertificateError(
-    uint32_t process_id,
-    uint32_t routing_id,
+    int32_t process_id,
+    int32_t routing_id,
     const GURL& url,
     int net_error,
     const net::SSLInfo& ssl_info,
@@ -1676,7 +1718,7 @@ void StoragePartitionImpl::OnSSLCertificateError(
 }
 
 void StoragePartitionImpl::OnFileUploadRequested(
-    uint32_t process_id,
+    int32_t process_id,
     bool async,
     const std::vector<base::FilePath>& file_paths,
     OnFileUploadRequestedCallback callback) {
@@ -1717,7 +1759,7 @@ void StoragePartitionImpl::OnCanSendDomainReliabilityUpload(
       blink::mojom::PermissionStatus::GRANTED);
 }
 
-void StoragePartitionImpl::OnClearSiteData(uint32_t process_id,
+void StoragePartitionImpl::OnClearSiteData(int32_t process_id,
                                            int32_t routing_id,
                                            const GURL& url,
                                            const std::string& header_value,
@@ -1738,20 +1780,21 @@ void StoragePartitionImpl::OnCookiesChanged(
     int32_t process_id,
     int32_t routing_id,
     const GURL& url,
-    const GURL& site_for_cookies,
+    const net::SiteForCookies& site_for_cookies,
     const std::vector<net::CookieWithStatus>& cookie_list) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(initialized_);
   if (is_service_worker) {
     RunOrPostTaskOnThread(
         FROM_HERE, ServiceWorkerContext::GetCoreThreadId(),
-        base::BindOnce(&OnServiceWorkerCookiesChangedOnCoreThread,
-                       service_worker_context_, url, site_for_cookies,
-                       std::move(cookie_list)));
+        base::BindOnce(
+            &OnServiceWorkerCookiesChangedOnCoreThread, service_worker_context_,
+            url, site_for_cookies.RepresentativeUrl(), std::move(cookie_list)));
   } else {
     std::vector<GlobalFrameRoutingId> destination;
     destination.emplace_back(process_id, routing_id);
-    ReportCookiesChangedOnUI(destination, url, site_for_cookies, cookie_list);
+    ReportCookiesChangedOnUI(destination, url,
+                             site_for_cookies.RepresentativeUrl(), cookie_list);
   }
 }
 
@@ -1760,20 +1803,21 @@ void StoragePartitionImpl::OnCookiesRead(
     int32_t process_id,
     int32_t routing_id,
     const GURL& url,
-    const GURL& site_for_cookies,
+    const net::SiteForCookies& site_for_cookies,
     const std::vector<net::CookieWithStatus>& cookie_list) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(initialized_);
   if (is_service_worker) {
     RunOrPostTaskOnThread(
         FROM_HERE, ServiceWorkerContext::GetCoreThreadId(),
-        base::BindOnce(&OnServiceWorkerCookiesReadOnCoreThread,
-                       service_worker_context_, url, site_for_cookies,
-                       std::move(cookie_list)));
+        base::BindOnce(
+            &OnServiceWorkerCookiesReadOnCoreThread, service_worker_context_,
+            url, site_for_cookies.RepresentativeUrl(), std::move(cookie_list)));
   } else {
     std::vector<GlobalFrameRoutingId> destination;
     destination.emplace_back(process_id, routing_id);
-    ReportCookiesReadOnUI(destination, url, site_for_cookies, cookie_list);
+    ReportCookiesReadOnUI(destination, url,
+                          site_for_cookies.RepresentativeUrl(), cookie_list);
   }
 }
 
@@ -2265,8 +2309,15 @@ void StoragePartitionImpl::OverrideSharedWorkerServiceForTesting(
 
 void StoragePartitionImpl::GetQuotaSettings(
     storage::OptionalQuotaSettingsCallback callback) {
-  GetContentClient()->browser()->GetQuotaSettings(browser_context_, this,
-                                                  std::move(callback));
+  if (g_test_quota_settings) {
+    // For debugging tests harness can inject settings.
+    std::move(callback).Run(*g_test_quota_settings);
+    return;
+  }
+
+  storage::GetNominalDynamicSettings(
+      GetPath(), browser_context_->IsOffTheRecord(),
+      storage::GetDefaultDeviceInfoHelper(), std::move(callback));
 }
 
 void StoragePartitionImpl::InitNetworkContext() {
@@ -2349,6 +2400,11 @@ void StoragePartitionImpl::
     ResetOriginPolicyManagerForBrowserProcessForTesting() {
   DCHECK(initialized_);
   origin_policy_manager_for_browser_process_.reset();
+}
+
+void StoragePartition::SetDefaultQuotaSettingsForTesting(
+    const storage::QuotaSettings* settings) {
+  g_test_quota_settings = settings;
 }
 
 }  // namespace content

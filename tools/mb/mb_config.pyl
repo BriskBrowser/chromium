@@ -14,6 +14,8 @@
   # below). MB uses this dict to look up which config to use for a given bot.
   'masters': {
     'chrome': {
+      'chromeos-arm-generic-cfi-thin-lto-chrome': 'cros_chrome_sdk_cfi_thin_lto',
+      'chromeos-betty-cfi-thin-lto-chrome': 'cros_chrome_sdk_cfi_thin_lto',
       'chromeos-betty-chrome': 'cros_chrome_sdk',
       'chromeos-betty-pi-arc-chrome': 'cros_chrome_sdk',
       'chromeos-eve-chrome': 'cros_chrome_sdk',
@@ -22,12 +24,6 @@
       'linux-chrome': 'official_goma',
       'mac-chrome': 'official_goma',
       'win-chrome': 'official_goma_x86',
-    },
-
-    'chromeos.chrome': {
-      'chrome-tot-chromeos-amd64-generic': 'cros_chrome_sdk',
-      'Chrome4CROS Packages': 'chromeos_with_codecs_release_bot',
-      'Linux ChromeOS Buildspec Tests': 'chromeos_with_codecs_release_bot',
     },
 
     # Take care when changing any of these builders to ensure that you do not
@@ -77,10 +73,10 @@
     },
 
     'chromium.android.fyi': {
+      'Android WebView P Blink-CORS FYI (rel)': 'android_release_bot_minimal_symbols_arm64_webview_google',
       'Android WebView P FYI (rel)': 'android_release_bot_minimal_symbols_arm64_webview_google',
-      'Android WebView P OOR-CORS FYI (rel)': 'android_release_bot_minimal_symbols_arm64_webview_google',
-      'android-marshmallow-x86-fyi-rel': 'android_release_bot_minimal_symbols_x86_resource_whitelisting',
-      'android-pie-x86-fyi-rel': 'android_release_bot_minimal_symbols_x86',
+      'android-marshmallow-x86-fyi-rel': 'android_release_bot_minimal_symbols_x86_fastbuild_resource_whitelisting',
+      'android-pie-x86-fyi-rel': 'android_release_bot_minimal_symbols_x86_fastbuild_webview_google',
       'android-bfcache-debug': 'android_debug_static_bot',
     },
 
@@ -206,7 +202,7 @@
       'chromeos-amd64-generic-rel-vm-tests': 'cros_chrome_sdk_dcheck_always_on',
       'chromeos-kevin-rel-hw-tests': 'cros_chrome_sdk',
       'linux-bfcache-debug': 'debug_bot',
-      'linux-oor-cors-rel': 'release_bot_minimal_symbols',
+      'linux-blink-cors-rel': 'release_bot_minimal_symbols',
       'linux-chromeos-code-coverage': 'chromeos_with_codecs_release_bot_coverage',
       'linux-fieldtrial-rel': 'release_bot_minimal_symbols',
       'linux-wpt-fyi-rel': 'release_bot_minimal_symbols',
@@ -539,9 +535,11 @@
     'chromium.swarm': {
       'Android N5 Swarm': 'android_release_bot_minimal_symbols',
       'Android N5X Swarm': 'android_release_bot_minimal_symbols_arm64',
-      'ChromeOS Swarm': 'cros_chrome_sdk',
       'Linux Swarm': 'release_bot_minimal_symbols',
-      'Mac Swarm': 'release_bot_mac_strip_minimal_symbols',
+
+      # Use the same config with 'Mac Builder' to pass test for stack trace.
+      'Mac Swarm': 'gpu_tests_release_bot_minimal_symbols',
+
       'Windows Swarm': 'release_bot_minimal_symbols',
     },
 
@@ -577,7 +575,6 @@
       'Linux Debug Builder': 'debug_bot',
       'Linux V8 FYI Release (NVIDIA)': 'gpu_tests_release_trybot',
       'Linux V8 FYI Release - pointer compression (NVIDIA)': 'gpu_tests_release_trybot_ptr_comp',
-      'Linux Snapshot Builder': 'release_bot',
       'Mac V8 FYI Release (Intel)': 'gpu_tests_release_trybot',
       'V8 Android GN (dbg)': 'android_debug_bot',
       'V8 Blink Linux': 'release_bot',
@@ -677,12 +674,12 @@
       'android-cronet-arm-dbg': 'android_cronet_debug_static_bot_arm_no_neon',
       'android-kitkat-arm-rel': 'android_release_trybot_fastbuild',
       'android-marshmallow-arm64-rel': 'gpu_tests_android_release_trybot_arm64_resource_whitelisting_fastbuild_java_coverage',
-      'android-marshmallow-x86-fyi-rel': 'android_release_trybot_x86_resource_whitelisting',
+      'android-marshmallow-x86-fyi-rel': 'android_release_trybot_x86_fastbuild_resource_whitelisting',
       'android-oreo-arm64-cts-networkservice-dbg': 'android_debug_trybot_arm64',
       'android-pie-arm64-coverage-rel': 'android_release_trybot_arm64_webview_google_native_coverage',
       'android-pie-arm64-rel': 'android_release_trybot_arm64_webview_google',
       'android-webview-pie-arm64-fyi-rel': 'android_release_trybot_arm64_webview_google',
-      'android-pie-x86-fyi-rel': 'android_release_trybot_x86',
+      'android-pie-x86-fyi-rel': 'android_release_trybot_x86_fastbuild_webview_google',
       'android-webview-marshmallow-arm64-dbg': 'android_release_trybot_arm64_webview_google',
       'android-webview-nougat-arm64-dbg': 'android_release_trybot_arm64_webview_google',
       'android-webview-oreo-arm64-dbg': 'android_release_trybot_arm64_webview_google',
@@ -748,6 +745,8 @@
     },
 
     'tryserver.chrome': {
+      'chromeos-arm-generic-cfi-thin-lto-chrome': 'cros_chrome_sdk_cfi_thin_lto',
+      'chromeos-betty-cfi-thin-lto-chrome': 'cros_chrome_sdk_cfi_thin_lto',
       'chromeos-betty-chrome': 'cros_chrome_sdk',
       'chromeos-betty-pi-arc-chrome': 'cros_chrome_sdk',
       'chromeos-eve-chrome': 'cros_chrome_sdk',
@@ -1172,14 +1171,14 @@
       'strip_debug_info', 'android_fastbuild',
     ],
 
-    'android_release_bot_minimal_symbols_x86': [
+    'android_release_bot_minimal_symbols_x86_fastbuild_resource_whitelisting': [
       'android', 'release_bot', 'minimal_symbols', 'x86',
-      'strip_debug_info',
+      'android_fastbuild', 'resource_whitelisting',
     ],
 
-    'android_release_bot_minimal_symbols_x86_resource_whitelisting': [
+    'android_release_bot_minimal_symbols_x86_fastbuild_webview_google': [
       'android', 'release_bot', 'minimal_symbols', 'x86',
-      'resource_whitelisting',
+      'strip_debug_info', 'android_fastbuild', 'webview_google',
     ],
 
     'android_release_trybot': [
@@ -1206,12 +1205,14 @@
       'android_no_proguard',
     ],
 
-    'android_release_trybot_x86': [
-      'android', 'release_trybot', 'strip_debug_info', 'x86',
+    'android_release_trybot_x86_fastbuild_resource_whitelisting': [
+      'android', 'release_trybot', 'x86', 'android_fastbuild',
+      'resource_whitelisting',
     ],
 
-    'android_release_trybot_x86_resource_whitelisting': [
-      'android', 'release_trybot', 'x86', 'resource_whitelisting',
+    'android_release_trybot_x86_fastbuild_webview_google': [
+      'android', 'release_trybot', 'strip_debug_info', 'x86',
+      'android_fastbuild', 'webview_google',
     ],
 
     'android_webview_google_debug_static_bot': [

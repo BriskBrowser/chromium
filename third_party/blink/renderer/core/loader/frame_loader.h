@@ -93,7 +93,7 @@ class CORE_EXPORT FrameLoader final {
   // For reloads, an appropriate WebFrameLoadType should be given. Otherwise,
   // kStandard should be used (and the final WebFrameLoadType
   // will be computed).
-  void StartNavigation(const FrameLoadRequest&,
+  void StartNavigation(FrameLoadRequest&,
                        WebFrameLoadType = WebFrameLoadType::kStandard);
 
   // Called when the browser process has asked this renderer process to commit
@@ -238,6 +238,8 @@ class CORE_EXPORT FrameLoader final {
 
   bool IsClientNavigationInitialHistoryLoad();
 
+  bool HasAccessedInitialDocument() { return has_accessed_initial_document_; }
+
   static bool NeedsHistoryItemRestore(WebFrameLoadType type);
 
  private:
@@ -261,7 +263,6 @@ class CORE_EXPORT FrameLoader final {
   void ClearClientNavigation();
 
   void RestoreScrollPositionAndViewState(WebFrameLoadType,
-                                         bool is_same_document,
                                          const HistoryItem::ViewState&,
                                          HistoryScrollRestorationType);
 
@@ -314,8 +315,6 @@ class CORE_EXPORT FrameLoader final {
   };
   std::unique_ptr<ClientNavigationState> client_navigation_;
 
-  bool in_restore_scroll_;
-
   WebSandboxFlags forced_sandbox_flags_;
   // A snapshot value of frame_owner's sandbox flags states at the beginning of
   // navigation. For main frame which does not have a frame owner, the value is
@@ -328,6 +327,7 @@ class CORE_EXPORT FrameLoader final {
   bool dispatching_did_clear_window_object_in_main_world_;
   bool detached_;
   bool committing_navigation_ = false;
+  bool has_accessed_initial_document_ = false;
 
   WebScopedVirtualTimePauser virtual_time_pauser_;
 

@@ -4,10 +4,13 @@
 
 import web_idl
 
+from . import name_style
 from .clang_format import clang_format
 from .code_node import CodeNode
+from .code_node import EmptyNode
 from .code_node import LiteralNode
 from .code_node import SequenceNode
+from .code_node import render_code_node
 from .codegen_accumulator import CodeGenAccumulator
 from .path_manager import PathManager
 
@@ -55,6 +58,23 @@ def make_header_include_directives(accumulator):
     return LiteralNode(HeaderIncludeDirectives(accumulator))
 
 
+def component_export(component):
+    assert isinstance(component, web_idl.Component)
+
+    return name_style.macro(component, "EXPORT")
+
+
+def component_export_header(component):
+    assert isinstance(component, web_idl.Component)
+
+    if component == "core":
+        return "third_party/blink/renderer/core/core_export.h"
+    elif component == "modules":
+        return "third_party/blink/renderer/modules/modules_export.h"
+    else:
+        assert False
+
+
 def enclose_with_header_guard(code_node, header_guard):
     assert isinstance(code_node, CodeNode)
     assert isinstance(header_guard, str)
@@ -62,9 +82,9 @@ def enclose_with_header_guard(code_node, header_guard):
     return SequenceNode([
         LiteralNode("#ifndef {}".format(header_guard)),
         LiteralNode("#define {}".format(header_guard)),
-        LiteralNode(""),
+        EmptyNode(),
         code_node,
-        LiteralNode(""),
+        EmptyNode(),
         LiteralNode("#endif  // {}".format(header_guard)),
     ])
 
@@ -75,9 +95,9 @@ def enclose_with_namespace(code_node, namespace):
 
     return SequenceNode([
         LiteralNode("namespace {} {{".format(namespace)),
-        LiteralNode(""),
+        EmptyNode(),
         code_node,
-        LiteralNode(""),
+        EmptyNode(),
         LiteralNode("}}  // namespace {}".format(namespace)),
     ])
 
@@ -129,26 +149,16 @@ def collect_include_headers(idl_definition):
 
     traverse_idl_types(idl_definition, collect_type_def_obj)
 
-    header_paths = set()
+    header_paths = set(idl_definition.code_generator_info.blink_headers or [])
     for type_def_obj in type_def_objs:
         if isinstance(type_def_obj, web_idl.Enumeration):
             continue
-        header_paths.add(PathManager(type_def_obj).blink_path(ext="h"))
+        if isinstance(type_def_obj, web_idl.Dictionary):
+            header_paths.add(PathManager(type_def_obj).dict_path(ext="h"))
+            continue
+        header_paths.add(PathManager(type_def_obj).api_path(ext="h"))
 
     return header_paths
-
-
-def render_code_node(code_node):
-    """
-    Renders |code_node| and turns it into text letting |code_node| apply all
-    necessary changes (side effects).  Returns the resulting text.
-    """
-    prev = "_"
-    current = ""
-    while current != prev:
-        prev = current
-        current = str(code_node)
-    return current
 
 
 def write_code_node_to_file(code_node, filepath):
@@ -160,5 +170,4 @@ def write_code_node_to_file(code_node, filepath):
 
     format_result = clang_format(rendered_text, filename=filepath)
 
-    with open(filepath, "w") as output_file:
-        output_file.write(format_result.contents)
+    web_idl.file_io.write_to_file_if_changed(filepath, format_result.contents)

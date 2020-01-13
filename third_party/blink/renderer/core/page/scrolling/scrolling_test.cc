@@ -674,7 +674,20 @@ TEST_P(ScrollingTest, touchActionOnInline) {
 
   cc::Region region = cc_layer->touch_action_region().GetRegionForTouchAction(
       TouchAction::kNone);
-  EXPECT_EQ(region.bounds(), gfx::Rect(8, 8, 80, 50));
+  EXPECT_EQ(region.bounds(), gfx::Rect(8, 8, 120, 50));
+}
+
+TEST_P(ScrollingTest, touchActionOnText) {
+  RegisterMockedHttpURLLoad("touch-action-on-text.html");
+  NavigateTo(base_url_ + "touch-action-on-text.html");
+  LoadAhem();
+  ForceFullCompositingUpdate();
+
+  const auto* cc_layer = MainFrameScrollingContentsLayer();
+
+  cc::Region region = cc_layer->touch_action_region().GetRegionForTouchAction(
+      TouchAction::kNone);
+  EXPECT_EQ(region.bounds(), gfx::Rect(8, 8, 160, 30));
 }
 
 TEST_P(ScrollingTest, touchActionWithVerticalRLWritingMode) {
@@ -1390,11 +1403,8 @@ TEST_P(ScrollingTest, UpdateVisualViewportScrollLayer) {
 
   page->GetVisualViewport().SetLocation(FloatPoint(10, 20));
   ForceFullCompositingUpdate();
-  // TODO(crbug.com/953322): Make this work for CAP.
-  if (!RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(gfx::ScrollOffset(10, 20),
-              CurrentScrollOffset(inner_viewport_scroll_node));
-  }
+  EXPECT_EQ(gfx::ScrollOffset(10, 20),
+            CurrentScrollOffset(inner_viewport_scroll_node));
 }
 
 TEST_P(ScrollingTest, UpdateUMAMetricUpdated) {

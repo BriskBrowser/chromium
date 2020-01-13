@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/webui/interstitials/interstitial_ui.h"
 
 #include <memory>
+#include <utility>
 
 #include "base/atomic_sequence_num.h"
 #include "base/strings/string_number_conversions.h"
@@ -18,14 +19,14 @@
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/safe_browsing/test_safe_browsing_blocking_page_quiet.h"
 #include "chrome/browser/safe_browsing/ui_manager.h"
-#include "chrome/browser/ssl/bad_clock_blocking_page.h"
 #include "chrome/browser/ssl/blocked_interception_blocking_page.h"
 #include "chrome/browser/ssl/chrome_security_blocking_page_factory.h"
 #include "chrome/browser/ssl/mitm_software_blocking_page.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/common/url_constants.h"
-#include "components/grit/components_resources.h"
-#include "components/safe_browsing/db/database_manager.h"
+#include "components/grit/dev_ui_components_resources.h"
+#include "components/safe_browsing/core/db/database_manager.h"
+#include "components/security_interstitials/content/bad_clock_blocking_page.h"
 #include "components/security_interstitials/content/origin_policy_ui.h"
 #include "components/security_interstitials/core/ssl_error_options_mask.h"
 #include "components/security_interstitials/core/ssl_error_ui.h"
@@ -233,9 +234,9 @@ BadClockBlockingPage* CreateBadClockBlockingPage(
   if (strict_enforcement)
     options_mask |=
         security_interstitials::SSLErrorOptionsMask::STRICT_ENFORCEMENT;
-  return new BadClockBlockingPage(web_contents, cert_error, ssl_info,
-                                  request_url, base::Time::Now(), clock_state,
-                                  nullptr);
+  return ChromeSecurityBlockingPageFactory::CreateBadClockBlockingPage(
+      web_contents, cert_error, ssl_info, request_url, base::Time::Now(),
+      clock_state, nullptr);
 }
 
 LookalikeUrlInterstitialPage* CreateLookalikeInterstitialPage(

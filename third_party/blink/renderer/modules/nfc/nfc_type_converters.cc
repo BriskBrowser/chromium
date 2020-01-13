@@ -30,8 +30,8 @@ namespace mojo {
 NDEFRecordPtr TypeConverter<NDEFRecordPtr, blink::NDEFRecord*>::Convert(
     const blink::NDEFRecord* record) {
   return NDEFRecord::New(
-      record->recordType(), record->mediaType(), record->id(),
-      record->encoding(), record->lang(), record->payloadData(),
+      record->category(), record->recordType(), record->mediaType(),
+      record->id(), record->encoding(), record->lang(), record->payloadData(),
       TypeConverter<NDEFMessagePtr, blink::NDEFMessage*>::Convert(
           record->payload_message()));
 }
@@ -57,9 +57,8 @@ TypeConverter<NDEFPushOptionsPtr, const blink::NDEFPushOptions*>::Convert(
     const blink::NDEFPushOptions* pushOptions) {
   // https://w3c.github.io/web-nfc/#the-ndefpushoptions-dictionary
   // Default values for NDEFPushOptions dictionary are:
-  // target = 'any', ignoreRead = true
+  // ignoreRead = true
   NDEFPushOptionsPtr pushOptionsPtr = NDEFPushOptions::New();
-  pushOptionsPtr->target = blink::StringToNDEFPushTarget(pushOptions->target());
   pushOptionsPtr->ignore_read = pushOptions->ignoreRead();
 
   return pushOptionsPtr;
@@ -70,9 +69,8 @@ TypeConverter<NDEFScanOptionsPtr, const blink::NDEFScanOptions*>::Convert(
     const blink::NDEFScanOptions* scanOptions) {
   // https://w3c.github.io/web-nfc/#dom-ndefscanoptions
   // Default values for NDEFScanOptions dictionary are:
-  // id = undefined, recordType = undefined, mediaType = ""
+  // id = undefined, recordType = undefined, mediaType = undefined
   NDEFScanOptionsPtr scanOptionsPtr = NDEFScanOptions::New();
-  scanOptionsPtr->media_type = scanOptions->mediaType();
 
   if (scanOptions->hasId()) {
     scanOptionsPtr->id = scanOptions->id();
@@ -80,6 +78,10 @@ TypeConverter<NDEFScanOptionsPtr, const blink::NDEFScanOptions*>::Convert(
 
   if (scanOptions->hasRecordType()) {
     scanOptionsPtr->record_type = scanOptions->recordType();
+  }
+
+  if (scanOptions->hasMediaType()) {
+    scanOptionsPtr->media_type = scanOptions->mediaType();
   }
 
   return scanOptionsPtr;

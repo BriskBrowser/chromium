@@ -18,6 +18,14 @@ export const SourceType = {
   UNKNOWN: 'unknown',
 };
 
+/** @enum {string} */
+export const EnableControl = {
+  RELOAD: 'RELOAD',
+  REPAIR: 'REPAIR',
+  ENABLE_BUTTON: 'ENABLE_BUTTON',
+  ENABLE_TOGGLE: 'ENABLE_TOGGLE',
+};
+
 /**
  * Returns true if the extension is enabled, including terminated
  * extensions.
@@ -58,7 +66,9 @@ export function userCanChangeEnablement(item) {
   // Item is forcefully disabled.
   if (item.disableReasons.corruptInstall ||
       item.disableReasons.suspiciousInstall ||
-      item.disableReasons.updateRequired) {
+      item.disableReasons.updateRequired ||
+      item.disableReasons.blockedByPolicy ||
+      item.disableReasons.custodianApprovalRequired) {
     return false;
   }
   // An item with dependent extensions can't be disabled (it would bork the
@@ -148,4 +158,32 @@ export function computeInspectableViewLabel(view) {
   }
 
   return label;
+}
+
+/**
+ * Returns true if the extension is in the terminated state.
+ * @param {!chrome.developerPrivate.ExtensionState} state
+ * @return {boolean}
+ * @private
+ */
+function isTerminated_(state) {
+  return state === chrome.developerPrivate.ExtensionState.TERMINATED;
+}
+
+/**
+ * Determines which enable control to display for a given extension.
+ * @param {!chrome.developerPrivate.ExtensionInfo} data
+ * @return {EnableControl}
+ */
+export function getEnableControl(data) {
+  if (isTerminated_(data.state)) {
+    return EnableControl.RELOAD;
+  }
+  if (data.disableReasons.corruptInstall) {
+    return EnableControl.REPAIR;
+  }
+  if (data.disableReasons.custodianApprovalRequired) {
+    return EnableControl.ENABLE_BUTTON;
+  }
+  return EnableControl.ENABLE_TOGGLE;
 }

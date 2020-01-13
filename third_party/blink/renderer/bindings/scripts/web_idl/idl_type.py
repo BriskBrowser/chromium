@@ -232,6 +232,7 @@ class IdlType(WithExtendedAttributes, WithDebugInfo):
         Args:
             nullable:
             typedef:
+            variadic:
                 All these arguments take tri-state value: True, False, or None.
                 True unwraps that type, False stops unwrapping that type.  All
                 of specified arguments' values must be consistent, and mixture
@@ -516,6 +517,15 @@ class IdlType(WithExtendedAttributes, WithDebugInfo):
         """
         return None
 
+    @property
+    def union_definition_object(self):
+        """
+        Returns an object that represents an union or None.
+
+        Note that a returned object is not an IdlType.  It's of type Union.
+        """
+        return None
+
     def _format_syntactic_form(self, syntactic_form_inner):
         """Helper function to implement |syntactic_form|."""
         optional_form = 'optional ' if self.is_optional else ''
@@ -680,6 +690,9 @@ class ReferenceType(IdlType, RefById):
 
     def __hash__(self):
         return hash(self.identifier)
+
+    def _unwrap(self, switches):
+        return self.target_object._unwrap(switches)
 
 
 class DefinitionType(IdlType, WithIdentifier):
@@ -1074,6 +1087,7 @@ class UnionType(IdlType):
             debug_info=debug_info,
             pass_key=pass_key)
         self._member_types = tuple(member_types)
+        self._union_definition_object = None
 
     def __eq__(self, other):
         """
@@ -1143,6 +1157,17 @@ class UnionType(IdlType):
                 return [idl_type]
 
         return set(flatten(self))
+
+    @property
+    def union_definition_object(self):
+        return self._union_definition_object
+
+    def set_union_definition_object(self, union_definition_object):
+        # In Python2, we need to avoid circular imports.
+        from .union import Union
+        assert isinstance(union_definition_object, Union)
+        assert self._union_definition_object is None
+        self._union_definition_object = union_definition_object
 
 
 class NullableType(IdlType):

@@ -16,6 +16,7 @@
 #include "chrome/browser/notifications/scheduler/public/schedule_service_utils.h"
 #include "chrome/browser/updates/update_notification_config.h"
 #include "chrome/browser/updates/update_notification_info.h"
+#include "chrome/browser/updates/update_notification_service_bridge.h"
 
 namespace updates {
 namespace {
@@ -32,6 +33,10 @@ void BuildNotificationData(const updates::UpdateNotificationInfo& data,
 // Maximum number of update notification should be cached in scheduler.
 constexpr int kNumMaxNotificationsLimit = 1;
 
+// Maxmium number of consecutive dismiss actions from user that should be
+// considered as negative feedback.
+constexpr int kNumConsecutiveDismissCountCap = 2;
+
 UpdateNotificationServiceImpl::UpdateNotificationServiceImpl(
     notifications::NotificationScheduleService* schedule_service)
     : schedule_service_(schedule_service),
@@ -44,6 +49,24 @@ void UpdateNotificationServiceImpl::Schedule(UpdateNotificationInfo data) {
       notifications::SchedulerClientType::kChromeUpdate,
       base::BindOnce(&UpdateNotificationServiceImpl::OnClientOverviewQueried,
                      weak_ptr_factory_.GetWeakPtr(), std::move(data)));
+}
+
+bool UpdateNotificationServiceImpl::IsReadyToDisplay() const {
+  if (!config_->is_enabled)
+    return false;
+
+  auto last_shown_timestamp = updates::GetLastShownTimeStamp();
+  if (last_shown_timestamp.has_value()) {
+    return (GetThrottleInterval() <
+            base::Time::Now() - last_shown_timestamp.value());
+  }
+  return true;
+}
+
+base::TimeDelta UpdateNotificationServiceImpl::GetThrottleInterval() const {
+  auto throttle_interval = updates::GetThrottleInterval();
+  return throttle_interval.has_value() ? throttle_interval.value()
+                                       : config_->default_interval;
 }
 
 void UpdateNotificationServiceImpl::OnClientOverviewQueried(
@@ -82,6 +105,23 @@ UpdateNotificationServiceImpl::BuildScheduleParams() {
   schedule_params.deliver_time_end =
       base::make_optional(std::move(actual_window.second));
   return schedule_params;
+}
+
+void UpdateNotificationServiceImpl::OnUserDismiss() {
+  int count = updates::GetUserDismissCount() + 1;
+  if (count >= kNumConsecutiveDismissCountCap) {
+    ApplyLinearThrottle();
+    count = 0;
+  }
+  updates::UpdateUserDismissCount(count);
+}
+
+void UpdateNotificationServiceImpl::ApplyLinearThrottle() {
+  auto scale = config_->throttle_interval_linear_co_scale;
+  auto offset =
+      base::TimeDelta::FromDays(config_->throttle_interval_linear_co_offset);
+  auto interval = GetThrottleInterval();
+  updates::UpdateThrottleInterval(scale * interval + offset);
 }
 
 }  // namespace updates

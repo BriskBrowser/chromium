@@ -36,7 +36,6 @@ bool IsUnsandboxedSandboxType(SandboxType sandbox_type) {
     case SandboxType::kPpapi:
     case SandboxType::kCdm:
     case SandboxType::kPdfCompositor:
-    case SandboxType::kProfiling:
 #if defined(OS_FUCHSIA)
     case SandboxType::kWebContext:
 #endif
@@ -46,6 +45,7 @@ bool IsUnsandboxedSandboxType(SandboxType sandbox_type) {
 #if defined(OS_CHROMEOS)
     case SandboxType::kIme:
 #endif
+    case SandboxType::kSoda:
       return false;
   }
 }
@@ -83,7 +83,6 @@ void SetCommandLineFlagsForSandboxType(base::CommandLine* command_line,
     case SandboxType::kNetwork:
     case SandboxType::kCdm:
     case SandboxType::kPdfCompositor:
-    case SandboxType::kProfiling:
     case SandboxType::kAudio:
 #if defined(OS_WIN)
     case SandboxType::kXrCompositing:
@@ -91,6 +90,7 @@ void SetCommandLineFlagsForSandboxType(base::CommandLine* command_line,
 #if defined(OS_CHROMEOS)
     case SandboxType::kIme:
 #endif  // defined(OS_CHROMEOS)
+    case SandboxType::kSoda:
       DCHECK(command_line->GetSwitchValueASCII(switches::kProcessType) ==
              switches::kUtilityProcess);
       DCHECK(!command_line->HasSwitch(switches::kServiceSandboxType));
@@ -162,12 +162,12 @@ std::string StringFromUtilitySandboxType(SandboxType sandbox_type) {
       return switches::kCdmSandbox;
     case SandboxType::kPdfCompositor:
       return switches::kPdfCompositorSandbox;
-    case SandboxType::kProfiling:
-      return switches::kProfilingSandbox;
     case SandboxType::kUtility:
       return switches::kUtilitySandbox;
     case SandboxType::kAudio:
       return switches::kAudioSandbox;
+    case SandboxType::kSoda:
+      return switches::kSodaSandbox;
 #if defined(OS_WIN)
     case SandboxType::kXrCompositing:
       return switches::kXrCompositingSandbox;
@@ -212,14 +212,14 @@ SandboxType UtilitySandboxTypeFromString(const std::string& sandbox_string) {
     return SandboxType::kCdm;
   if (sandbox_string == switches::kPdfCompositorSandbox)
     return SandboxType::kPdfCompositor;
-  if (sandbox_string == switches::kProfilingSandbox)
-    return SandboxType::kProfiling;
 #if defined(OS_WIN)
   if (sandbox_string == switches::kXrCompositingSandbox)
     return SandboxType::kXrCompositing;
 #endif
   if (sandbox_string == switches::kAudioSandbox)
     return SandboxType::kAudio;
+  if (sandbox_string == switches::kSodaSandbox)
+    return SandboxType::kSoda;
 #if defined(OS_CHROMEOS)
   if (sandbox_string == switches::kImeSandbox)
     return SandboxType::kIme;

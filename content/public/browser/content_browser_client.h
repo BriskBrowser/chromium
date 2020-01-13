@@ -157,7 +157,6 @@ class Origin;
 
 namespace storage {
 class FileSystemBackend;
-struct QuotaSettings;
 }  // namespace storage
 
 namespace content {
@@ -751,15 +750,6 @@ class CONTENT_EXPORT ContentBrowserClient {
   // Create and return a new quota permission context.
   virtual scoped_refptr<QuotaPermissionContext> CreateQuotaPermissionContext();
 
-  // Allows the embedder to provide settings that determine the amount
-  // of disk space that may be used by content facing storage apis like
-  // IndexedDatabase and ServiceWorker::CacheStorage and others.
-  virtual void GetQuotaSettings(
-      content::BrowserContext* context,
-      content::StoragePartition* partition,
-      base::OnceCallback<void(base::Optional<storage::QuotaSettings>)>
-          callback);
-
   // Allows the embedder to provide settings that determine if generated code
   // can be cached and the amount of disk space used for caching generated code.
   virtual GeneratedCodeCacheSettings GetGeneratedCodeCacheSettings(
@@ -1022,12 +1012,6 @@ class CONTENT_EXPORT ContentBrowserClient {
   virtual void BindHostReceiverForRenderer(
       RenderProcessHost* render_process_host,
       mojo::GenericPendingReceiver receiver) {}
-
-  // Called on the IO thread to handle an unhandled interface receiver binding
-  // request from a render process. See |RenderThread::BindHostReceiver()|.
-  virtual void BindHostReceiverForRendererOnIOThread(
-      int render_process_id,
-      mojo::GenericPendingReceiver* receiver) {}
 
   // Called just before the Service Manager is initialized.
   virtual void WillStartServiceManager() {}
@@ -1324,6 +1308,10 @@ class CONTENT_EXPORT ContentBrowserClient {
   // |bypass_redirect_checks| will be set to true when the embedder will be
   // handling redirect security checks.
   //
+  // |disable_secure_dns| will be set to true when the URLLoaderFactory will be
+  // used exclusively within a window that requires secure DNS to be turned off,
+  // such as a window created for captive portal resolution.
+  //
   // |factory_override| gives the embedder a chance to replace the network
   // service's "internal" URLLoaderFactory. See more details in the
   // documentation for URLLoaderFactoryOverride in network_context.mojom.
@@ -1353,6 +1341,7 @@ class CONTENT_EXPORT ContentBrowserClient {
       mojo::PendingRemote<network::mojom::TrustedURLLoaderHeaderClient>*
           header_client,
       bool* bypass_redirect_checks,
+      bool* disable_secure_dns,
       network::mojom::URLLoaderFactoryOverridePtr* factory_override);
 
   // Returns true when the embedder wants to intercept a websocket connection.
@@ -1381,7 +1370,7 @@ class CONTENT_EXPORT ContentBrowserClient {
       RenderFrameHost* frame,
       WebSocketFactory factory,
       const GURL& url,
-      const GURL& site_for_cookies,
+      const net::SiteForCookies& site_for_cookies,
       const base::Optional<std::string>& user_agent,
       mojo::PendingRemote<network::mojom::WebSocketHandshakeClient>
           handshake_client);
@@ -1418,7 +1407,7 @@ class CONTENT_EXPORT ContentBrowserClient {
       network::mojom::RestrictedCookieManagerRole role,
       BrowserContext* browser_context,
       const url::Origin& origin,
-      const GURL& site_for_cookies,
+      const net::SiteForCookies& site_for_cookies,
       const url::Origin& top_frame_origin,
       bool is_service_worker,
       int process_id,

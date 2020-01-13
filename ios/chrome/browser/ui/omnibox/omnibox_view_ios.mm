@@ -337,9 +337,7 @@ bool OmniboxViewIOS::OnWillChange(NSRange range, NSString* new_text) {
     // as if the pre-edit fake selection was real.
     [field_ exitPreEditState];
 
-    field_.selectedTextRange =
-        [field_ textRangeFromPosition:field_.beginningOfDocument
-                           toPosition:field_.endOfDocument];
+    field_.text = @"";
 
     // Reset |range| to be of zero-length at location zero, as the field will be
     // now cleared.
@@ -669,35 +667,8 @@ BOOL OmniboxViewIOS::IsPopupOpen() {
   return popup_provider_->IsPopupOpen();
 }
 
-int OmniboxViewIOS::GetIcon(bool offlinePage) const {
-  if (!IsEditingOrEmpty()) {
-    if (offlinePage) {
-      return IDR_IOS_OMNIBOX_OFFLINE;
-    }
-    return GetIconForSecurityState(
-        controller()->GetLocationBarModel()->GetSecurityLevel());
-  }
-  return GetIconForAutocompleteMatchType(
-      model() ? model()->CurrentMatch(nullptr).type
-              : AutocompleteMatchType::URL_WHAT_YOU_TYPED,
-      /* is_starred */ false, /* is_incognito */ false);
-}
-
 int OmniboxViewIOS::GetOmniboxTextLength() const {
   return [field_ displayedText].length();
-}
-
-void OmniboxViewIOS::EmphasizeURLComponents() {
-// TODO(rohitrao): Implement this function using code like below.  This code
-// is being left out for now because it was not present before the OmniboxView
-// rewrite.
-#if 0
-  // When editing is in progress, the url text is not colored, so there is
-  // nothing to emphasize.  (Calling SetText() in that situation would also be
-  // harmful, as it would reset the carat position to the end of the text.)
-  if (!IsEditingOrEmpty())
-    SetText(GetText());
-#endif
 }
 
 #pragma mark - OmniboxPopupViewSuggestionsDelegate

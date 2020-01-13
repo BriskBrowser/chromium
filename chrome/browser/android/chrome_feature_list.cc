@@ -31,10 +31,11 @@
 #include "components/ntp_tiles/features.h"
 #include "components/offline_pages/core/offline_page_feature.h"
 #include "components/omnibox/common/omnibox_features.h"
+#include "components/paint_preview/features/features.h"
 #include "components/password_manager/core/common/password_manager_features.h"
 #include "components/payments/core/features.h"
 #include "components/previews/core/previews_features.h"
-#include "components/safe_browsing/features.h"
+#include "components/safe_browsing/core/features.h"
 #include "components/security_state/core/features.h"
 #include "components/signin/public/base/account_consistency_method.h"
 #include "components/subresource_filter/core/browser/subresource_filter_features.h"
@@ -93,6 +94,7 @@ const base::Feature* kFeaturesExposedToJava[] = {
     &kAdjustWebApkInstallationSpace,
     &kAllowNewIncognitoTabIntents,
     &kAllowRemoteContextForNotifications,
+    &kAndroidBlockIntentNonSafelistedHeaders,
     &kAndroidNightMode,
     &kAndroidNightModeCCT,
     &kAndroidNightModeForQ,
@@ -167,6 +169,7 @@ const base::Feature* kFeaturesExposedToJava[] = {
     &kPayWithGoogleV1,
     &kPhotoPickerVideoSupport,
     &kPhotoPickerZoom,
+    &kProfileCard,
     &kReachedCodeProfiler,
     &kReaderModeInCCT,
     &kReorderBookmarks,
@@ -203,6 +206,7 @@ const base::Feature* kFeaturesExposedToJava[] = {
     &kWebApkAdaptiveIcon,
     &net::features::kSameSiteByDefaultCookies,
     &net::features::kCookiesWithoutSameSiteMustBeSecure,
+    &paint_preview::kPaintPreviewTest,
     &payments::features::kAlwaysAllowJustInTimePaymentApp,
     &payments::features::kPaymentRequestSkipToGPay,
     &payments::features::kPaymentRequestSkipToGPayIfNoCard,
@@ -258,6 +262,10 @@ const base::Feature* FindFeatureExposedToJava(const std::string& feature_name) {
 // Alphabetical:
 const base::Feature kAdjustWebApkInstallationSpace = {
     "AdjustWebApkInstallationSpace", base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kAndroidBlockIntentNonSafelistedHeaders{
+    "AndroidBlockIntentNonSafelistedHeaders",
+    base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kAndroidNightMode{"AndroidNightMode",
                                       base::FEATURE_ENABLED_BY_DEFAULT};
@@ -509,6 +517,9 @@ const base::Feature kPhotoPickerVideoSupport{"PhotoPickerVideoSupport",
 
 const base::Feature kPhotoPickerZoom{"PhotoPickerZoom",
                                      base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kProfileCard{"ProfileCard",
+                                 base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kReachedCodeProfiler{"ReachedCodeProfiler",
                                          base::FEATURE_DISABLED_BY_DEFAULT};

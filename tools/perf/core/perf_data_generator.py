@@ -130,10 +130,12 @@ FYI_BUILDERS = {
     'tests': [
       {
         'isolate': 'performance_test_suite',
+        'extra_args': [
+           '--run-ref-build',
+        ],
       }
     ],
-    'platform': 'android-chrome',
-    'browser': 'bin/monochrome_bundle',
+    'platform': 'android-chrome-bundle',
     'dimension': {
       'pool': 'chrome.tests.perf-fyi',
       'os': 'Android',
@@ -148,7 +150,7 @@ FYI_BUILDERS = {
         'isolate': 'performance_test_suite',
         'extra_args': [
             '--output-format=histograms',
-            '--experimental-proto-trace-format',
+            '--experimental-tbmv3-metrics',
         ],
       }
     ],
@@ -388,14 +390,6 @@ BUILDERS = {
         'type': TEST_TYPES.GTEST,
       },
       {
-        'isolate': 'angle_perftests',
-        'num_shards': 1,
-        'type': TEST_TYPES.GTEST,
-        'extra_args': [
-            '--shard-timeout=300'
-        ],
-      },
-      {
         'isolate': 'base_perftests',
         'num_shards': 1,
         'type': TEST_TYPES.GTEST,
@@ -417,21 +411,6 @@ BUILDERS = {
         'extra_args': [
             '--assert-gpu-compositing',
         ],
-      },
-      {
-        'isolate': 'tracing_perftests',
-        'num_shards': 1,
-        'type': TEST_TYPES.GTEST,
-      },
-      {
-        'isolate': 'components_perftests',
-        'num_shards': 1,
-        'type': TEST_TYPES.GTEST,
-      },
-      {
-        'isolate': 'gpu_perftests',
-        'num_shards': 1,
-        'type': TEST_TYPES.GTEST,
       },
     ],
     'platform': 'android',
@@ -556,6 +535,8 @@ BUILDERS = {
             '--assert-gpu-compositing',
         ],
       },
+      # TODO(crbug.com/1039019): Remove all of the following gtests and enable
+      # as part of the shard maps.
       {
         'isolate': 'angle_perftests',
         'num_shards': 1,
@@ -584,6 +565,14 @@ BUILDERS = {
         'num_shards': 1,
         'type': TEST_TYPES.GTEST,
       },
+      {
+        'isolate': 'dawn_perf_tests',
+        'num_shards': 1,
+        'type': TEST_TYPES.GTEST,
+        'extra_args': [
+            '--shard-timeout=300'
+        ],
+      },
     ],
     'platform': 'win',
     'target_bits': 64,
@@ -603,6 +592,8 @@ BUILDERS = {
       {
         'isolate': 'performance_test_suite',
       },
+      # TODO(crbug.com/1039019): Remove all of the following gtests and enable
+      # as part of the shard maps.
       {
         'isolate': 'load_library_perf_tests',
         'num_shards': 1,
@@ -636,6 +627,8 @@ BUILDERS = {
             '--assert-gpu-compositing',
         ],
       },
+      # TODO(crbug.com/1039019): Remove all of the following gtests and enable
+      # as part of the shard maps.
       {
         'isolate': 'load_library_perf_tests',
         'num_shards': 1,
@@ -769,26 +762,6 @@ BUILDERS = {
         'num_shards': 1,
         'type': TEST_TYPES.GTEST,
       },
-      {
-        'isolate': 'net_perftests',
-        'num_shards': 1,
-        'type': TEST_TYPES.GTEST,
-      },
-      {
-        'isolate': 'views_perftests',
-        'num_shards': 1,
-        'type': TEST_TYPES.GTEST,
-      },
-      {
-        'isolate': 'media_perftests',
-        'num_shards': 1,
-        'type': TEST_TYPES.GTEST,
-      },
-      {
-        'isolate': 'base_perftests',
-        'num_shards': 1,
-        'type': TEST_TYPES.GTEST,
-      },
     ],
     'platform': 'mac',
     'dimension': {
@@ -895,6 +868,10 @@ GTEST_BENCHMARKS = {
     'views_perftests': BenchmarkMetadata(
         'tapted@chromium.org', 'Internals>Views'),
     'components_perftests': BenchmarkMetadata('csharrison@chromium.org'),
+    'dawn_perf_tests': BenchmarkMetadata(
+        'enga@chromium.org, chrome-gpu-perf-owners@chromium.org',
+        'Internals>GPU>Dawn',
+        'https://dawn.googlesource.com/dawn/+/HEAD/src/tests/perf_tests/README.md'),
 }
 
 
@@ -969,6 +946,10 @@ def get_scheduled_non_telemetry_benchmarks(perf_waterfall_file):
                     'performance_webview_test_suite',
                     'performance_weblayer_test_suite'):
       test_names.add(name)
+
+  for platform in bot_platforms.ALL_PLATFORMS:
+    for executable in platform.executables:
+      test_names.add(executable.name)
 
   return test_names
 
@@ -1173,12 +1154,6 @@ def generate_telemetry_args(tester_config, platform):
                      tester_config['browser'])
     if tester_config['platform'].startswith('android'):
       test_args.append('--device=android')
-
-  if tester_config['platform'] == 'android-weblayer':
-    test_args.append(
-        '--webview-embedder-apk=../../out/Release/apks/WebLayerShell.apk')
-    test_args.append(
-        '--webview-embedder-apk=../../out/Release/apks/WebLayerSupport.apk')
   return test_args
 
 
@@ -1246,13 +1221,17 @@ def generate_performance_test(tester_config, test, builder_name):
     # TODO(crbug.com/865538): once we have plenty of windows hardwares,
     # to shards perf benchmarks on Win builders, reduce this hard timeout limit
     # to ~2 hrs.
-    'hard_timeout': 12 * 60 * 60, # 12 hours timeout for full suite
+    # Note that the builder seems to time out after 7 hours (crbug.com/1036447),
+    # so we must timeout the shards within ~5.5 hours to allow for other
+    # overhead. If the overall builder times out then we
+    # don't get data even from the passing shards.
+    'hard_timeout': int(5.5 * 60 * 60), # 5.5 hours timeout for full suite
     'ignore_task_failure': False,
-    # 6 hour timeout. Note that this is effectively the timeout for a
+    # 5.5 hour timeout. Note that this is effectively the timeout for a
     # benchmarking subprocess to run since we intentionally do not stream
     # subprocess output to the task stdout.
     # TODO(crbug.com/865538): Reduce this once we can reduce hard_timeout.
-    'io_timeout': 6 * 60 * 60,
+    'io_timeout': int(5.5 * 60 * 60),
     'dimension_sets': [
       tester_config['dimension']
     ],

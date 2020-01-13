@@ -53,7 +53,6 @@
 #include "content/common/page_messages.h"
 #include "content/common/render_message_filter.mojom.h"
 #include "content/common/renderer.mojom.h"
-#include "content/common/swapped_out_messages.h"
 #include "content/common/view_messages.h"
 #include "content/common/widget_messages.h"
 #include "content/public/browser/ax_event_notification_details.h"
@@ -224,7 +223,6 @@ RenderViewHostImpl::RenderViewHostImpl(
     : render_widget_host_(std::move(widget)),
       delegate_(delegate),
       instance_(static_cast<SiteInstanceImpl*>(instance)),
-      is_swapped_out_(swapped_out),
       routing_id_(routing_id),
       main_frame_routing_id_(main_frame_routing_id) {
   DCHECK(instance_.get());
@@ -343,9 +341,10 @@ bool RenderViewHostImpl::CreateRenderView(
       params->renderer_preferences.get());
   params->web_preferences = GetWebkitPreferences();
   params->view_id = GetRoutingID();
-  params->main_frame_routing_id = main_frame_routing_id_;
-  params->main_frame_widget_routing_id = render_widget_host_->GetRoutingID();
   if (main_rfh) {
+    params->main_frame_routing_id = main_frame_routing_id_;
+    params->main_frame_widget_routing_id =
+        main_rfh->GetRenderWidgetHost()->GetRoutingID();
     params->main_frame_interface_bundle =
         mojom::DocumentScopedInterfaceBundle::New();
     main_rfh->BindInterfaceProviderReceiver(
@@ -354,8 +353,6 @@ bool RenderViewHostImpl::CreateRenderView(
     main_rfh->BindBrowserInterfaceBrokerReceiver(
         params->main_frame_interface_bundle->browser_interface_broker
             .InitWithNewPipeAndPassReceiver());
-    RenderWidgetHostImpl* main_rwh = main_rfh->GetRenderWidgetHost();
-    params->main_frame_widget_routing_id = main_rwh->GetRoutingID();
   }
   params->session_storage_namespace_id =
       delegate_->GetSessionStorageNamespace(instance_.get())->id();
@@ -364,7 +361,7 @@ bool RenderViewHostImpl::CreateRenderView(
   params->replicated_frame_state = replicated_frame_state;
   params->proxy_routing_id = proxy_route_id;
   params->hidden = GetWidget()->delegate()->IsHidden();
-  params->never_visible = delegate_->IsNeverVisible();
+  params->never_composited = delegate_->IsNeverComposited();
   params->window_was_created_with_opener = window_was_created_with_opener;
   if (main_rfh) {
     params->has_committed_real_load =
@@ -377,8 +374,7 @@ bool RenderViewHostImpl::CreateRenderView(
 
   // TODO(danakj): Make the visual_properties optional in the message.
   if (proxy_route_id == MSG_ROUTING_NONE) {
-    params->visual_properties = GetWidget()->GetVisualProperties();
-    GetWidget()->SetInitialVisualProperties(params->visual_properties);
+    params->visual_properties = GetWidget()->GetInitialVisualProperties();
   }
 
   // The RenderView is owned by this process. This call must be accompanied by a
@@ -400,8 +396,11 @@ bool RenderViewHostImpl::CreateRenderView(
 }
 
 void RenderViewHostImpl::SetMainFrameRoutingId(int routing_id) {
+  bool was_active = is_active();
   main_frame_routing_id_ = routing_id;
   GetWidget()->UpdatePriority();
+  if (was_active && !is_active())
+    GetWidget()->DidDestroyRenderWidget();
 }
 
 void RenderViewHostImpl::EnterBackForwardCache() {
@@ -441,8 +440,8 @@ bool RenderViewHostImpl::IsMainFrameActive() {
   return is_active();
 }
 
-bool RenderViewHostImpl::IsNeverVisible() {
-  return GetDelegate()->IsNeverVisible();
+bool RenderViewHostImpl::IsNeverComposited() {
+  return GetDelegate()->IsNeverComposited();
 }
 
 WebPreferences RenderViewHostImpl::GetWebkitPreferencesForWidget() {
@@ -799,23 +798,6 @@ bool RenderViewHostImpl::SuddenTerminationAllowed() const {
 // RenderViewHostImpl, IPC message handlers:
 
 bool RenderViewHostImpl::OnMessageReceived(const IPC::Message& msg) {
-  // Filter out most IPC messages if this renderer is swapped out.
-  // We still want to handle certain ACKs to keep our state consistent.
-  if (is_swapped_out_) {
-    if (!SwappedOutMessages::CanHandleWhileSwappedOut(msg)) {
-      // If this is a synchronous message and we decided not to handle it,
-      // we must send an error reply, or else the renderer will be stuck
-      // and won't respond to future requests.
-      if (msg.is_sync()) {
-        IPC::Message* reply = IPC::SyncMessage::GenerateReply(&msg);
-        reply->set_reply_error();
-        Send(reply);
-      }
-      // Don't continue looking for someone to handle it.
-      return true;
-    }
-  }
-
   // Crash reports trigerred by the IPC messages below should be associated
   // with URL of the main frame.
   ScopedActiveURL scoped_active_url(this);

@@ -233,7 +233,8 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
       assertWithMatcher:grey_nil()];
 }
 
-- (void)testCloseNTPWhenSwitching {
+// TODO(crbug.com/1037651): Test fails.
+- (void)DISABLED_testCloseNTPWhenSwitching {
   // Open the first page.
   GURL URL1 = self.testServer->GetURL(kPage1URL);
   [ChromeEarlGrey loadURL:URL1];

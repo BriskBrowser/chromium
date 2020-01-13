@@ -36,6 +36,14 @@ class TrustedVaultClientAndroid : public syncer::TrustedVaultClient {
       const base::android::JavaParamRef<jstring>& gaia_id,
       const base::android::JavaParamRef<jobjectArray>& keys);
 
+  // Called from Java to notify the completion of MarkKeysAsStale()
+  // operation previously initiated from C++. This must correspond to an
+  // ongoing MarkKeysAsStale() request.
+  void MarkKeysAsStaleCompleted(JNIEnv* env, jboolean result);
+
+  // Called from Java to notify that the keys in the vault may have changed.
+  void NotifyKeysChanged(JNIEnv* env);
+
   // TrustedVaultClient implementation.
   std::unique_ptr<Subscription> AddKeysChangedObserver(
       const base::RepeatingClosure& cb) override;
@@ -44,7 +52,10 @@ class TrustedVaultClientAndroid : public syncer::TrustedVaultClient {
       base::OnceCallback<void(const std::vector<std::vector<uint8_t>>&)> cb)
       override;
   void StoreKeys(const std::string& gaia_id,
-                 const std::vector<std::vector<uint8_t>>& keys) override;
+                 const std::vector<std::vector<uint8_t>>& keys,
+                 int last_key_version) override;
+  void MarkKeysAsStale(const std::string& gaia_id,
+                       base::OnceCallback<void(bool)> cb) override;
 
  private:
   // Struct representing an in-flight FetchKeys() call invoked from C++.
@@ -61,6 +72,10 @@ class TrustedVaultClientAndroid : public syncer::TrustedVaultClient {
 
   // Null if no in-flight FetchKeys().
   std::unique_ptr<OngoingFetchKeys> ongoing_fetch_keys_;
+
+  // Completion callback of an in-flight MarkKeysAsStale() call invoked from
+  // C++.
+  base::OnceCallback<void(bool)> ongoing_mark_keys_as_stale_;
 
   CallbackList observer_list_;
 };

@@ -105,8 +105,10 @@ void SelectLastTab(
 void DuplicateTab(Browser* browser);
 bool CanDuplicateTab(const Browser* browser);
 bool CanDuplicateKeyboardFocusedTab(const Browser* browser);
-void MoveTabToNewWindow(Browser* browser);
-bool CanMoveTabToNewWindow(Browser* browser);
+bool CanMoveActiveTabToNewWindow(Browser* browser);
+void MoveActiveTabToNewWindow(Browser* browser);
+bool CanMoveTabToNewWindow(Browser* browser, int tab_index);
+void MoveTabToNewWindow(Browser* browser, int tab_index);
 bool CanCloseTabsToRight(const Browser* browser);
 bool CanCloseOtherTabs(const Browser* browser);
 content::WebContents* DuplicateTabAt(Browser* browser, int index);
@@ -142,7 +144,10 @@ void BasicPrint(Browser* browser);
 bool CanBasicPrint(Browser* browser);
 #endif  // ENABLE_PRINTING
 bool CanRouteMedia(Browser* browser);
-void RouteMedia(Browser* browser);
+// NOTE: For metrics collection purposes, this method is assumed to be invoked
+// from the app menu. That will need to be changed if this is to be invoked from
+// elsewhere.
+void RouteMediaInvokedFromAppMenu(Browser* browser);
 void EmailPageLocation(Browser* browser);
 bool CanEmailPageLocation(const Browser* browser);
 void CutCopyPaste(Browser* browser, int command_id);
@@ -185,14 +190,6 @@ void CopyURL(Browser* browser);
 // the tabbed Browser.
 Browser* OpenInChrome(Browser* hosted_app_browser);
 bool CanViewSource(const Browser* browser);
-
-// Initiates user flow for creating a bookmark app for the current page.
-// Will install a PWA hosted app if the site meets installability requirements
-// (see |AppBannerManager::PerformInstallableCheck|) unless |force_shortcut_app|
-// is true.
-void CreateBookmarkAppFromCurrentWebContents(Browser* browser,
-                                             bool force_shortcut_app);
-bool CanCreateBookmarkApp(const Browser* browser);
 
 base::Optional<int> GetKeyboardFocusedTabIndex(const Browser* browser);
 

@@ -58,7 +58,7 @@ class ListHashSetReverseIterator;
 template <typename Set>
 class ListHashSetConstReverseIterator;
 
-template <typename ValueArg>
+template <typename ValueArg, typename Allocator>
 class ListHashSetNodeBase;
 template <typename ValueArg, typename Allocator>
 class ListHashSetNode;
@@ -272,10 +272,70 @@ class ListHashSet
   typename Allocator::AllocatorProvider allocator_provider_;
 };
 
+template <typename T, typename Allocator>
+class ListHashSetNodeBasePointer {
+  using NodeType = ListHashSetNodeBase<T, Allocator>;
+
+ public:
+  ListHashSetNodeBasePointer& operator=(
+      const ListHashSetNodeBasePointer& other) {
+    SetSafe(other);
+    return *this;
+  }
+
+  template <typename U>
+  ListHashSetNodeBasePointer& operator=(
+      const ListHashSetNodeBasePointer<U, Allocator>& other) {
+    SetSafe(other);
+    return *this;
+  }
+
+  template <typename U>
+  ListHashSetNodeBasePointer& operator=(U* other) {
+    SetSafe(other);
+    return *this;
+  }
+
+  ListHashSetNodeBasePointer& operator=(std::nullptr_t) {
+    SetSafe(nullptr);
+    return *this;
+  }
+
+  NodeType* Get() const { return node_; }
+  explicit operator bool() const { return Get(); }
+  operator NodeType*() const { return Get(); }
+  NodeType* operator->() const { return Get(); }
+  NodeType& operator*() const { return *Get(); }
+
+ private:
+  template <bool = Allocator::kIsGarbageCollected>
+  void SetSafe(NodeType* node) {
+    AsAtomicPtr(&node_)->store(node, std::memory_order_relaxed);
+  }
+  template <>
+  void SetSafe<false>(NodeType* node) {
+    node_ = node;
+  }
+
+  template <bool = Allocator::kIsGarbageCollected>
+  NodeType* GetSafe() const {
+    return AsAtomicPtr(&node_)->load(std::memory_order_relaxed);
+  }
+  template <>
+  NodeType* GetSafe<false>() const {
+    return node_;
+  }
+
+  NodeType* node_ = nullptr;
+
+  template <typename ValueArg, typename AllocatorArg>
+  friend class ListHashSetNode;
+};
+
 // ListHashSetNode has this base class to hold the members because the MSVC
 // compiler otherwise gets into circular template dependencies when trying to do
 // sizeof on a node.
-template <typename ValueArg>
+template <typename ValueArg, typename Allocator>
 class ListHashSetNodeBase {
   DISALLOW_NEW();
 
@@ -285,8 +345,8 @@ class ListHashSetNodeBase {
 
  public:
   ValueArg value_;
-  ListHashSetNodeBase* prev_ = nullptr;
-  ListHashSetNodeBase* next_ = nullptr;
+  ListHashSetNodeBasePointer<ValueArg, Allocator> prev_;
+  ListHashSetNodeBasePointer<ValueArg, Allocator> next_;
 #if DCHECK_IS_ON()
   bool is_allocated_ = true;
 #endif
@@ -297,7 +357,7 @@ template <typename ValueArg, size_t inlineCapacity>
 struct ListHashSetAllocator : public PartitionAllocator {
   typedef PartitionAllocator TableAllocator;
   typedef ListHashSetNode<ValueArg, ListHashSetAllocator> Node;
-  typedef ListHashSetNodeBase<ValueArg> NodeBase;
+  typedef ListHashSetNodeBase<ValueArg, ListHashSetAllocator> NodeBase;
 
   class AllocatorProvider {
     DISALLOW_NEW();
@@ -402,19 +462,19 @@ struct ListHashSetAllocator : public PartitionAllocator {
 };
 
 template <typename ValueArg, typename AllocatorArg>
-class ListHashSetNode : public ListHashSetNodeBase<ValueArg> {
+class ListHashSetNode : public ListHashSetNodeBase<ValueArg, AllocatorArg> {
  public:
   typedef AllocatorArg NodeAllocator;
   typedef ValueArg Value;
 
   template <typename U>
   ListHashSetNode(U&& value)
-      : ListHashSetNodeBase<ValueArg>(std::forward<U>(value)) {}
+      : ListHashSetNodeBase<ValueArg, AllocatorArg>(std::forward<U>(value)) {}
 
   void* operator new(size_t, NodeAllocator* allocator) {
-    static_assert(
-        sizeof(ListHashSetNode) == sizeof(ListHashSetNodeBase<ValueArg>),
-        "please add any fields to the base");
+    static_assert(sizeof(ListHashSetNode) ==
+                      sizeof(ListHashSetNodeBase<ValueArg, AllocatorArg>),
+                  "please add any fields to the base");
     return allocator->AllocateNode();
   }
 
@@ -463,15 +523,15 @@ class ListHashSetNode : public ListHashSetNodeBase<ValueArg> {
     if (WasAlreadyDestructed())
       return;
     NodeAllocator::TraceValue(visitor, this);
-    visitor->Trace(Next());
-    visitor->Trace(Prev());
+    visitor->Trace(reinterpret_cast<ListHashSetNode*>(this->next_.GetSafe()));
+    visitor->Trace(reinterpret_cast<ListHashSetNode*>(this->prev_.GetSafe()));
   }
 
   ListHashSetNode* Next() const {
-    return reinterpret_cast<ListHashSetNode*>(this->next_);
+    return reinterpret_cast<ListHashSetNode*>(this->next_.Get());
   }
   ListHashSetNode* Prev() const {
-    return reinterpret_cast<ListHashSetNode*>(this->prev_);
+    return reinterpret_cast<ListHashSetNode*>(this->prev_.Get());
   }
 
   // Don't add fields here, the ListHashSetNodeBase and this should have the

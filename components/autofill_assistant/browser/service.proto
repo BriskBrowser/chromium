@@ -511,6 +511,10 @@ message CollectUserDataResultProto {
   optional DateTimeProto date_time_end = 8;
   // The values obtained by the generic user interface.
   optional ModelProto model = 9;
+  // The memory keys of all non-empty text inputs, corresponding to the memory
+  // keys specified in |TextInputProto|. The values themselves are stored in the
+  // client and do not leave the device.
+  repeated string set_text_input_memory_keys = 10;
 }
 
 message ProcessedActionProto {
@@ -970,6 +974,7 @@ message UseCreditCardProto {
       CREDIT_CARD_CARD_HOLDER_NAME = 5;
       CREDIT_CARD_NUMBER = 6;
       CREDIT_CARD_EXP_MM_YY = 7;
+      CREDIT_CARD_NETWORK = 8;
     }
 
     optional CardField card_field = 1;
@@ -1422,6 +1427,8 @@ message CollectUserDataProto {
   // The error message to display when the billing address is missing the
   // postal code. This field is mandatory if |require_postal_code| is true.
   optional string billing_postal_code_missing_text = 15;
+  // The error message to display when the selected credit card is expired.
+  optional string credit_card_expired_text = 23;
   // The login details that should be gathered.
   optional LoginDetailsProto login_details = 16;
   // The date/time range that should be gathered.

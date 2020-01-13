@@ -43,7 +43,6 @@
 #include "content/common/drag_messages.h"
 #include "content/common/render_frame_metadata.mojom.h"
 #include "content/common/render_message_filter.mojom.h"
-#include "content/common/swapped_out_messages.h"
 #include "content/common/text_input_state.h"
 #include "content/common/widget_messages.h"
 #include "content/public/common/content_client.h"
@@ -412,16 +411,16 @@ std::unique_ptr<RenderWidget> RenderWidget::CreateForFrame(
     CompositorDependencies* compositor_deps,
     blink::mojom::DisplayMode display_mode,
     bool is_undead,
-    bool never_visible) {
+    bool never_composited) {
   if (g_create_render_widget_for_frame) {
     return g_create_render_widget_for_frame(
         widget_routing_id, compositor_deps, display_mode, is_undead,
-        never_visible, mojo::NullReceiver());
+        never_composited, mojo::NullReceiver());
   }
 
   return std::make_unique<RenderWidget>(
       widget_routing_id, compositor_deps, display_mode, is_undead,
-      /*hidden=*/true, never_visible, mojo::NullReceiver());
+      /*hidden=*/true, never_composited, mojo::NullReceiver());
 }
 
 RenderWidget* RenderWidget::CreateForPopup(
@@ -429,10 +428,10 @@ RenderWidget* RenderWidget::CreateForPopup(
     CompositorDependencies* compositor_deps,
     blink::mojom::DisplayMode display_mode,
     bool hidden,
-    bool never_visible,
+    bool never_composited,
     mojo::PendingReceiver<mojom::Widget> widget_receiver) {
   return new RenderWidget(widget_routing_id, compositor_deps, display_mode,
-                          /*is_undead=*/false, hidden, never_visible,
+                          /*is_undead=*/false, hidden, never_composited,
                           std::move(widget_receiver));
 }
 
@@ -441,12 +440,12 @@ RenderWidget::RenderWidget(int32_t widget_routing_id,
                            blink::mojom::DisplayMode display_mode,
                            bool is_undead,
                            bool hidden,
-                           bool never_visible,
+                           bool never_composited,
                            mojo::PendingReceiver<mojom::Widget> widget_receiver)
     : routing_id_(widget_routing_id),
       compositor_deps_(compositor_deps),
       is_hidden_(hidden),
-      compositor_never_visible_(never_visible),
+      never_composited_(never_composited),
       display_mode_(display_mode),
       is_undead_(is_undead),
       next_previous_flags_(kInvalidNextPreviousFlagsValue),
@@ -454,6 +453,7 @@ RenderWidget::RenderWidget(int32_t widget_routing_id,
       widget_receiver_(this, std::move(widget_receiver)) {
   DCHECK_NE(routing_id_, MSG_ROUTING_NONE);
   DCHECK(RenderThread::IsMainThread());
+  DCHECK(compositor_deps_);
 
   // In tests there may not be a RenderThreadImpl.
   if (RenderThreadImpl::current()) {
@@ -960,11 +960,9 @@ void RenderWidget::OnUpdateVisualProperties(
     // (such as in RenderViewHost) and distribute it to each frame-hosted
     // RenderWidget from there.
     for (auto& child_proxy : render_frame_proxies_) {
-      if (!is_undead_) {
-        child_proxy.OnPageScaleFactorChanged(
-            visual_properties.page_scale_factor,
-            visual_properties.is_pinch_gesture_active);
-      }
+      child_proxy.OnPageScaleFactorChanged(
+          visual_properties.page_scale_factor,
+          visual_properties.is_pinch_gesture_active);
     }
   }
 
@@ -1289,7 +1287,7 @@ void RenderWidget::RequestNewLayerTreeFrameSink(
     LayerTreeFrameSinkCallback callback) {
   // For widgets that are never visible, we don't start the compositor, so we
   // never get a request for a cc::LayerTreeFrameSink.
-  DCHECK(!compositor_never_visible_);
+  DCHECK(!never_composited_);
   // Undead RenderWidgets should not be doing any compositing. However note that
   // widgets for provisional frames do start their compositor.
   DCHECK(!is_undead_);
@@ -1957,7 +1955,7 @@ void RenderWidget::InitCompositing(const ScreenInfo& screen_info) {
 
   input_event_queue_ = base::MakeRefCounted<MainThreadEventQueue>(
       this, widget_scheduler_->InputTaskRunner(), main_thread_scheduler,
-      /*allow_raf_aligned_input=*/!compositor_never_visible_);
+      /*allow_raf_aligned_input=*/!never_composited_);
 
   // We only use an external input handler for frame RenderWidgets because only
   // frames use the compositor for input handling. Other kinds of RenderWidgets
@@ -1974,15 +1972,9 @@ void RenderWidget::InitCompositing(const ScreenInfo& screen_info) {
 }
 
 void RenderWidget::StartStopCompositor() {
-  if (compositor_never_visible_)
+  if (never_composited_)
     return;
 
-  // TODO(danakj): We should start the compositor before becoming shown for
-  // *all* provisional frames not just provisional main frames (as they come
-  // back from being undead). However we need to also prevent BeginMainFrame
-  // from occurring, in both cases, until the frame is attached at least. And in
-  // the case of main frames, until blink requests them through
-  // StopDeferringMainFrameUpdate().
   if (is_undead_) {
     layer_tree_view_->SetVisible(false);
     // Drop all gpu resources, this makes SetVisible(true) more expensive/slower
@@ -2404,10 +2396,8 @@ void RenderWidget::UpdateSurfaceAndScreenInfo(
   // Propagate changes down to child local root RenderWidgets and BrowserPlugins
   // in other frame trees/processes.
   if (previous_original_screen_info != GetOriginalScreenInfo()) {
-    for (auto& observer : render_frame_proxies_) {
-      if (!is_undead_)
-        observer.OnScreenInfoChanged(GetOriginalScreenInfo());
-    }
+    for (auto& observer : render_frame_proxies_)
+      observer.OnScreenInfoChanged(GetOriginalScreenInfo());
   }
 }
 
@@ -3096,6 +3086,8 @@ cc::LayerTreeSettings RenderWidget::GenerateLayerTreeSettings(
   settings.commit_fractional_scroll_deltas =
       blink::WebRuntimeFeatures::IsFractionalScrollOffsetsEnabled();
 
+  settings.enable_smooth_scroll = compositor_deps->IsScrollAnimatorEnabled();
+
   // The means the renderer compositor has 2 possible modes:
   // - Threaded compositing with a scheduler.
   // - Single threaded compositing without a scheduler (for web tests only).
@@ -3480,10 +3472,8 @@ void RenderWidget::SetPageScaleStateAndLimits(float page_scale_factor,
   // the message to their child RenderWidgets (through their proxy child
   // frames).
   for (auto& observer : render_frame_proxies_) {
-    if (!is_undead_) {
-      observer.OnPageScaleFactorChanged(page_scale_factor,
-                                        is_pinch_gesture_active);
-    }
+    observer.OnPageScaleFactorChanged(page_scale_factor,
+                                      is_pinch_gesture_active);
   }
   // Store the value to give to any new RenderFrameProxy that is registered.
   page_scale_factor_from_mainframe_ = page_scale_factor;

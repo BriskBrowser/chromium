@@ -8,4 +8,26 @@
  */
 
 // eslint-disable-next-line no-unused-vars
-var cca = {mojo: {}};
+var cca = {
+  bg: {},
+  device: {},
+  intent: {},
+  metrics: {},
+  models: {
+    FileSystem: {},
+  },
+  mojo: {},
+  nav: {},
+  perf: {},
+  proxy: {},
+  sound: {},
+  state: {},
+  toast: {},
+  tooltip: {},
+  util: {},
+  views: {
+    camera: {
+      timertick: {},
+    },
+  },
+};

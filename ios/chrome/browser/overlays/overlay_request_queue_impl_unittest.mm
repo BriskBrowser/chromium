@@ -60,7 +60,7 @@ class OverlayRequestQueueImplTest : public PlatformTest {
 
   OverlayRequest* AddRequest() {
     std::unique_ptr<OverlayRequest> passed_request =
-        OverlayRequest::CreateWithConfig<FakeOverlayUserData>(nullptr);
+        OverlayRequest::CreateWithConfig<FakeOverlayUserData>();
     OverlayRequest* request = passed_request.get();
     EXPECT_CALL(observer(),
                 RequestAddedToQueue(queue(), request, queue()->size()));
@@ -68,7 +68,7 @@ class OverlayRequestQueueImplTest : public PlatformTest {
     return request;
   }
 
- private:
+ protected:
   web::TestWebState web_state_;
   MockOverlayRequestQueueImplObserver observer_;
 };
@@ -165,7 +165,7 @@ TEST_F(OverlayRequestQueueImplTest, CancelAllRequests) {
 // when cancelling a request with a custom cancel handler.
 TEST_F(OverlayRequestQueueImplTest, CustomCancelHandler) {
   std::unique_ptr<OverlayRequest> passed_request =
-      OverlayRequest::CreateWithConfig<FakeOverlayUserData>(nullptr);
+      OverlayRequest::CreateWithConfig<FakeOverlayUserData>();
   OverlayRequest* request = passed_request.get();
   std::unique_ptr<FakeCancelHandler> passed_cancel_handler =
       std::make_unique<FakeCancelHandler>(request, queue());
@@ -181,4 +181,18 @@ TEST_F(OverlayRequestQueueImplTest, CustomCancelHandler) {
   cancel_handler->TriggerCancellation();
 
   EXPECT_EQ(0U, queue()->size());
+}
+
+// Tests that the request's WebState is set up when it is added to the queue.
+TEST_F(OverlayRequestQueueImplTest, WebStateSetup) {
+  std::unique_ptr<OverlayRequest> added_request =
+      OverlayRequest::CreateWithConfig<FakeOverlayUserData>();
+  OverlayRequest* request = added_request.get();
+  ASSERT_FALSE(request->GetQueueWebState());
+
+  // Add the request and verify that the WebState is set.
+  EXPECT_CALL(observer(),
+              RequestAddedToQueue(queue(), request, queue()->size()));
+  queue()->AddRequest(std::move(added_request));
+  EXPECT_EQ(&web_state_, request->GetQueueWebState());
 }

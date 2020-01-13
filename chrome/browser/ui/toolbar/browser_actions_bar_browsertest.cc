@@ -22,7 +22,7 @@
 #include "chrome/browser/extensions/scripting_permissions_modifier.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
 #include "chrome/browser/ui/browser_window.h"
-#include "chrome/browser/ui/extensions/browser_action_test_util.h"
+#include "chrome/browser/ui/extensions/extension_action_test_helper.h"
 #include "chrome/browser/ui/extensions/extension_action_view_controller.h"
 #include "chrome/browser/ui/extensions/icon_with_badge_image_source.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -30,6 +30,7 @@
 #include "chrome/browser/ui/toolbar/toolbar_action_view_controller.h"
 #include "chrome/browser/ui/toolbar/toolbar_actions_bar.h"
 #include "chrome/browser/ui/toolbar/toolbar_actions_model.h"
+#include "chrome/browser/ui/ui_features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/crx_file/id_util.h"
@@ -89,6 +90,9 @@ class BlockedActionWaiter
 
 BrowserActionsBarBrowserTest::BrowserActionsBarBrowserTest()
     : toolbar_model_(nullptr) {
+  // This suite relies on behavior specific to ToolbarActionsBar. See
+  // ExtensionsMenuViewBrowserTest and ExtensionsMenuViewUnitTest for new tests.
+  feature_list_.InitAndDisableFeature(features::kExtensionsToolbarMenu);
 }
 
 BrowserActionsBarBrowserTest::~BrowserActionsBarBrowserTest() {
@@ -102,7 +106,7 @@ void BrowserActionsBarBrowserTest::SetUpCommandLine(
 
 void BrowserActionsBarBrowserTest::SetUpOnMainThread() {
   extensions::ExtensionBrowserTest::SetUpOnMainThread();
-  browser_actions_bar_ = BrowserActionTestUtil::Create(browser());
+  browser_actions_bar_ = ExtensionActionTestHelper::Create(browser());
   toolbar_model_ = ToolbarActionsModel::Get(profile());
 }
 
@@ -392,7 +396,7 @@ IN_PROC_BROWSER_TEST_F(BrowserActionsBarBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(BrowserActionsBarBrowserTest,
                        OverflowedBrowserActionPopupTest) {
-  std::unique_ptr<BrowserActionTestUtil> overflow_bar =
+  std::unique_ptr<ExtensionActionTestHelper> overflow_bar =
       browser_actions_bar()->CreateOverflowBar(browser());
 
   // Load up two extensions that have browser action popups.
@@ -479,7 +483,7 @@ IN_PROC_BROWSER_TEST_F(BrowserActionsBarBrowserTest,
 // Regression test for crbug.com/599467.
 IN_PROC_BROWSER_TEST_F(BrowserActionsBarBrowserTest,
                        OverflowedBrowserActionPopupTestRemoval) {
-  std::unique_ptr<BrowserActionTestUtil> overflow_bar =
+  std::unique_ptr<ExtensionActionTestHelper> overflow_bar =
       browser_actions_bar()->CreateOverflowBar(browser());
 
   // Install an extension and shrink the visible count to zero so the extension

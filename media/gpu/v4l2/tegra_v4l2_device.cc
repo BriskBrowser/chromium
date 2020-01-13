@@ -10,6 +10,7 @@
 #include "base/trace_event/trace_event.h"
 #include "media/gpu/macros.h"
 #include "media/gpu/v4l2/tegra_v4l2_device.h"
+#include "ui/gfx/native_pixmap_handle.h"
 #include "ui/gl/gl_bindings.h"
 
 namespace media {
@@ -216,8 +217,8 @@ std::vector<base::ScopedFD> TegraV4L2Device::GetDmabufsForV4L2Buffer(
   return dmabuf_fds;
 }
 
-bool TegraV4L2Device::CanCreateEGLImageFrom(uint32_t v4l2_pixfmt) {
-  return v4l2_pixfmt == V4L2_PIX_FMT_NV12M;
+bool TegraV4L2Device::CanCreateEGLImageFrom(const Fourcc fourcc) {
+  return fourcc.ToV4L2PixFmt() == V4L2_PIX_FMT_NV12M;
 }
 
 EGLImageKHR TegraV4L2Device::CreateEGLImage(
@@ -226,10 +227,11 @@ EGLImageKHR TegraV4L2Device::CreateEGLImage(
     GLuint texture_id,
     const gfx::Size& /* size */,
     unsigned int buffer_index,
-    uint32_t v4l2_pixfmt,
-    const std::vector<base::ScopedFD>& /* dmabuf_fds */) {
+    const Fourcc fourcc,
+    gfx::NativePixmapHandle /* handle */) {
   DVLOGF(3);
-  if (!CanCreateEGLImageFrom(v4l2_pixfmt)) {
+
+  if (!CanCreateEGLImageFrom(fourcc)) {
     LOG(ERROR) << "Unsupported V4L2 pixel format";
     return EGL_NO_IMAGE_KHR;
   }
@@ -251,8 +253,8 @@ EGLImageKHR TegraV4L2Device::CreateEGLImage(
 }
 scoped_refptr<gl::GLImage> TegraV4L2Device::CreateGLImage(
     const gfx::Size& size,
-    uint32_t fourcc,
-    const std::vector<base::ScopedFD>& dmabuf_fds) {
+    const Fourcc fourcc,
+    gfx::NativePixmapHandle /* handle */) {
   NOTREACHED();
   return nullptr;
 }

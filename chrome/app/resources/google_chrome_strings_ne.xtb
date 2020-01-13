@@ -9,7 +9,6 @@
 केही सुविधाहरू अनुपलब्ध हुन सक्छन् र प्राथमिकताहरूमा परिवर्तनहरू बचत हुने छैनन्।</translation>
 <translation id="1088300314857992706"><ph name="USER_EMAIL_ADDRESS" /> ले पहिला Chrome प्रयोग गरिरहेको थियो</translation>
 <translation id="1097330777386562916">आफूले Chrome छाडेर बाहिरिँदा कुकी र साइटका डेटा हटाउनुहोस्</translation>
-<translation id="1104959162601287462">&amp;Chrome OS को बारेमा</translation>
 <translation id="110877069173485804">यो तपाईंको क्रोम हो</translation>
 <translation id="1142745911746664600">Chrome लाई अद्यावधिक गर्न सकिएन</translation>
 <translation id="1154147086299354128">Chrome मा खोल्नुहोस्</translation>
@@ -21,7 +20,6 @@
 <translation id="1553358976309200471">Chrome अद्यावधिक गर्नुहोस्</translation>
 <translation id="1587223624401073077">Google Chrome ले तपाइँको क्यामेरा प्रयोग गर्दैछ।</translation>
 <translation id="1587325591171447154"><ph name="FILE_NAME" /> खतरनाक छ, त्यसैले Chrome ले यसमाथि रोक लगाएको छ।</translation>
-<translation id="1590588151039584890">Chrome अद्यावधिक गर्न यो कम्प्युटरमा चलिरहेको यसको सत्र अन्त्य गर्नु पर्ने हुन्छ। यस कार्यले यो कम्प्युटरमा लग इन रहेका अन्य प्रयोगकर्ताका सुरक्षित नगरिएका परिवर्तनहरू गुम्न सक्छन्।</translation>
 <translation id="1619887657840448962">Chrome लाई अझ सुरक्षित बनाउन हामी <ph name="IDS_EXTENSION_WEB_STORE_TITLE" /> मा सूचीबद्ध नभएका र तपाईँले थाहा नपाई थपिएका हुन सक्ने निम्न विस्तारलाई असक्षम गर्छौँ।</translation>
 <translation id="1628000112320670027">Chrome को सम्बन्धमा मद्दत प्राप्त गर्नुहोस्</translation>
 <translation id="1635734105302489219">Chrome छोडरे बाहिरिँदा तपाईं कुकीहरू हटाउनुहुन्छ। सिंक गर्ने कार्य जारी राख्न, यो <ph name="COOKIE_SETTINGS_LINK" /> परिवर्तन गर्नुहोस्।</translation>
@@ -51,6 +49,7 @@
 <translation id="2290014774651636340">गूगल API कुञ्जीहरू हराइरहेका छन्। Google Chrome का केही कार्यक्षमता अक्षम हुनेछन्।</translation>
 <translation id="2290095356545025170">के तपाइँ पक्का हुनुहुन्छ कि तपाइँ Google Chrome विस्थापित गर्न चाहनुहुन्छ?</translation>
 <translation id="2309047409763057870">यो Google Chrome को एउटा सहायक स्थापना हो र यसलाई तपाईँको पूर्वनिर्धारित ब्राउजर बनाउन सकिँदैन।</translation>
+<translation id="2341767445688917208">Chrome OS ले तपाईंका पासवर्डहरू सिंक गर्न सकेन। अहिले नै समाधान गर्नुहोस्</translation>
 <translation id="2348335408836342058">Chrome लाई यो साइटका लागि तपाईंको क्यामेरा र माइक्रोफोनमाथि पहुँच राख्ने अनुमति चाहिन्छ</translation>
 <translation id="2429317896000329049">Google Chrome ले तपाइँको लगत समक्रमण गर्न सकेन किनभने तपाइँको डोमेनको लागि समक्रमन उपलब्ध छैन।</translation>
 <translation id="2467438592969358367">Google Chrome तपाईंका पासवर्डहरू निर्यात गर्न चाहन्छ। यसो गर्ने अनुमति दिन Windows को आफ्नो पासवर्ड टाइप गर्नुहोस्‌।</translation>
@@ -141,7 +140,6 @@
 <translation id="5430073640787465221">तपाईंको प्राथमिकता फाइल बिग्रेको वा अवैध छ।
 
 Google Chrome ले तपाईंको सेटिङहरू पुन: प्राप्त गर्न सकदैन।</translation>
-<translation id="5543953544073077331">Chrome का अन्य प्रतिहरू चलिरहेका छन्। अद्यावधिक गर्न तिनलाई बन्द गर्नुहोस्।</translation>
 <translation id="556024056938947818">Google Chrome ले पासवर्डहरू देखाउने प्रयास गरिरहेको छ।</translation>
 <translation id="5566025111015594046">Google Chrome (mDNS-In)</translation>
 <translation id="5657226924540934362">यो पृष्ठमा कुनै सेटिङ देखिएन भने आफ्नो <ph name="LINK_BEGIN" />
@@ -191,7 +189,6 @@ Google Chrome ले तपाईंको सेटिङहरू पुन: �
 <translation id="7408085963519505752">Chrome OS सर्तहरू</translation>
 <translation id="7419046106786626209">Chrome OS ले तपाइँको लगतलाई समक्रमण गर्न सकेन किनभने तपाइँको डोमेनको लागि समक्रमण उपलब्ध छैन।</translation>
 <translation id="7486227612705979895">ठेगाना बारमा सुझाव दिन Chrome तपाईंको ड्राइभमाथि पहुँच राख्ने छ</translation>
-<translation id="7531671357096394523">Chrome का सबै प्रतिहरू छोडेर बाहिरिनुहोस्।</translation>
 <translation id="7535429826459677826">Google Chrome Dev</translation>
 <translation id="7573289029918943991">आफ्नो यन्त्र अद्यावधिक छ कि छैन भनी हेर्न <ph name="LINK_BEGIN" />Chrome OS का सेटिङ<ph name="LINK_END" />मा जानुहोस्</translation>
 <translation id="7589360514048265910">Mac OS X १०.९ अब उप्रान्त समर्थित नभएकाले यस कम्प्युटरले Google Chrome का अद्यावधिकहरू प्राप्त गर्न छाड्ने छ।</translation>
@@ -210,6 +207,7 @@ Google Chrome ले तपाईंको सेटिङहरू पुन: �
 <translation id="7855730255114109580">Google Chrome अद्यावधिक छ</translation>
 <translation id="7890208801193284374">यदि तपाईँले कम्प्युटर साझा गर्नुहुन्छ भने, साथी तथा परिवारले अलग रूपमा ब्राउज गर्न सक्छन् र तिनीहरूले चाहे अनुरूपको Chrome सेटअप गर्न सक्छन्।</translation>
 <translation id="7896673875602241923">कुनै व्यक्तिले अघिल्लो पटक <ph name="ACCOUNT_EMAIL_LAST" /> को रूपमा यस कम्प्युटरमा Chrome मा साइन इन गरेको थियो। कृपया आफ्नो जानकारी छुट्टै राख्न Chrome मा एउटा नयाँ प्रयोगकर्ता सिर्जना गर्नुहोस्।</translation>
+<translation id="7916016681687251387">Chrome OS ले तपाईंको डेटा सिंक गर्न सकेन। अहिले नै समाधान गर्नुहोस्</translation>
 <translation id="7962410387636238736">Windows XP र Windows Vista अब उप्रान्त समर्थित नभएकाले अब उप्रान्त यस कम्प्युटरले Google Chrome का अद्यावधिकहरू प्राप्त गर्ने छैन</translation>
 <translation id="8008534537613507642">Chrome लाई पुन: स्थापना गर्नुहोस्</translation>
 <translation id="8013993649590906847">कुनै छविमा उपयोगी विवरण नभएका खण्डमा Chrome ले तपाईंलाई एउटा विवरण उपलब्ध गराउने प्रयास गर्ने छ। विवरणहरू सिर्जना गर्न छविहरू Google मा पठाइन्छ।</translation>

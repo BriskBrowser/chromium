@@ -732,6 +732,61 @@
   };
 
   /**
+   * Tests opening Quick View containing an audio file that has an album art
+   * image in its metadata.
+   */
+  testcase.openQuickViewAudioWithImageMetadata = async () => {
+    const caller = getCaller();
+
+    // Define a test file containing audio file with metadata.
+    const id3Audio = new TestEntryInfo({
+      type: EntryType.FILE,
+      sourceFileName: 'id3Audio.mp3',
+      targetPath: 'id3Audio.mp3',
+      mimeType: 'audio/mpeg',
+      lastModifiedTime: 'December 25 2015, 11:16 PM',
+      nameText: 'id3Audio.mp3',
+      sizeText: '5KB',
+      typeText: 'id3 encoded MP3 audio',
+    });
+
+    /**
+     * The <webview> resides in the <files-safe-media> shadow DOM, which
+     * is a child of the #quick-view shadow DOM.
+     */
+    const albumArtWebView = ['#quick-view', '#audio-artwork', 'webview'];
+
+    // Open Files app on Downloads containing the audio test file.
+    const appId =
+        await setupAndWaitUntilReady(RootPath.DOWNLOADS, [id3Audio], []);
+
+    // Open the file in Quick View.
+    await openQuickView(appId, id3Audio.nameText);
+
+    // Wait for the Quick View <webview> to load and display its content.
+    function checkWebViewImageLoaded(elements) {
+      let haveElements = Array.isArray(elements) && elements.length === 1;
+      if (haveElements) {
+        haveElements = elements[0].styles.display.includes('block');
+      }
+      if (!haveElements || elements[0].attributes.loaded !== '') {
+        return pending(caller, 'Waiting for <webview> to load.');
+      }
+      return;
+    }
+
+    // Wait until the <webview> has loaded the album image of the audio file.
+    await repeatUntil(async () => {
+      return checkWebViewImageLoaded(await remoteCall.callRemoteTestUtil(
+          'deepQueryAllElements', appId, [albumArtWebView, ['display']]));
+    });
+
+    // Check: the audio album metadata should also be displayed.
+    const album = await getQuickViewMetadataBoxField(appId, 'Album');
+    chrome.test.assertEq(album, 'OK Computer');
+  };
+
+  /**
    * Tests opening Quick View containing an image.
    */
   testcase.openQuickViewImage = async () => {
@@ -879,6 +934,48 @@
     chrome.test.assertEq(model, 'E-M1');
     const film = await getQuickViewMetadataBoxField(appId, 'Device settings');
     chrome.test.assertEq('f/8 0.002 12mm ISO200', film);
+  };
+
+  /**
+   * Tests that opening a broken image in Quick View displays the "no-preview
+   * available" generic icon and has a [load-error] attribute.
+   */
+  testcase.openQuickViewBrokenImage = async () => {
+    const caller = getCaller();
+
+    /**
+     * The [generic-thumbnail] element resides in the #quick-view shadow DOM
+     * as a sibling of the files-safe-media[type="image"] element.
+     */
+    const genericThumbnail = [
+      '#quick-view',
+      'files-safe-media[type="image"][hidden] + [generic-thumbnail="image"]',
+    ];
+
+    // Open Files app on Downloads containing ENTRIES.brokenJpeg.
+    const appId = await setupAndWaitUntilReady(
+        RootPath.DOWNLOADS, [ENTRIES.brokenJpeg], []);
+
+    // Open the file in Quick View.
+    await openQuickView(appId, ENTRIES.brokenJpeg.nameText);
+
+    // Check: the quick view element should have a 'load-error' attribute.
+    await remoteCall.waitForElement(appId, '#quick-view[load-error]');
+
+    // Wait for the generic thumbnail to load and display its content.
+    function checkForGenericThumbnail(elements) {
+      const haveElements = Array.isArray(elements) && elements.length === 1;
+      if (!haveElements || elements[0].styles.display !== 'block') {
+        return pending(caller, 'Waiting for generic thumbnail to load.');
+      }
+      return;
+    }
+
+    // Check: the generic thumbnail icon should be displayed.
+    await repeatUntil(async () => {
+      return checkForGenericThumbnail(await remoteCall.callRemoteTestUtil(
+          'deepQueryAllElements', appId, [genericThumbnail, ['display']]));
+    });
   };
 
   /**
@@ -1203,5 +1300,50 @@
       }
       return true;
     });
+  };
+
+  /**
+   * Tests the tab-index focus order when sending tab keys when an image file is
+   * shown in Quick View.
+   */
+  testcase.openQuickViewTabIndexImage = async () => {
+    const caller = getCaller();
+
+    /**
+     * The <webview> resides in the <files-safe-media type="image"> shadow DOM,
+     * which is a child of the #quick-view shadow DOM.
+     */
+    const webView =
+        ['#quick-view', 'files-safe-media[type="image"]', 'webview'];
+
+    // Open Files app on Downloads containing ENTRIES.smallJpeg.
+    const appId = await setupAndWaitUntilReady(
+        RootPath.DOWNLOADS, [ENTRIES.smallJpeg], []);
+
+    // Open the file in Quick View.
+    await openQuickView(appId, ENTRIES.smallJpeg.nameText);
+
+    // Prepare a list of tab-index focus queries.
+    const tabQueries = [
+      {'query': ['#quick-view', '[aria-label="Back"]:focus']},
+      {'query': ['#quick-view', '[aria-label="Open"]:focus']},
+      {'query': ['#quick-view', '[aria-label="File info"]:focus']},
+      {'query': ['#quick-view', '[aria-label="Back"]:focus']},
+    ];
+
+    for (const query of tabQueries) {
+      // Make the browser dispatch a tab key event to FilesApp.
+      const result = await sendTestMessage(
+          {name: 'dispatchTabKey', shift: query.shift || false});
+      chrome.test.assertEq(
+          result, 'tabKeyDispatched', 'Tab key dispatch failure');
+
+      // Wait until we get the focus on the element.
+      await remoteCall.waitForElement(appId, query.query);
+
+      // Ensure all events have been processed before continuing.
+      chrome.test.assertTrue(await remoteCall.callRemoteTestUtil(
+          'requestAnimationFrame', appId, []));
+    }
   };
 })();

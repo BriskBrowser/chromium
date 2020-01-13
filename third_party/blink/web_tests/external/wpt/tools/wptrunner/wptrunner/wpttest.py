@@ -2,6 +2,7 @@ import os
 import subprocess
 from six.moves.urllib.parse import urljoin
 from collections import defaultdict
+from six import string_types
 
 from .wptmanifest.parser import atoms
 
@@ -117,18 +118,6 @@ class RunInfo(dict):
             self["wasm"] = False
         if extras is not None:
             self.update(extras)
-
-        # Until the test harness can understand default pref values,
-        # (https://bugzilla.mozilla.org/show_bug.cgi?id=1577912) this value
-        # should by synchronized with the default pref value indicated in
-        # StaticPrefList.yaml.
-        #
-        # Currently for automation, the pref (and `sw-e10s`) defaults to true in
-        # nightly builds and false otherwise but can be overridden with
-        # `--setpref`. If overridden, the value would be initialized in
-        # `run_info_extras` and be supplied in the `extras` parameter.
-        if "sw-e10s" not in self:
-            self["sw-e10s"] = self.get("nightly_build", False)
 
         self["headless"] = extras.get("headless", False)
         self["webrender"] = enable_webrender
@@ -337,7 +326,7 @@ class Test(object):
 
         try:
             expected = metadata.get("expected")
-            if isinstance(expected, (basestring)):
+            if isinstance(expected, string_types):
                 return expected
             elif isinstance(expected, list):
                 return expected[0]

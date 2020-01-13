@@ -376,6 +376,7 @@ module.exports = {
     // BigInt64Array as a defined type.
     'BigInt64Array': 'readable',
     'chromeosCamera': 'readable',
+    'cca': 'readable',  // TODO(inker): remove this after resolving b/141518780.
     'cros': 'readable',
     'webkitRequestFileSystem': 'readable',
   },
@@ -394,8 +395,7 @@ module.exports = {
     'indent': 'off',
 
     // TODO(shik): temporarily disable the rules we violate (b/117810572).
-    'no-redeclare': 'off',  // 3 errors
-    'no-var': 'off',        // 181 errors
+    'no-var': 'off',        // 64 errors
     'prefer-const': 'off',  // 27 errors
   }),
 };

@@ -8,9 +8,11 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/optional.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
 #include "base/task_runner_util.h"
+#include "base/time/time.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/api/declarative_net_request/action_tracker.h"
@@ -273,7 +275,37 @@ DeclarativeNetRequestGetMatchedRulesFunction::
 
 ExtensionFunction::ResponseAction
 DeclarativeNetRequestGetMatchedRulesFunction::Run() {
-  return RespondNow(NoArguments());
+  using Params = dnr_api::GetMatchedRules::Params;
+
+  base::string16 error;
+  std::unique_ptr<Params> params(Params::Create(*args_, &error));
+  EXTENSION_FUNCTION_VALIDATE(params);
+  EXTENSION_FUNCTION_VALIDATE(error.empty());
+
+  base::Optional<int> tab_id;
+  base::Time min_time_stamp = base::Time::Min();
+
+  if (params->filter) {
+    if (params->filter->tab_id)
+      tab_id = *params->filter->tab_id;
+
+    if (params->filter->min_time_stamp)
+      min_time_stamp = base::Time::FromJsTime(*params->filter->min_time_stamp);
+  }
+
+  declarative_net_request::RulesMonitorService* rules_monitor_service =
+      declarative_net_request::RulesMonitorService::Get(browser_context());
+  DCHECK(rules_monitor_service);
+
+  declarative_net_request::ActionTracker& action_tracker =
+      rules_monitor_service->action_tracker();
+
+  dnr_api::RulesMatchedDetails details;
+  details.rules_matched_info =
+      action_tracker.GetMatchedRules(extension_id(), tab_id, min_time_stamp);
+
+  return RespondNow(
+      ArgumentList(dnr_api::GetMatchedRules::Results::Create(details)));
 }
 
 DeclarativeNetRequestSetActionCountAsBadgeTextFunction::

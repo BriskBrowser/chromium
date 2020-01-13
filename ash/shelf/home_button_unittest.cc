@@ -172,18 +172,37 @@ TEST_P(HomeButtonTest, ButtonPositionInTabletMode) {
   // When hotseat is enabled, home button position changes between in-app shelf
   // and home shelf, so test in-app when hotseat is enabled.
   if (GetParam()) {
-    EXPECT_EQ(home_button()->bounds().x(), 0);
+    // Wait for the navigation widget's animation.
+    test_api.RunMessageLoopUntilAnimationsDone(
+        GetPrimaryShelf()
+            ->shelf_widget()
+            ->navigation_widget()
+            ->get_bounds_animator_for_testing());
+    EXPECT_EQ(home_button()->bounds().x(),
+              ShelfConfig::Get()->home_button_edge_spacing());
 
     // Switch to in-app shelf.
     std::unique_ptr<views::Widget> widget = CreateTestWidget();
   }
 
+  // Wait for the navigation widget's animation.
+  test_api.RunMessageLoopUntilAnimationsDone(
+      GetPrimaryShelf()
+          ->shelf_widget()
+          ->navigation_widget()
+          ->get_bounds_animator_for_testing());
   EXPECT_GT(home_button()->bounds().x(), 0);
 
   Shell::Get()->tablet_mode_controller()->SetEnabledForTest(false);
+  test_api.RunMessageLoopUntilAnimationsDone(
+      GetPrimaryShelf()
+          ->shelf_widget()
+          ->navigation_widget()
+          ->get_bounds_animator_for_testing());
 
-  // Visual space around the home button is set at the widget level.
-  EXPECT_EQ(0, home_button()->bounds().x());
+  // Home button spacing is within the widget.
+  EXPECT_EQ(ShelfConfig::Get()->home_button_edge_spacing(),
+            home_button()->bounds().x());
 }
 
 TEST_P(HomeButtonTest, LongPressGesture) {
@@ -207,7 +226,7 @@ TEST_P(HomeButtonTest, LongPressGesture) {
                                                ->visibility());
 
   Shell::Get()->assistant_controller()->ui_controller()->CloseUi(
-      AssistantExitPoint::kUnspecified);
+      chromeos::assistant::mojom::AssistantExitPoint::kUnspecified);
   // Test long press gesture on secondary display.
   SendGestureEventToSecondaryDisplay(&long_press);
   GetAppListTestHelper()->WaitUntilIdle();
@@ -271,6 +290,77 @@ TEST_P(HomeButtonTest, LongPressGestureWithSettingsDisabled) {
                                                ->ui_controller()
                                                ->model()
                                                ->visibility());
+}
+
+// Tests that tapping in the bottom left corner in tablet mode results in the
+// home button activating.
+TEST_P(HomeButtonTest, InteractOutsideHomeButtonBounds) {
+  EXPECT_EQ(ShelfAlignment::kBottom, GetPrimaryShelf()->alignment());
+
+  // Tap the bottom left of the shelf. The button should work.
+  gfx::Point bottom_left = GetPrimaryShelf()
+                               ->shelf_widget()
+                               ->GetWindowBoundsInScreen()
+                               .bottom_left();
+  GetEventGenerator()->GestureTapAt(bottom_left);
+  GetAppListTestHelper()->WaitUntilIdle();
+  GetAppListTestHelper()->CheckVisibility(true);
+
+  // Tap the top left of the shelf, the button should work.
+  gfx::Point bottom_right = GetPrimaryShelf()
+                                ->shelf_widget()
+                                ->GetWindowBoundsInScreen()
+                                .bottom_right();
+  GetEventGenerator()->GestureTapAt(bottom_right);
+  GetAppListTestHelper()->WaitUntilIdle();
+  GetAppListTestHelper()->CheckVisibility(false);
+
+  // Test left shelf.
+  GetPrimaryShelf()->SetAlignment(ShelfAlignment::kLeft);
+  gfx::Point top_left =
+      GetPrimaryShelf()->shelf_widget()->GetWindowBoundsInScreen().origin();
+  GetEventGenerator()->GestureTapAt(top_left);
+  GetAppListTestHelper()->WaitUntilIdle();
+  GetAppListTestHelper()->CheckVisibility(true);
+
+  bottom_left = GetPrimaryShelf()
+                    ->shelf_widget()
+                    ->GetWindowBoundsInScreen()
+                    .bottom_left();
+  GetEventGenerator()->GestureTapAt(bottom_left);
+  GetAppListTestHelper()->WaitUntilIdle();
+  GetAppListTestHelper()->CheckVisibility(false);
+
+  // Test right shelf.
+  GetPrimaryShelf()->SetAlignment(ShelfAlignment::kRight);
+  gfx::Point top_right =
+      GetPrimaryShelf()->shelf_widget()->GetWindowBoundsInScreen().top_right();
+  GetEventGenerator()->GestureTapAt(top_right);
+  GetAppListTestHelper()->WaitUntilIdle();
+  GetAppListTestHelper()->CheckVisibility(true);
+
+  bottom_right = GetPrimaryShelf()
+                     ->shelf_widget()
+                     ->GetWindowBoundsInScreen()
+                     .bottom_right();
+  GetEventGenerator()->GestureTapAt(bottom_right);
+  GetAppListTestHelper()->WaitUntilIdle();
+  GetAppListTestHelper()->CheckVisibility(false);
+}
+
+// Tests that clicking the corner of the display opens the AppList.
+TEST_P(HomeButtonTest, ClickOnCornerPixel) {
+  // Screen corners are extremely easy to reach with a mouse. Let's make sure
+  // that a click on the bottom-left corner (or bottom-right corner in RTL)
+  // can trigger the home button.
+  gfx::Point corner(
+      0, display::Screen::GetScreen()->GetPrimaryDisplay().bounds().height());
+
+  GetAppListTestHelper()->CheckVisibility(false);
+  GetEventGenerator()->MoveMouseTo(corner);
+  GetEventGenerator()->ClickLeftButton();
+  GetAppListTestHelper()->WaitUntilIdle();
+  GetAppListTestHelper()->CheckVisibility(true);
 }
 
 }  // namespace ash

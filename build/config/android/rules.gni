@@ -4,6 +4,7 @@
 
 # Do not add any imports to non-//build directories here.
 # Some projects (e.g. V8) do not have non-build directories DEPS'ed in.
+
 import("//build/config/android/config.gni")
 import("//build/config/android/internal_rules.gni")
 import("//build/config/clang/clang.gni")
@@ -13,6 +14,7 @@ import("//build/config/dcheck_always_on.gni")
 import("//build/config/python.gni")
 import("//build/config/zip.gni")
 import("//build/toolchain/toolchain.gni")
+
 assert(is_android)
 
 declare_args() {
@@ -30,10 +32,6 @@ if (target_cpu == "arm") {
 _sanitizer_runtimes = []
 if (use_cfi_diag || is_ubsan || is_ubsan_security || is_ubsan_vptr) {
   _sanitizer_runtimes = [ "$clang_base_path/lib/clang/$clang_version/lib/linux/libclang_rt.ubsan_standalone-$_sanitizer_arch-android.so" ]
-}
-
-if (is_hwasan && !hwasan_platform) {
-  _sanitizer_runtimes = [ "$clang_base_path/lib/clang/$clang_version/lib/linux/libclang_rt.hwasan-$_sanitizer_arch-android.so" ]
 }
 
 # Creates a dist directory for a native executable.
@@ -315,6 +313,9 @@ if (enable_java_templates) {
   #   enable_native_mocks: Allow native calls using
   #     org.chromium.base.annotations.NativeMethods to be mocked in tests
   #     (optional).
+  #   no_transitive_deps: Generate registration for only the Java source in the
+  #     specified target(s). This is useful for generating registration for
+  #     feature modules, without including base module dependencies.
   #
   # Example
   #   generate_jni_registration("chrome_jni_registration") {
@@ -351,10 +352,15 @@ if (enable_java_templates) {
             ".build_config"
         _rebased_build_config = rebase_path(_build_config, root_build_dir)
         inputs += [ _build_config ]
-        args += [
-          # This is a list of .sources files.
-          "--sources-files=@FileArg($_rebased_build_config:deps_info:jni:all_source)",
-        ]
+
+        if (defined(invoker.no_transitive_deps) && invoker.no_transitive_deps) {
+          args += [ "--sources-files=@FileArg($_rebased_build_config:deps_info:java_sources_file)" ]
+        } else {
+          args += [
+            # This is a list of .sources files.
+            "--sources-files=@FileArg($_rebased_build_config:deps_info:jni:all_source)",
+          ]
+        }
       }
 
       if (use_hashed_jni_names) {
@@ -839,11 +845,7 @@ if (enable_java_templates) {
   #     variables = ["color=red"]
   #   }
   template("jinja_template_resources") {
-    # JUnit tests use resource zip files. These must not be put in gen/
-    # directory or they will not be available to tester bots.
-    _resources_zip_rebased_path = rebase_path(target_gen_dir, root_gen_dir)
-    _resources_zip = "${root_out_dir}/resource_zips/${_resources_zip_rebased_path}/${target_name}.resources.zip"
-
+    _resources_zip = "$target_out_dir/${target_name}.resources.zip"
     _generating_target_name = "${target_name}__template"
 
     action_with_pydeps(_generating_target_name) {
@@ -901,11 +903,6 @@ if (enable_java_templates) {
   #   alternative_android_sdk_dep: Optional. Alternative Android system
   #     android java target to use.
   #   resource_dirs: List of directories containing resources for this target.
-  #   generated_resource_dirs (deprecated):
-  #     **This is deprecated, you only need to specify generated files directly
-  #     in |generated_resource_files|**
-  #   generated_resource_files: List of all resource files for this target
-  #     which are *generated* by a dependency.
   #   android_manifest: AndroidManifest.xml for this target (optional). Will be
   #     merged into apks that directly or indirectly depend on this target.
   #   android_manifest_dep: Target that generates AndroidManifest (if applicable)
@@ -943,18 +940,10 @@ if (enable_java_templates) {
       not_needed(invoker, [ "v14_skip" ])
     }
 
-    # TODO(https://crbug.com/1026378): remove unneeded generated_resource_dirs
-    if (defined(invoker.generated_resource_dirs)) {
-      not_needed(invoker, [ "generated_resource_dirs" ])
-    }
-
     _pass_resource_files = defined(invoker.sources)
     _res_sources_path = "$target_gen_dir/${invoker.target_name}.res.sources"
 
-    # JUnit tests use resource zip files. These must not be put in gen/
-    # directory or they will not be available to tester bots.
-    _resources_zip_rebased_path = rebase_path(target_gen_dir, root_gen_dir)
-    _zip_path = "${root_out_dir}/resource_zips/${_resources_zip_rebased_path}/${target_name}.resources.zip"
+    _resources_zip = "$target_out_dir/$target_name.resources.zip"
     _r_text_out_path = _base_path + "_R.txt"
     _build_config = _base_path + ".build_config"
     _build_config_target_name = "$target_name$build_config_target_suffix"
@@ -989,16 +978,14 @@ if (enable_java_templates) {
       }
       _resource_files = rebase_path(_sources_build_rel, ".", root_build_dir)
     }
-    if (defined(invoker.generated_resource_files)) {
-      _resource_files += invoker.generated_resource_files
-    }
+
     _rebased_resource_files = rebase_path(_resource_files, root_build_dir)
     write_file(_res_sources_path, _rebased_resource_files)
 
     write_build_config(_build_config_target_name) {
       type = "android_resources"
       build_config = _build_config
-      resources_zip = _zip_path
+      resources_zip = _resources_zip
       res_sources_path = _res_sources_path
 
       if (defined(_srcjar_path)) {
@@ -1039,7 +1026,7 @@ if (enable_java_templates) {
       sources = _resource_files
 
       build_config = _build_config
-      zip_path = _zip_path
+      resources_zip = _resources_zip
       r_text_out_path = _r_text_out_path
 
       if (defined(invoker.r_text_file)) {
@@ -1196,11 +1183,7 @@ if (enable_java_templates) {
   template("java_strings_grd") {
     forward_variables_from(invoker, [ "testonly" ])
 
-    # JUnit tests use resource zip files. These must not be put in gen/
-    # directory or they will not be available to tester bots.
-    _resources_zip_rebased_path = rebase_path(target_gen_dir, root_gen_dir)
-    _resources_zip = "${root_out_dir}/resource_zips/${_resources_zip_rebased_path}/${target_name}.resources.zip"
-
+    _resources_zip = "$target_out_dir/$target_name.resources.zip"
     _grit_target_name = "${target_name}__grit"
     _grit_output_dir = "$target_gen_dir/${target_name}_grit_output"
 
@@ -1227,7 +1210,9 @@ if (enable_java_templates) {
 
       # This needs to get outputs from grit's internal target, not the final
       # source_set.
-      inputs = get_target_outputs(":${_grit_target_name}_grit")
+      set_sources_assignment_filter([ "*.stamp" ])
+      sources = get_target_outputs(":${_grit_target_name}_grit")
+      inputs = sources
       output = _resources_zip
       deps = [
         ":$_grit_target_name",
@@ -1259,11 +1244,7 @@ if (enable_java_templates) {
   template("java_strings_grd_prebuilt") {
     forward_variables_from(invoker, [ "testonly" ])
 
-    # JUnit tests use resource zip files. These must not be put in gen/
-    # directory or they will not be available to tester bots.
-    _resources_zip_rebased_path = rebase_path(target_gen_dir, root_gen_dir)
-    _resources_zip = "${root_out_dir}/resource_zips/${_resources_zip_rebased_path}/${target_name}.resources.zip"
-
+    _resources_zip = "$target_out_dir/$target_name.resources.zip"
     _zip_target_name = "${target_name}__zip"
 
     zip(_zip_target_name) {
@@ -1297,7 +1278,7 @@ if (enable_java_templates) {
   #
   # Example
   #   java_binary("foo") {
-  #     java_files = [ "org/chromium/foo/FooMain.java" ]
+  #     sources = [ "org/chromium/foo/FooMain.java" ]
   #     deps = [ ":bar_java" ]
   #     main_class = "org.chromium.foo.FooMain"
   #   }
@@ -1321,14 +1302,14 @@ if (enable_java_templates) {
   # Declare a Java Annotation Processor.
   #
   # Supports all variables of java_library(), plus:
-  #   jar_path: Path to a prebuilt jar. Mutually exclusive with java_files &
+  #   jar_path: Path to a prebuilt jar. Mutually exclusive with sources &
   #     srcjar_deps.
   #   main_class: The fully-quallified class name of the processor's entry
   #       point.
   #
   # Example
   #   java_annotation_processor("foo_processor") {
-  #     java_files = [ "org/chromium/foo/FooProcessor.java" ]
+  #     sources = [ "org/chromium/foo/FooProcessor.java" ]
   #     deps = [ ":bar_java" ]
   #     main_class = "org.chromium.foo.FooProcessor"
   #   }
@@ -1358,7 +1339,7 @@ if (enable_java_templates) {
   #
   # Example
   #   junit_binary("foo") {
-  #     java_files = [ "org/chromium/foo/FooTest.java" ]
+  #     sources = [ "org/chromium/foo/FooTest.java" ]
   #     deps = [ ":bar_java" ]
   #   }
   template("junit_binary") {
@@ -1454,6 +1435,7 @@ if (enable_java_templates) {
     }
 
     group(target_name) {
+      forward_variables_from(invoker, [ "assert_no_deps" ])
       public_deps = [
         ":$_build_config_target_name",
         ":$_java_binary_target_name",
@@ -1470,11 +1452,11 @@ if (enable_java_templates) {
   #   annotation_processor_deps: List of java_annotation_processor targets to
   #     use when compiling.
   #
-  #   jar_path: Path to a prebuilt jar. Mutually exclusive with java_files &
+  #   jar_path: Path to a prebuilt jar. Mutually exclusive with sources &
   #     srcjar_deps.
-  #   java_files: List of .java files included in this library.
+  #   sources: List of .java files included in this library.
   #   srcjar_deps: List of srcjar dependencies. The .java files in the srcjars
-  #     will be added to java_files and be included in this library.
+  #     will be added to sources and be included in this library.
   #
   #   input_jars_paths: A list of paths to the jars that should be included
   #     in the compile-time classpath. These are in addition to library .jars
@@ -1512,7 +1494,7 @@ if (enable_java_templates) {
   #
   # Example
   #   java_library("foo_java") {
-  #     java_files = [
+  #     sources = [
   #       "org/chromium/foo/Foo.java",
   #       "org/chromium/foo/FooInterface.java",
   #       "org/chromium/foo/FooService.java",
@@ -1875,7 +1857,7 @@ if (enable_java_templates) {
   #
   # Example
   #   android_library("foo_java") {
-  #     java_files = [
+  #     sources = [
   #       "android/org/chromium/foo/Foo.java",
   #       "android/org/chromium/foo/FooInterface.java",
   #       "android/org/chromium/foo/FooService.java",
@@ -1957,7 +1939,9 @@ if (enable_java_templates) {
   #       variables must not be set.
   #   enable_multidex: Value for ENABLE_MULTIDEX.
   #   min_sdk_version: Value for MIN_SDK_VERSION.
-  #
+  #   bundles_supported: Whether or not this target can be treated as a bundle.
+  #   resources_version_variable:
+  #   is_incremental_install:
   template("generate_build_config_srcjar") {
     java_cpp_template(target_name) {
       package_path = "org/chromium/base"
@@ -1981,8 +1965,8 @@ if (enable_java_templates) {
         defines += [ "_IS_CHROME_BRANDED" ]
       }
 
-      if (defined(invoker.is_bundle_module) && invoker.is_bundle_module) {
-        defines += [ "_IS_BUNDLE" ]
+      if (defined(invoker.bundles_supported) && invoker.bundles_supported) {
+        defines += [ "_BUNDLES_SUPPORTED" ]
       }
 
       if (defined(invoker.is_incremental_install) &&
@@ -2019,15 +2003,17 @@ if (enable_java_templates) {
   #
   # Variables:
   #   build_config: Path to build_config used for locale lists.
+  #   is_bundle_module: Whether or not this target is part of a bundle build.
   #   java_package: Java package for the generated class.
   #   use_chromium_linker:
   #   use_modern_linker:
   template("generate_product_config_srcjar") {
     java_cpp_template(target_name) {
       defines = []
-      _use_final = defined(invoker.build_config) ||
-                   defined(invoker.use_chromium_linker) ||
-                   defined(invoker.use_modern_linker)
+      _use_final =
+          defined(invoker.build_config) ||
+          defined(invoker.use_chromium_linker) ||
+          defined(invoker.use_modern_linker) || defined(invoker.is_bundle)
       if (_use_final) {
         defines += [ "USE_FINAL" ]
       }
@@ -2042,9 +2028,11 @@ if (enable_java_templates) {
           defined(invoker.use_chromium_linker) && invoker.use_chromium_linker
       _use_modern_linker =
           defined(invoker.use_modern_linker) && invoker.use_modern_linker
+      _is_bundle = defined(invoker.is_bundle_module) && invoker.is_bundle_module
       defines += [
         "USE_CHROMIUM_LINKER_VALUE=$_use_chromium_linker",
         "USE_MODERN_LINKER_VALUE=$_use_modern_linker",
+        "IS_BUNDLE_VALUE=$_is_bundle",
       ]
       if (defined(invoker.build_config)) {
         forward_variables_from(invoker,
@@ -2164,9 +2152,11 @@ if (enable_java_templates) {
   #     step.
   #   disable_r8_outlining: Turn off outlining during the proguard step.
   #   annotation_processor_deps: List of java_annotation_processor targets to
-  #     use when compiling the java_files given to this target (optional).
+  #     use when compiling the sources given to this target (optional).
   #   processor_args_javac: List of args to pass to annotation processors when
-  #     compiling java_files given to this target (optional).
+  #     compiling sources given to this target (optional).
+  #   bundles_supported: Enable Java code to treat this target as a bundle
+  #     whether (by default determined by the target type).
   template("android_apk_or_module") {
     forward_variables_from(invoker, [ "testonly" ])
     assert(defined(invoker.android_manifest))
@@ -2747,11 +2737,12 @@ if (enable_java_templates) {
 
     if (_generate_buildconfig_java) {
       generate_build_config_srcjar("${_template_name}__build_config_srcjar") {
-        forward_variables_from(invoker,
-                               [
-                                 "is_bundle_module",
-                                 "min_sdk_version",
-                               ])
+        forward_variables_from(invoker, [ "min_sdk_version" ])
+        _bundles_supported = _is_bundle_module || _is_static_library_provider
+        if (defined(invoker.bundles_supported)) {
+          _bundles_supported = invoker.bundles_supported
+        }
+        bundles_supported = _bundles_supported
         use_final_fields = true
         enable_multidex = _enable_multidex
         is_incremental_install = _incremental_apk
@@ -2771,6 +2762,7 @@ if (enable_java_templates) {
         _locale_target_name =
             "${_template_name}_${_package}__product_config_srcjar"
         generate_product_config_srcjar("$_locale_target_name") {
+          forward_variables_from(invoker, [ "is_bundle_module" ])
           build_config = _build_config
           java_package = _package
           use_chromium_linker = _use_chromium_linker
@@ -2834,7 +2826,6 @@ if (enable_java_templates) {
                                "base_module_target",
                                "chromium_code",
                                "jacoco_never_instrument",
-                               "java_files",
                                "javac_args",
                                "manifest_package",
                                "native_lib_placeholders",
@@ -2990,9 +2981,9 @@ if (enable_java_templates) {
                                [
                                  "disable_checkdiscard",
                                  "disable_r8_outlining",
-                                 "min_sdk_version",
                                  "dexlayout_profile",
                                ])
+        min_sdk_version = _min_sdk_version
         proguard_enabled = _proguard_enabled
         build_config = _build_config
         deps = [
@@ -3137,15 +3128,6 @@ if (enable_java_templates) {
       }
     }
 
-    if (_native_libs_deps != []) {
-      _create_stack_script_rule_name = "${_template_name}__stack_script"
-      _final_deps += [ ":${_create_stack_script_rule_name}" ]
-      stack_script(_create_stack_script_rule_name) {
-        stack_target_name = invoker.target_name
-        deps = _native_libs_deps
-      }
-    }
-
     _all_native_libs_deps = _native_libs_deps + _loadable_modules_deps +
                             _secondary_abi_native_libs_deps
     if (_all_native_libs_deps != []) {
@@ -3253,6 +3235,7 @@ if (enable_java_templates) {
         keystore_name = _keystore_name
         keystore_path = _keystore_path
         keystore_password = _keystore_password
+        min_sdk_version = _min_sdk_version
         uncompress_shared_libraries = _uncompress_shared_libraries
 
         deps = _deps + [ ":$_build_config_target" ]
@@ -3471,7 +3454,7 @@ if (enable_java_templates) {
   # Example
   #   android_apk("foo_apk") {
   #     android_manifest = "AndroidManifest.xml"
-  #     java_files = [
+  #     sources = [
   #       "android/org/chromium/foo/FooApplication.java",
   #       "android/org/chromium/foo/FooActivity.java",
   #     ]
@@ -3499,6 +3482,7 @@ if (enable_java_templates) {
                                "apk_under_test",
                                "app_as_shared_lib",
                                "build_hooks_android_impl_deps",
+                               "bundles_supported",
                                "chromium_code",
                                "command_line_flags_file",
                                "create_apk_script",
@@ -3517,7 +3501,6 @@ if (enable_java_templates) {
                                "input_jars_paths",
                                "use_modern_linker",
                                "jacoco_never_instrument",
-                               "java_files",
                                "javac_args",
                                "jni_registration_header",
                                "jni_sources_blacklist",
@@ -3649,7 +3632,6 @@ if (enable_java_templates) {
                                "input_jars_paths",
                                "is_base_module",
                                "jacoco_never_instrument",
-                               "java_files",
                                "javac_args",
                                "jni_registration_header",
                                "jni_sources_blacklist",
@@ -3787,7 +3769,7 @@ if (enable_java_templates) {
   #     android_manifest = "AndroidManifest.xml"
   #     apk_name = "FooTest"
   #     apk_under_test = "Foo"
-  #     java_files = [
+  #     sources = [
   #       "android/org/chromium/foo/FooTestCase.java",
   #       "android/org/chromium/foo/FooExampleTest.java",
   #     ]
@@ -4076,6 +4058,17 @@ if (enable_java_templates) {
   #       Whether to generate nano protos. If false, this will use the lite proto generator.
   #       Nano protos are deprecated, so please use lite new proto libraries.
   #
+  #   deps (optional)
+  #       Additional dependencies. Passed through to both the action and the
+  #       android_library targets.
+  #
+  #   import_dirs (optional)
+  #       A list of extra import directories to be passed to protoc compiler.
+  #       WARNING: This circumvents proto checkdeps, and should only be used
+  #       when needed, typically when proto files cannot cleanly import through
+  #       absolute paths, such as for third_party or generated .proto files.
+  #       http://crbug.com/691451 tracks fixing this.
+  #
   # Example:
   #  proto_java_library("foo_proto_java") {
   #    proto_path = "src/foo"
@@ -4132,6 +4125,16 @@ if (enable_java_templates) {
                "--srcjar",
                rebase_path(_srcjar_path, root_build_dir),
              ] + rebase_path(sources, root_build_dir)
+
+      if (defined(invoker.import_dirs)) {
+        foreach(_import_dir, invoker.import_dirs) {
+          args += [
+            "--import-dir",
+            rebase_path(_import_dir, root_build_dir),
+          ]
+        }
+      }
+
       if (_generate_nano) {
         args += [ "--nano" ]
       } else {
@@ -4144,11 +4147,14 @@ if (enable_java_templates) {
 
     android_library(target_name) {
       chromium_code = false
-      java_files = []
+      sources = []
       srcjar_deps = [ ":${_template_name}__protoc_java" ]
       deps = [
         _proto_runtime,
       ]
+      if (defined(invoker.deps)) {
+        deps += invoker.deps
+      }
     }
   }
 
@@ -4319,15 +4325,9 @@ if (enable_java_templates) {
         if (!_ignore_manifest) {
           android_manifest = "${_output_path}/AndroidManifest.xml"
         }
-        resource_dirs = []
-        generated_resource_dirs = []
-        if (!_strip_resources && _scanned_files.resources != []) {
-          generated_resource_dirs += [ "${_output_path}/res" ]
-        }
-        generated_resource_files = []
+        sources = []
         if (!_strip_resources) {
-          generated_resource_files =
-              rebase_path(_scanned_files.resources, "", _output_path)
+          sources = rebase_path(_scanned_files.resources, "", _output_path)
         }
         if (!_strip_resources && _scanned_files.has_r_text_file) {
           r_text_file = "${_output_path}/R.txt"
@@ -4559,11 +4559,6 @@ if (enable_java_templates) {
     # Prevent "unused variable".
     not_needed([ "_enable_multidex" ])
 
-    # TODO: Remove downstream use of static_library_proguard_disabled.
-    if (defined(invoker.static_library_proguard_disabled)) {
-      not_needed(invoker, [ "static_library_proguard_disabled" ])
-    }
-
     if (_proguard_enabled) {
       _uses_static_library_synchronized_proguard =
           defined(invoker.static_library_synchronized_proguard) &&
@@ -4782,6 +4777,7 @@ if (enable_java_templates) {
         forward_variables_from(invoker,
                                [
                                  "is_multi_abi",
+                                 "min_sdk_version",
                                  "uncompress_dex",
                                ])
         module_name = _module.name

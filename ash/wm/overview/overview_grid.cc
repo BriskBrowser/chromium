@@ -24,6 +24,7 @@
 #include "ash/wm/desks/desk_mini_view.h"
 #include "ash/wm/desks/desks_bar_view.h"
 #include "ash/wm/desks/desks_util.h"
+#include "ash/wm/mru_window_tracker.h"
 #include "ash/wm/overview/cleanup_animation_observer.h"
 #include "ash/wm/overview/drop_target_view.h"
 #include "ash/wm/overview/overview_constants.h"
@@ -44,7 +45,6 @@
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/tablet_mode/tablet_mode_window_state.h"
 #include "ash/wm/window_util.h"
-#include "ash/wm/work_area_insets.h"
 #include "ash/wm/workspace/backdrop_controller.h"
 #include "ash/wm/workspace/workspace_layout_manager.h"
 #include "ash/wm/workspace_controller.h"
@@ -210,73 +210,19 @@ std::unique_ptr<views::Widget> CreateDropTargetWidget(
   return widget;
 }
 
-// Returns 1 if the name of |window_dragging_state| begins with "kFrom," else 0.
 float GetWantedDropTargetOpacity(
     SplitViewDragIndicators::WindowDraggingState window_dragging_state) {
   switch (window_dragging_state) {
     case SplitViewDragIndicators::WindowDraggingState::kNoDrag:
-      return 0.f;
     case SplitViewDragIndicators::WindowDraggingState::kOtherDisplay:
-      return 0.f;
-    case SplitViewDragIndicators::WindowDraggingState::kFromOverview:
-      return 1.f;
-    case SplitViewDragIndicators::WindowDraggingState::kFromTop:
-      return 1.f;
-    case SplitViewDragIndicators::WindowDraggingState::kFromShelf:
-      return 1.f;
     case SplitViewDragIndicators::WindowDraggingState::kToSnapLeft:
-      return 0.f;
     case SplitViewDragIndicators::WindowDraggingState::kToSnapRight:
       return 0.f;
+    case SplitViewDragIndicators::WindowDraggingState::kFromOverview:
+    case SplitViewDragIndicators::WindowDraggingState::kFromTop:
+    case SplitViewDragIndicators::WindowDraggingState::kFromShelf:
+      return 1.f;
   }
-}
-
-// Returns the bounds for the overview window grid according to the split view
-// state. If split view mode is active, the overview window should open on the
-// opposite side of the default snap window. If |divider_changed| is true, maybe
-// clamp the bounds to a minimum size and shift the bounds offscreen.
-gfx::Rect GetGridBoundsInScreen(aura::Window* root_window,
-                                bool divider_changed) {
-  const gfx::Rect work_area =
-      WorkAreaInsets::ForWindow(root_window)->ComputeStableWorkArea();
-  SplitViewController* split_view_controller =
-      SplitViewController::Get(root_window);
-  if (!split_view_controller->InSplitViewMode())
-    return work_area;
-
-  SplitViewController::SnapPosition opposite_position =
-      (split_view_controller->default_snap_position() ==
-       SplitViewController::LEFT)
-          ? SplitViewController::RIGHT
-          : SplitViewController::LEFT;
-  gfx::Rect bounds = split_view_controller->GetSnappedWindowBoundsInScreen(
-      opposite_position, /*window_for_minimum_size=*/nullptr);
-  if (!divider_changed)
-    return bounds;
-
-  const bool horizontal = SplitViewController::IsLayoutHorizontal();
-  const int min_length =
-      (horizontal ? work_area.width() : work_area.height()) / 3;
-  const int current_length = horizontal ? bounds.width() : bounds.height();
-
-  if (current_length > min_length)
-    return bounds;
-
-  // Clamp bounds' length to the minimum length.
-  if (horizontal)
-    bounds.set_width(min_length);
-  else
-    bounds.set_height(min_length);
-
-  if (SplitViewController::IsPhysicalLeftOrTop(opposite_position)) {
-    // If we are shifting to the left or top we need to update the origin as
-    // well.
-    const int offset = min_length - current_length;
-    bounds.Offset(horizontal ? gfx::Vector2d(-offset, 0)
-                             : gfx::Vector2d(0, -offset));
-  }
-
-  return bounds;
 }
 
 gfx::Insets GetGridInsets(const gfx::Rect& grid_bounds) {
@@ -295,6 +241,12 @@ gfx::Insets GetGridInsets(const gfx::Rect& grid_bounds) {
 gfx::Rect GetWidgetBoundsInRoot(views::Widget* widget) {
   auto* window = widget->GetNativeWindow();
   return window->GetBoundsInRootWindow();
+}
+
+bool ShouldExcludeItemFromGridLayout(
+    OverviewItem* item,
+    const base::flat_set<OverviewItem*>& ignored_items) {
+  return item->animating_to_close() || ignored_items.contains(item);
 }
 
 }  // namespace
@@ -323,8 +275,8 @@ class OverviewGrid::TargetWindowObserver : public aura::WindowObserver {
     DCHECK_EQ(window, target_window_);
     // When the property is cleared, the dragged window should have been merged
     // into |target_window_|, update the corresponding window item in overview.
-    if (key == ash::kIsDeferredTabDraggingTargetWindowKey &&
-        !window->GetProperty(ash::kIsDeferredTabDraggingTargetWindowKey)) {
+    if (key == kIsDeferredTabDraggingTargetWindowKey &&
+        !window->GetProperty(kIsDeferredTabDraggingTargetWindowKey)) {
       UpdateWindowItemInOverviewContaining(window);
       StopObserving();
     }
@@ -375,7 +327,7 @@ OverviewGrid::OverviewGrid(aura::Window* root_window,
           ShouldAllowSplitView()
               ? std::make_unique<SplitViewDragIndicators>(root_window)
               : nullptr),
-      bounds_(GetGridBoundsInScreen(root_window, /*divider_changed=*/false)) {
+      bounds_(GetGridBoundsInScreen(root_window)) {
   for (auto* window : windows) {
     if (window->GetRootWindow() != root_window)
       continue;
@@ -501,8 +453,7 @@ void OverviewGrid::PositionWindows(
 
   for (size_t i = 0; i < window_list_.size(); ++i) {
     OverviewItem* window_item = window_list_[i].get();
-    if (window_item->animating_to_close() ||
-        ignored_items.contains(window_item)) {
+    if (ShouldExcludeItemFromGridLayout(window_item, ignored_items)) {
       rects[i].SetRect(0, 0, 0, 0);
       continue;
     }
@@ -601,15 +552,17 @@ void OverviewGrid::AppendItem(aura::Window* window,
           window_list_.size(), use_spawn_animation);
 }
 
+void OverviewGrid::AddItemInMruOrder(aura::Window* window, bool animate) {
+  AddItem(window, /*reposition=*/true, animate, /*ignored_items=*/{},
+          FindInsertionIndex(window));
+}
+
 void OverviewGrid::RemoveItem(OverviewItem* overview_item,
                               bool item_destroying,
                               bool reposition) {
-  auto* window = overview_item->GetWindow();
-  // Use reverse iterator to be efficiently when removing all.
+  // Use reverse iterator to be efficient when removing all.
   auto iter = std::find_if(window_list_.rbegin(), window_list_.rend(),
-                           [window](std::unique_ptr<OverviewItem>& item) {
-                             return item->GetWindow() == window;
-                           });
+                           base::MatchesUniquePtr(overview_item));
   DCHECK(iter != window_list_.rend());
 
   // This can also be called when shutting down |this|, at which the item will
@@ -646,12 +599,14 @@ void OverviewGrid::RemoveItem(OverviewItem* overview_item,
         overview_session_->window_drag_controller()->item()) {
       ignored_items.insert(overview_session_->window_drag_controller()->item());
     }
-    const gfx::Rect grid_bounds = GetGridBoundsInScreenForSplitview(
+    const gfx::Rect grid_bounds = GetGridBoundsInScreen(
         root_window_,
         split_view_drag_indicators_
             ? base::make_optional(
                   split_view_drag_indicators_->current_window_dragging_state())
-            : base::nullopt);
+            : base::nullopt,
+        /*divider_changed=*/false,
+        /*account_for_hotseat=*/true);
     SetBoundsAndUpdatePositions(grid_bounds, ignored_items, /*animate=*/true);
   }
 }
@@ -679,7 +634,9 @@ void OverviewGrid::AddDropTargetNotForDraggingFromThisGrid(
         OVERVIEW_ANIMATION_DROP_TARGET_FADE, drop_target_window);
     drop_target_widget_->SetOpacity(1.f);
   }
-  overview_session_->AddItem(drop_target_window, /*reposition=*/true, animate);
+  const size_t position = FindInsertionIndex(dragged_window);
+  overview_session_->AddItem(drop_target_window, /*reposition=*/true, animate,
+                             /*ignored_items=*/{}, position);
 }
 
 void OverviewGrid::RemoveDropTarget() {
@@ -699,7 +656,7 @@ void OverviewGrid::SetBoundsAndUpdatePositions(
 }
 
 void OverviewGrid::RearrangeDuringDrag(
-    aura::Window* dragged_window,
+    OverviewItem* dragged_item,
     SplitViewDragIndicators::WindowDraggingState window_dragging_state) {
   OverviewItem* drop_target = GetDropTarget();
 
@@ -712,11 +669,14 @@ void OverviewGrid::RearrangeDuringDrag(
   }
 
   // Update the grid's bounds.
-  const gfx::Rect wanted_grid_bounds = GetGridBoundsInScreenForSplitview(
-      root_window_, base::make_optional(window_dragging_state));
+  const gfx::Rect wanted_grid_bounds = GetGridBoundsInScreen(
+      root_window_, base::make_optional(window_dragging_state),
+      /*divider_changed=*/false, /*account_for_hotseat=*/true);
   if (bounds_ != wanted_grid_bounds) {
-    SetBoundsAndUpdatePositions(wanted_grid_bounds,
-                                {GetOverviewItemContaining(dragged_window)},
+    base::flat_set<OverviewItem*> ignored_items;
+    if (dragged_item)
+      ignored_items.insert(dragged_item);
+    SetBoundsAndUpdatePositions(wanted_grid_bounds, ignored_items,
                                 /*animate=*/true);
   }
 }
@@ -758,11 +718,6 @@ void OverviewGrid::UpdateDropTargetBackgroundVisibility(
       target_window && IsDropTargetWindow(target_window));
 }
 
-void OverviewGrid::UpdateCannotSnapWarningVisibility() {
-  for (auto& overview_mode_item : window_list_)
-    overview_mode_item->UpdateCannotSnapWarningVisibility();
-}
-
 void OverviewGrid::OnSelectorItemDragStarted(OverviewItem* item) {
   for (auto& overview_mode_item : window_list_)
     overview_mode_item->OnSelectorItemDragStarted(item);
@@ -790,7 +745,7 @@ void OverviewGrid::OnWindowDragContinued(
   DCHECK_EQ(dragged_window_, dragged_window);
   DCHECK_EQ(dragged_window->GetRootWindow(), root_window_);
 
-  RearrangeDuringDrag(dragged_window, window_dragging_state);
+  RearrangeDuringDrag(nullptr, window_dragging_state);
   UpdateDropTargetBackgroundVisibility(nullptr, location_in_screen);
 
   aura::Window* target_window =
@@ -806,7 +761,7 @@ void OverviewGrid::OnWindowDragContinued(
     // overview item so that it can't merge into this overview item if the
     // dragged window is currently in preview window area.
     if (target_window && !IsDropTargetWindow(target_window))
-      target_window->ClearProperty(ash::kIsDeferredTabDraggingTargetWindowKey);
+      target_window->ClearProperty(kIsDeferredTabDraggingTargetWindowKey);
 
     return;
   }
@@ -814,7 +769,7 @@ void OverviewGrid::OnWindowDragContinued(
   // Show the tab drag highlight if |location_in_screen| is contained by the
   // browser windows' overview item in overview.
   if (target_window &&
-      target_window->GetProperty(ash::kIsDeferredTabDraggingTargetWindowKey)) {
+      target_window->GetProperty(kIsDeferredTabDraggingTargetWindowKey)) {
     auto* item = GetOverviewItemContaining(target_window);
     if (!item)
       return;
@@ -859,7 +814,7 @@ void OverviewGrid::OnWindowDragEnded(aura::Window* dragged_window,
   aura::Window* target_window =
       GetTargetWindowOnLocation(location_in_screen, /*ignored_item=*/nullptr);
   if (target_window &&
-      target_window->GetProperty(ash::kIsDeferredTabDraggingTargetWindowKey)) {
+      target_window->GetProperty(kIsDeferredTabDraggingTargetWindowKey)) {
     // Create an window observer and update the minimized window widget after
     // the dragged window merges into |target_window|.
     if (!target_window_observer_)
@@ -870,7 +825,7 @@ void OverviewGrid::OnWindowDragEnded(aura::Window* dragged_window,
   // Update the grid bounds and reposition windows. Since the grid bounds might
   // be updated based on the preview area during drag, but the window finally
   // didn't be snapped to the preview area.
-  SetBoundsAndUpdatePositions(GetGridBoundsInScreenForSplitview(root_window_),
+  SetBoundsAndUpdatePositions(GetGridBoundsInScreen(root_window_),
                               /*ignored_items=*/{},
                               /*animate=*/true);
 }
@@ -917,9 +872,8 @@ void OverviewGrid::OnDisplayMetricsChanged() {
   // updated in |OnSplitViewDividerPositionChanged|.
   if (SplitViewController::Get(root_window_)->InSplitViewMode())
     return;
-  SetBoundsAndUpdatePositions(
-      GetGridBoundsInScreen(root_window_, /*divider_changed=*/false),
-      /*ignored_items=*/{}, /*animate=*/false);
+  SetBoundsAndUpdatePositions(GetGridBoundsInScreen(root_window_),
+                              /*ignored_items=*/{}, /*animate=*/false);
 }
 
 void OverviewGrid::OnSplitViewStateChanged(
@@ -957,9 +911,8 @@ void OverviewGrid::OnSplitViewStateChanged(
 
   // Update the cannot snap warnings and adjust the grid bounds.
   UpdateCannotSnapWarningVisibility();
-  SetBoundsAndUpdatePositions(
-      GetGridBoundsInScreen(root_window_, /*divider_changed=*/false),
-      /*ignored_items=*/{}, /*animate=*/false);
+  SetBoundsAndUpdatePositions(GetGridBoundsInScreen(root_window_),
+                              /*ignored_items=*/{}, /*animate=*/false);
 
   // Activate the overview focus window, to match the behavior of entering
   // overview mode in the beginning.
@@ -967,9 +920,12 @@ void OverviewGrid::OnSplitViewStateChanged(
 }
 
 void OverviewGrid::OnSplitViewDividerPositionChanged() {
-  SetBoundsAndUpdatePositions(GetGridBoundsInScreen(root_window_,
-                                                    /*divider_changed=*/true),
-                              /*ignored_items=*/{}, /*animate=*/false);
+  SetBoundsAndUpdatePositions(
+      GetGridBoundsInScreen(root_window_,
+                            /*window_dragging_state=*/base::nullopt,
+                            /*divider_changed=*/true,
+                            /*account_for_hotseat=*/true),
+      /*ignored_items=*/{}, /*animate=*/false);
 }
 
 void OverviewGrid::OnScreenCopiedBeforeRotation() {
@@ -1328,7 +1284,7 @@ void OverviewGrid::SlideWindowsIn() {
 
 std::unique_ptr<ui::ScopedLayerAnimationSettings>
 OverviewGrid::UpdateYPositionAndOpacity(
-    int new_y,
+    float new_y,
     float opacity,
     OverviewSession::UpdateAnimationSettingsCallback callback) {
   std::unique_ptr<ui::ScopedLayerAnimationSettings> settings_to_observe;
@@ -1507,7 +1463,7 @@ void OverviewGrid::EndScroll() {
 int OverviewGrid::CalculateWidthAndMaybeSetUnclippedBounds(OverviewItem* item,
                                                            int height) {
   const gfx::Size item_size(0, height);
-  gfx::RectF target_bounds = item->GetTargetBoundsInScreen();
+  gfx::SizeF target_size = item->GetTargetBoundsInScreen().size();
   float scale = item->GetItemScale(item_size);
   ScopedOverviewTransformWindow::GridWindowFillMode grid_fill_mode =
       item->GetWindowDimensionsType();
@@ -1521,35 +1477,41 @@ int OverviewGrid::CalculateWidthAndMaybeSetUnclippedBounds(OverviewItem* item,
         overview_session_->window_drag_controller()
             ? overview_session_->window_drag_controller()->item()
             : nullptr;
-    if (grid_dragged_item) {
+    if (grid_dragged_item)
       dragged_window = grid_dragged_item->GetWindow();
-      grid_fill_mode = grid_dragged_item->GetWindowDimensionsType();
-    } else if (dragged_window_) {
+    else if (dragged_window_)
       dragged_window = dragged_window_;
-      grid_fill_mode = ScopedOverviewTransformWindow::GetWindowDimensionsType(
-          dragged_window);
-    }
-
     if (dragged_window && dragged_window->parent()) {
-      target_bounds = ::ash::GetTargetBoundsInScreen(dragged_window);
+      const gfx::Size work_area_size =
+          screen_util::GetDisplayWorkAreaBoundsInScreenForActiveDeskContainer(
+              root_window_)
+              .size();
+      gfx::Size dragged_window_size = dragged_window->bounds().size();
+      // If the drag started from a different root window, |dragged_window| may
+      // not fit into the work area of |root_window_|. Then if |dragged_window|
+      // is dropped into this grid, |dragged_window| will shrink to fit into
+      // this work area. The drop target shall reflect that.
+      dragged_window_size.SetToMin(work_area_size);
+      grid_fill_mode = ScopedOverviewTransformWindow::GetWindowDimensionsType(
+          dragged_window_size);
+      target_size = ::ash::GetTargetBoundsInScreen(dragged_window).size();
+      target_size.SetToMin(gfx::SizeF(work_area_size));
       const gfx::SizeF inset_size(0, height - 2 * kWindowMargin);
       scale = ScopedOverviewTransformWindow::GetItemScale(
-          target_bounds.size(), inset_size,
+          target_size, inset_size,
           dragged_window->GetProperty(aura::client::kTopViewInset),
           kHeaderHeightDp);
     }
   }
 
   int width = std::max(
-      1, gfx::ToFlooredInt(target_bounds.width() * scale) + 2 * kWindowMargin);
+      1, gfx::ToFlooredInt(target_size.width() * scale) + 2 * kWindowMargin);
   switch (grid_fill_mode) {
     case ScopedOverviewTransformWindow::GridWindowFillMode::kLetterBoxed:
-      width =
-          ScopedOverviewTransformWindow::kExtremeWindowRatioThreshold * height;
+      width = kExtremeWindowRatioThreshold * height;
       break;
     case ScopedOverviewTransformWindow::GridWindowFillMode::kPillarBoxed:
-      width =
-          height / ScopedOverviewTransformWindow::kExtremeWindowRatioThreshold;
+      width = height / kExtremeWindowRatioThreshold;
       break;
     default:
       break;
@@ -1567,8 +1529,8 @@ int OverviewGrid::CalculateWidthAndMaybeSetUnclippedBounds(OverviewItem* item,
   // Perform horizontal clipping if the window's aspect ratio is wider than the
   // split view bounds aspect ratio, and vertical clipping otherwise.
   const float aspect_ratio =
-      target_bounds.width() /
-      (target_bounds.height() -
+      target_size.width() /
+      (target_size.height() -
        item->GetWindow()->GetProperty(aura::client::kTopViewInset));
   const float target_aspect_ratio =
       split_view_bounds->width() / split_view_bounds->height();
@@ -1594,7 +1556,7 @@ int OverviewGrid::CalculateWidthAndMaybeSetUnclippedBounds(OverviewItem* item,
     // aspect ratio of |target_bounds|. Clipping takes the overview header into
     // account, so add that back in.
     const int unclipped_height =
-        width * target_bounds.height() / target_bounds.width();
+        width * target_size.height() / target_size.width();
     unclipped_size.set_width(width);
     unclipped_size.set_height(unclipped_height + kHeaderHeightDp);
 
@@ -1748,7 +1710,7 @@ std::vector<gfx::RectF> OverviewGrid::GetWindowRectsForTabletModeLayout(
   // that the items are always aligned left or right.
   float rightmost_window_right = 0;
   for (const auto& item : window_list_) {
-    if (item->animating_to_close() || ignored_items.contains(item.get()))
+    if (ShouldExcludeItemFromGridLayout(item.get(), ignored_items))
       continue;
     rightmost_window_right =
         std::max(rightmost_window_right, item->target_bounds().right());
@@ -1778,7 +1740,7 @@ std::vector<gfx::RectF> OverviewGrid::GetWindowRectsForTabletModeLayout(
   std::vector<gfx::RectF> rects;
   for (size_t i = 0; i < window_list_.size(); ++i) {
     OverviewItem* item = window_list_[i].get();
-    if (item->animating_to_close() || ignored_items.contains(item)) {
+    if (ShouldExcludeItemFromGridLayout(item, ignored_items)) {
       rects.push_back(gfx::RectF());
       continue;
     }
@@ -1831,10 +1793,8 @@ bool OverviewGrid::FitWindowRectsInBounds(
   // All elements are of same height and only the height is necessary to
   // determine each item's scale.
   for (size_t i = 0u; i < window_count; ++i) {
-    if (window_list_[i]->animating_to_close() ||
-        ignored_items.contains(window_list_[i].get())) {
+    if (ShouldExcludeItemFromGridLayout(window_list_[i].get(), ignored_items))
       continue;
-    }
 
     int width =
         CalculateWidthAndMaybeSetUnclippedBounds(window_list_[i].get(), height);
@@ -1874,19 +1834,29 @@ bool OverviewGrid::FitWindowRectsInBounds(
   return true;
 }
 
-std::vector<std::unique_ptr<OverviewItem>>::iterator
-OverviewGrid::GetOverviewItemIterContainingWindow(aura::Window* window) {
-  return std::find_if(window_list_.begin(), window_list_.end(),
-                      [window](std::unique_ptr<OverviewItem>& item) {
-                        return item->GetWindow() == window;
-                      });
-}
-
 size_t OverviewGrid::GetOverviewItemIndex(OverviewItem* item) const {
   auto iter = std::find_if(window_list_.begin(), window_list_.end(),
                            base::MatchesUniquePtr(item));
   DCHECK(iter != window_list_.end());
   return iter - window_list_.begin();
+}
+
+size_t OverviewGrid::FindInsertionIndex(const aura::Window* window) {
+  DCHECK(!GetDropTarget());
+  size_t index = 0u;
+  for (aura::Window* mru_window :
+       Shell::Get()->mru_window_tracker()->BuildMruWindowList(kActiveDesk)) {
+    if (index == window_list_.size() || mru_window == window)
+      return index;
+    // As we iterate over the whole MRU window list, the windows in this grid
+    // will be encountered in the same order, but possibly with other windows in
+    // between. Ignore those other windows, and only increment |index| when we
+    // reach the next window in this grid.
+    if (mru_window == window_list_[index]->GetWindow())
+      ++index;
+  }
+  NOTREACHED();
+  return 0u;
 }
 
 void OverviewGrid::AddDraggedWindowIntoOverviewOnDragEnd(
@@ -1904,7 +1874,7 @@ void OverviewGrid::AddDraggedWindowIntoOverviewOnDragEnd(
     // into another window when changing the dragged window's bounds, so
     // that the dragged window doesn't merge into another window because of
     // its changed bounds.
-    dragged_window->SetProperty(ash::kCanAttachToAnotherWindowKey, false);
+    dragged_window->SetProperty(kCanAttachToAnotherWindowKey, false);
     TabletModeWindowState::UpdateWindowPosition(
         WindowState::Get(dragged_window), /*animate=*/false);
     const gfx::Rect new_bounds = dragged_window->bounds();
@@ -1914,7 +1884,7 @@ void OverviewGrid::AddDraggedWindowIntoOverviewOnDragEnd(
           gfx::RectF(new_bounds), gfx::RectF(old_bounds));
       dragged_window->SetTransform(transform);
     }
-    dragged_window->ClearProperty(ash::kCanAttachToAnotherWindowKey);
+    dragged_window->ClearProperty(kCanAttachToAnotherWindowKey);
   }
 
   overview_session_->AddItem(dragged_window, /*reposition=*/false,
@@ -1936,12 +1906,17 @@ gfx::Rect OverviewGrid::GetDesksWidgetBounds() const {
       !SplitViewController::IsLayoutHorizontal() &&
       !SplitViewController::Get(root_window_)->InSplitViewMode()) {
     desks_widget_root_bounds.Offset(
-        0, bounds_.height() * kHighlightScreenPrimaryAxisRatio +
+        0, split_view_drag_indicators_->GetLeftHighlightViewBounds().height() +
                2 * kHighlightScreenEdgePaddingDp);
   }
 
   return screen_util::SnapBoundsToDisplayEdge(desks_widget_root_bounds,
                                               root_window_);
+}
+
+void OverviewGrid::UpdateCannotSnapWarningVisibility() {
+  for (auto& overview_mode_item : window_list_)
+    overview_mode_item->UpdateCannotSnapWarningVisibility();
 }
 
 }  // namespace ash

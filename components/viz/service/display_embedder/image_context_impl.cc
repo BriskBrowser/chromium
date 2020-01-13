@@ -42,16 +42,22 @@ ImageContextImpl::ImageContextImpl(RenderPassId render_pass_id,
       render_pass_id_(render_pass_id),
       mipmap_(mipmap ? GrMipMapped::kYes : GrMipMapped::kNo) {}
 
-void ImageContextImpl::OnContextLost() {
-  if (representation_) {
-    representation_->OnContextLost();
-    representation_ = nullptr;
-  }
-}
-
 ImageContextImpl::~ImageContextImpl() {
   if (fallback_context_state_)
     gpu::DeleteGrBackendTexture(fallback_context_state_, &fallback_texture_);
+}
+
+void ImageContextImpl::OnContextLost() {
+  if (representation_) {
+    representation_->OnContextLost();
+    representation_scoped_read_access_.reset();
+    representation_.reset();
+  }
+
+  if (fallback_context_state_) {
+    fallback_context_state_ = nullptr;
+    fallback_texture_ = {};
+  }
 }
 
 void ImageContextImpl::CreateFallbackImage(

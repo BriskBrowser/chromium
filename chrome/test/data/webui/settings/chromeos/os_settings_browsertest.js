@@ -29,11 +29,6 @@ const OSSettingsBrowserTest = class extends PolymerTest {
   }
 
   /** @override */
-  get featureList() {
-    return {enabled: ['chromeos::features::kSplitSettings']};
-  }
-
-  /** @override */
   get extraLibraries() {
     return super.extraLibraries.concat(
         [BROWSER_SETTINGS_PATH + 'ensure_lazy_loaded.js']);
@@ -169,9 +164,7 @@ const OSSettingsAppManagementBrowserTest = class extends OSSettingsBrowserTest {
 
   /** @override */
   get featureList() {
-    return {
-      enabled: super.featureList.enabled.concat(['features::kAppManagement'])
-    };
+    return {enabled: ['features::kAppManagement']};
   }
 
   /** @override */
@@ -329,7 +322,8 @@ var OSSettingsBluetoothPageTest = class extends OSSettingsBrowserTest {
   }
 };
 
-TEST_F('OSSettingsBluetoothPageTest', 'AllJsTests', () => {
+// Flaky. https://crbug.com/1035378
+TEST_F('OSSettingsBluetoothPageTest', 'DISABLED_AllJsTests', () => {
   mocha.run();
 });
 
@@ -434,7 +428,8 @@ TEST_F('OSSettingsDevicePageTest', 'StylusTest', () => {
 var OSSettingsFingerprintListTest = class extends OSSettingsBrowserTest {
   /** @override */
   get browsePreload() {
-    return super.browsePreload + 'people_page/fingerprint_list.html';
+    return super.browsePreload +
+        'chromeos/os_people_page/fingerprint_list.html';
   }
 
   /** @override */
@@ -584,6 +579,12 @@ TEST_F('OSSettingsMainTest', 'AllJsTests', () => {
 // eslint-disable-next-line no-var
 var OSSettingsMenuTest = class extends OSSettingsBrowserTest {
   /** @override */
+  get browsePreload() {
+    return super.browsePreload +
+        'chromeos/os_settings_menu/os_settings_menu.html';
+  }
+
+  /** @override */
   get extraLibraries() {
     return super.extraLibraries.concat([
       BROWSER_SETTINGS_PATH + '../test_util.js',
@@ -602,7 +603,7 @@ var OSSettingsMultideviceFeatureItemTest = class extends OSSettingsBrowserTest {
   /** @override */
   get browsePreload() {
     return super.browsePreload +
-        'multidevice_page/multidevice_feature_item.html';
+        'chromeos/multidevice_page/multidevice_feature_item.html';
   }
 
   /** @override */
@@ -624,7 +625,7 @@ var OSSettingsMultideviceFeatureToggleTest =
   /** @override */
   get browsePreload() {
     return super.browsePreload +
-        'multidevice_page/multidevice_feature_toggle.html';
+        'chromeos/multidevice_page/multidevice_feature_toggle.html';
   }
 
   /** @override */
@@ -644,7 +645,8 @@ TEST_F('OSSettingsMultideviceFeatureToggleTest', 'AllJsTests', () => {
 var OSSettingsMultidevicePageTest = class extends OSSettingsBrowserTest {
   /** @override */
   get browsePreload() {
-    return super.browsePreload + 'multidevice_page/multidevice_page.html';
+    return super.browsePreload +
+        'chromeos/multidevice_page/multidevice_page.html';
   }
 
   /** @override */
@@ -668,7 +670,7 @@ var OSSettingsMultideviceSmartLockSubpageTest =
   /** @override */
   get browsePreload() {
     return super.browsePreload +
-        'multidevice_page/multidevice_smartlock_subpage.html';
+        'chromeos/multidevice_page/multidevice_smartlock_subpage.html';
   }
 
   /** @override */
@@ -691,7 +693,8 @@ TEST_F('OSSettingsMultideviceSmartLockSubpageTest', 'AllJsTests', () => {
 var OSSettingsMultideviceSubpageTest = class extends OSSettingsBrowserTest {
   /** @override */
   get browsePreload() {
-    return super.browsePreload + 'multidevice_page/multidevice_subpage.html';
+    return super.browsePreload +
+        'chromeos/multidevice_page/multidevice_subpage.html';
   }
 
   /** @override */
@@ -713,7 +716,7 @@ var OSSettingsPeoplePageAccountManagerTest =
     class extends OSSettingsBrowserTest {
   /** @override */
   get browsePreload() {
-    return super.browsePreload + 'people_page/account_manager.html';
+    return super.browsePreload + 'chromeos/os_people_page/account_manager.html';
   }
 
   /** @override */
@@ -755,7 +758,8 @@ var OSSettingsPeoplePageKerberosAccountsTest =
     class extends OSSettingsBrowserTest {
   /** @override */
   get browsePreload() {
-    return super.browsePreload + 'people_page/kerberos_accounts.html';
+    return super.browsePreload +
+        'chromeos/os_people_page/kerberos_accounts.html';
   }
 
   /** @override */
@@ -776,7 +780,7 @@ TEST_F('OSSettingsPeoplePageKerberosAccountsTest', 'AllJsTests', () => {
 var OSSettingsPeoplePageLockScreenTest = class extends OSSettingsBrowserTest {
   /** @override */
   get browsePreload() {
-    return super.browsePreload + 'people_page/lock_screen.html';
+    return super.browsePreload + 'chromeos/os_people_page/lock_screen.html';
   }
 
   /** @override */
@@ -803,7 +807,7 @@ var OSSettingsPeoplePageQuickUnlockAuthenticateTest =
   /** @override */
   get browsePreload() {
     return super.browsePreload +
-        'people_page/lock_screen_password_prompt_dialog.html';
+        'chromeos/os_people_page/lock_screen_password_prompt_dialog.html';
   }
 
   /** @override */
@@ -826,7 +830,8 @@ var OSSettingsPeoplePageSetupPinDialogTest =
     class extends OSSettingsBrowserTest {
   /** @override */
   get browsePreload() {
-    return super.browsePreload + 'people_page/setup_pin_dialog.html';
+    return super.browsePreload +
+        'chromeos/os_people_page/setup_pin_dialog.html';
   }
 
   /** @override */
@@ -847,6 +852,12 @@ TEST_F('OSSettingsPeoplePageSetupPinDialogTest', 'AllJsTests', () => {
 
 // eslint-disable-next-line no-var
 var OSSettingsPeoplePageSyncControlsTest = class extends OSSettingsBrowserTest {
+  /** @override */
+  get browsePreload() {
+    return super.browsePreload +
+        'chromeos/os_people_page/os_sync_controls.html';
+  }
+
   /** @override */
   get featureList() {
     return {enabled: ['chromeos::features::kSplitSettingsSync']};
@@ -869,6 +880,11 @@ TEST_F('OSSettingsPeoplePageSyncControlsTest', 'AllJsTests', () => {
 // eslint-disable-next-line no-var
 var OSSettingsPeoplePageTest = class extends OSSettingsBrowserTest {
   /** @override */
+  get browsePreload() {
+    return super.browsePreload + 'chromeos/os_people_page/os_people_page.html';
+  }
+
+  /** @override */
   get extraLibraries() {
     return super.extraLibraries.concat([
       BROWSER_SETTINGS_PATH + '../test_browser_proxy.js',
@@ -884,9 +900,36 @@ TEST_F('OSSettingsPeoplePageTest', 'AllJsTests', () => {
   mocha.run();
 });
 
+// eslint-disable-next-line no-var
+var OSSettingsParentalControlsPageTest = class extends OSSettingsBrowserTest {
+  /** @override */
+  get browsePreload() {
+    return super.browsePreload +
+        'chromeos/parental_controls_page/parental_controls_page.html';
+  }
+
+  /** @override */
+  get extraLibraries() {
+    return super.extraLibraries.concat([
+      BROWSER_SETTINGS_PATH + '../test_browser_proxy.js',
+      'parental_controls_page_test.js',
+    ]);
+  }
+};
+
+TEST_F('OSSettingsParentalControlsPageTest', 'AllJsTests', () => {
+  mocha.run();
+});
+
 // Tests for the Personalization section.
 // eslint-disable-next-line no-var
 var OSSettingsPersonalizationPageTest = class extends OSSettingsBrowserTest {
+  /** @override */
+  get browsePreload() {
+    return super.browsePreload +
+        'chromeos/personalization_page/personalization_page.html';
+  }
+
   /** @override */
   get extraLibraries() {
     return super.extraLibraries.concat([
@@ -929,7 +972,8 @@ TEST_F('OSSettingsPluginVmPageTest', 'AllJsTests', () => {
 var OSSettingsPrinterEntryTest = class extends OSSettingsBrowserTest {
   /** @override */
   get browsePreload() {
-    return super.browsePreload + 'printing_page/cups_printers_entry.html';
+    return super.browsePreload +
+        'chromeos/os_printing_page/cups_printers_entry.html';
   }
 
   /** @override */
@@ -952,7 +996,7 @@ TEST_F('OSSettingsPrinterEntryTest', 'AllJsTests', () => {
 var OSSettingsPrinterLandingPageTest = class extends OSSettingsBrowserTest {
   /** @override */
   get browsePreload() {
-    return super.browsePreload + 'printing_page/cups_printers.html';
+    return super.browsePreload + 'chromeos/os_printing_page/cups_printers.html';
   }
 
   /** @override */
@@ -979,7 +1023,7 @@ TEST_F('OSSettingsPrinterLandingPageTest', 'AllJsTests', () => {
 var OSSettingsPrintingPageTest = class extends OSSettingsBrowserTest {
   /** @override */
   get browsePreload() {
-    return super.browsePreload + 'printing_page/cups_printers.html';
+    return super.browsePreload + 'chromeos/os_printing_page/cups_printers.html';
   }
 
   /** @override */

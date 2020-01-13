@@ -4,6 +4,9 @@
 
 import functools
 import itertools
+import posixpath
+
+from blinkbuild.name_style_converter import NameStyleConverter
 
 from .callback_function import CallbackFunction
 from .callback_interface import CallbackInterface
@@ -80,6 +83,7 @@ class IdlCompiler(object):
         # Merge partial definitions.
         self._record_defined_in_partial_and_mixin()
         self._propagate_extattrs_per_idl_fragment()
+        self._determine_blink_headers()
         self._merge_partial_interface_likes()
         self._merge_partial_dictionaries()
         # Merge mixins.
@@ -93,6 +97,8 @@ class IdlCompiler(object):
         self._group_overloaded_functions()
         self._propagate_extattrs_to_overload_group()
         self._calculate_group_exposure()
+
+        self._fill_exposed_constructs()
 
         self._sort_dictionary_members()
 
@@ -122,11 +128,17 @@ class IdlCompiler(object):
         for old_ir in old_irs:
             new_ir = make_copy(old_ir)
             self._ir_map.add(new_ir)
+            is_partial = False
+            is_mixin = False
+            if "LegacyTreatAsPartialInterface" in new_ir.extended_attributes:
+                is_partial = True
+            elif hasattr(new_ir, "is_partial") and new_ir.is_partial:
+                is_partial = True
+            elif hasattr(new_ir, "is_mixin") and new_ir.is_mixin:
+                is_mixin = True
             for member in new_ir.iter_all_members():
-                member.code_generator_info.set_defined_in_partial(
-                    hasattr(new_ir, 'is_partial') and new_ir.is_partial)
-                member.code_generator_info.set_defined_in_mixin(
-                    hasattr(new_ir, 'is_mixin') and new_ir.is_mixin)
+                member.code_generator_info.set_defined_in_partial(is_partial)
+                member.code_generator_info.set_defined_in_mixin(is_mixin)
 
     def _propagate_extattrs_per_idl_fragment(self):
         def propagate_extattr(extattr_key_and_attr_name,
@@ -209,6 +221,26 @@ class IdlCompiler(object):
 
         map(process_interface_like, old_irs)
 
+    def _determine_blink_headers(self):
+        irs = self._ir_map.irs_of_kinds(
+            IRMap.IR.Kind.INTERFACE, IRMap.IR.Kind.NAMESPACE,
+            IRMap.IR.Kind.PARTIAL_INTERFACE, IRMap.IR.Kind.PARTIAL_NAMESPACE)
+
+        self._ir_map.move_to_new_phase()
+
+        for old_ir in irs:
+            new_ir = make_copy(old_ir)
+            self._ir_map.add(new_ir)
+            basepath, _ = posixpath.splitext(
+                new_ir.debug_info.location.filepath)
+            dirpath, filename = posixpath.split(basepath)
+            impl_class = new_ir.extended_attributes.value_of("ImplementedAs")
+            if impl_class:
+                filename = NameStyleConverter(impl_class).to_snake_case()
+            header = posixpath.join(dirpath,
+                                    posixpath.extsep.join([filename, "h"]))
+            new_ir.code_generator_info.set_blink_headers([header])
+
     def _merge_partial_interface_likes(self):
         irs = self._ir_map.irs_of_kinds(IRMap.IR.Kind.INTERFACE,
                                         IRMap.IR.Kind.INTERFACE_MIXIN,
@@ -284,6 +316,13 @@ class IdlCompiler(object):
                 new_ir.constants.extend(to_be_merged.constants)
                 new_ir.operations.extend(to_be_merged.operations)
 
+                new_ir_headers = new_ir.code_generator_info.blink_headers
+                to_be_merged_headers = (
+                    to_be_merged.code_generator_info.blink_headers)
+                if (new_ir_headers is not None
+                        and to_be_merged_headers is not None):
+                    new_ir_headers.extend(to_be_merged_headers)
+
     def _process_interface_inheritances(self):
         def is_own_member(member):
             return 'Unforgeable' in member.extended_attributes
@@ -340,7 +379,8 @@ class IdlCompiler(object):
 
     def _propagate_extattrs_to_overload_group(self):
         ANY_OF = ("CrossOrigin", "LenientThis", "NotEnumerable",
-                  "PerWorldBindings", "Unforgeable", "Unscopable")
+                  "PerWorldBindings", "SecureContext", "Unforgeable",
+                  "Unscopable")
 
         old_irs = self._ir_map.irs_of_kinds(IRMap.IR.Kind.INTERFACE,
                                             IRMap.IR.Kind.NAMESPACE)
@@ -418,6 +458,32 @@ class IdlCompiler(object):
                             if exposure.only_in_secure_contexts is not True
                         ]))
                     group.exposure.set_only_in_secure_contexts(flag_names)
+
+    def _fill_exposed_constructs(self):
+        old_interfaces = self._ir_map.irs_of_kind(IRMap.IR.Kind.INTERFACE)
+        old_namespaces = self._ir_map.irs_of_kind(IRMap.IR.Kind.NAMESPACE)
+
+        exposed_map = {}  # global name: [construct's identifier...]
+        for ir in itertools.chain(old_interfaces, old_namespaces):
+            for pair in ir.exposure.global_names_and_features:
+                exposed_map.setdefault(pair.global_name,
+                                       []).append(ir.identifier)
+
+        self._ir_map.move_to_new_phase()
+
+        for old_ir in old_interfaces:
+            new_ir = make_copy(old_ir)
+            self._ir_map.add(new_ir)
+
+            assert not new_ir.exposed_constructs
+            global_names = new_ir.extended_attributes.values_of("Global")
+            if not global_names:
+                continue
+            constructs = set()
+            for global_name in global_names:
+                constructs.update(exposed_map.get(global_name, []))
+            new_ir.exposed_constructs = map(
+                self._ref_to_idl_def_factory.create, sorted(constructs))
 
     def _sort_dictionary_members(self):
         """Sorts dictionary members in alphabetical order."""
@@ -529,6 +595,5 @@ class IdlCompiler(object):
             self._db.register(
                 DatabaseBody.Kind.UNION,
                 Union(
-                    Identifier(key),  # dummy identifier
                     union_types=union_types,
                     typedef_backrefs=grouped_typedefs.get(key, [])))

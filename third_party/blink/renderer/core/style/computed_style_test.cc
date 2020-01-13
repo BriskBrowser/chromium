@@ -27,6 +27,7 @@
 #include "third_party/blink/renderer/core/testing/dummy_page_holder.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
+#include "ui/base/ui_base_features.h"
 
 namespace blink {
 
@@ -69,24 +70,32 @@ TEST(ComputedStyleTest, ClipPathEqual) {
 
 TEST(ComputedStyleTest, FocusRingWidth) {
   scoped_refptr<ComputedStyle> style = ComputedStyle::Create();
-  style->SetEffectiveZoom(3.5);
-  style->SetOutlineStyle(EBorderStyle::kSolid);
+  if (::features::IsFormControlsRefreshEnabled()) {
+    style->SetOutlineStyleIsAuto(static_cast<bool>(OutlineIsAuto::kOn));
+    EXPECT_EQ(3, style->GetOutlineStrokeWidthForFocusRing());
+    style->SetEffectiveZoom(3.5);
+    style->SetOutlineWidth(4);
+    EXPECT_EQ(3.5, style->GetOutlineStrokeWidthForFocusRing());
+  } else {
+    style->SetEffectiveZoom(3.5);
+    style->SetOutlineStyle(EBorderStyle::kSolid);
 #if defined(OS_MACOSX)
-  EXPECT_EQ(3, style->GetOutlineStrokeWidthForFocusRing());
+    EXPECT_EQ(3, style->GetOutlineStrokeWidthForFocusRing());
 #else
-  style->SetOutlineStyleIsAuto(static_cast<bool>(OutlineIsAuto::kOn));
-  static uint16_t outline_width = 4;
-  style->SetOutlineWidth(outline_width);
+    style->SetOutlineStyleIsAuto(static_cast<bool>(OutlineIsAuto::kOn));
+    static uint16_t outline_width = 4;
+    style->SetOutlineWidth(outline_width);
 
-  double expected_width =
-      LayoutTheme::GetTheme().IsFocusRingOutset() ? outline_width : 3.5;
-  EXPECT_EQ(expected_width, style->GetOutlineStrokeWidthForFocusRing());
+    double expected_width =
+        LayoutTheme::GetTheme().IsFocusRingOutset() ? outline_width : 3.5;
+    EXPECT_EQ(expected_width, style->GetOutlineStrokeWidthForFocusRing());
 
-  expected_width =
-      LayoutTheme::GetTheme().IsFocusRingOutset() ? outline_width : 1.0;
-  style->SetEffectiveZoom(0.5);
-  EXPECT_EQ(expected_width, style->GetOutlineStrokeWidthForFocusRing());
+    expected_width =
+        LayoutTheme::GetTheme().IsFocusRingOutset() ? outline_width : 1.0;
+    style->SetEffectiveZoom(0.5);
+    EXPECT_EQ(expected_width, style->GetOutlineStrokeWidthForFocusRing());
 #endif
+  }
 }
 
 TEST(ComputedStyleTest, FocusRingOutset) {
@@ -94,11 +103,15 @@ TEST(ComputedStyleTest, FocusRingOutset) {
   style->SetOutlineStyle(EBorderStyle::kSolid);
   style->SetOutlineStyleIsAuto(static_cast<bool>(OutlineIsAuto::kOn));
   style->SetEffectiveZoom(4.75);
+  if (::features::IsFormControlsRefreshEnabled()) {
+    EXPECT_EQ(4, style->OutlineOutsetExtent());
+  } else {
 #if defined(OS_MACOSX)
-  EXPECT_EQ(4, style->OutlineOutsetExtent());
+    EXPECT_EQ(4, style->OutlineOutsetExtent());
 #else
-  EXPECT_EQ(3, style->OutlineOutsetExtent());
+    EXPECT_EQ(3, style->OutlineOutsetExtent());
 #endif
+  }
 }
 
 TEST(ComputedStyleTest, SVGStackingContext) {
@@ -594,15 +607,19 @@ TEST(ComputedStyleTest, ApplyInternalLightDarkColor) {
     ScopedCSSCascadeForTest scoped_cascade_enabled(true);
 
     StyleCascade cascade1(state);
-    cascade1.Add(*CSSPropertyName::From("color"), internal_light_dark, origin);
-    cascade1.Add(*CSSPropertyName::From("color-scheme"), dark_value, origin);
+    cascade1.Add(*CSSPropertyName::From(&state.GetDocument(), "color"),
+                 internal_light_dark, origin);
+    cascade1.Add(*CSSPropertyName::From(&state.GetDocument(), "color-scheme"),
+                 dark_value, origin);
     cascade1.Apply();
     EXPECT_EQ(Color::kWhite,
               style->VisitedDependentColor(GetCSSPropertyColor()));
 
     StyleCascade cascade2(state);
-    cascade2.Add(*CSSPropertyName::From("color"), internal_light_dark, origin);
-    cascade2.Add(*CSSPropertyName::From("color-scheme"), light_value, origin);
+    cascade2.Add(*CSSPropertyName::From(&state.GetDocument(), "color"),
+                 internal_light_dark, origin);
+    cascade2.Add(*CSSPropertyName::From(&state.GetDocument(), "color-scheme"),
+                 light_value, origin);
     cascade2.Apply();
     EXPECT_EQ(Color::kBlack,
               style->VisitedDependentColor(GetCSSPropertyColor()));

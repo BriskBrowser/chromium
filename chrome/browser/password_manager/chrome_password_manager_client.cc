@@ -106,6 +106,7 @@
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/password_manager/account_chooser_dialog_android.h"
 #include "chrome/browser/password_manager/auto_signin_first_run_dialog_android.h"
+#include "chrome/browser/password_manager/auto_signin_prompt_controller.h"
 #include "chrome/browser/password_manager/credential_leak_controller_android.h"
 #include "chrome/browser/password_manager/generated_password_saved_infobar_delegate_android.h"
 #include "chrome/browser/password_manager/password_accessory_controller.h"
@@ -116,7 +117,6 @@
 #include "chrome/browser/password_manager/update_password_infobar_delegate_android.h"
 #include "chrome/browser/touch_to_fill/touch_to_fill_controller.h"
 #include "chrome/browser/ui/android/passwords/onboarding_dialog_view.h"
-#include "chrome/browser/ui/android/snackbars/auto_signin_prompt_controller.h"
 #include "components/infobars/core/infobar.h"
 #include "components/password_manager/core/browser/credential_cache.h"
 #include "ui/base/ui_base_features.h"
@@ -1235,6 +1235,9 @@ void ChromePasswordManagerClient::FocusedInputChanged(
       static_cast<password_manager::ContentPasswordManagerDriver*>(driver);
   if (!PasswordAccessoryControllerImpl::ShouldAcceptFocusEvent(
           web_contents(), content_driver, focused_field_type))
+    return;
+
+  if (!content_driver->CanShowAutofillUi())
     return;
 
   if (!PasswordAccessoryController::AllowedForWebContents(web_contents()))

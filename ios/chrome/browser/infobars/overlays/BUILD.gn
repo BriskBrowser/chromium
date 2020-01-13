@@ -30,6 +30,21 @@ source_set("overlays") {
   ]
 }
 
+source_set("util") {
+  configs += [ "//build/config/compiler:enable_arc" ]
+  sources = [
+    "overlay_request_infobar_util.h",
+    "overlay_request_infobar_util.mm",
+  ]
+  deps = [
+    "//base",
+    "//ios/chrome/browser/infobars",
+    "//ios/chrome/browser/infobars:public",
+    "//ios/chrome/browser/overlays",
+    "//ios/chrome/browser/overlays/public/common/infobars",
+  ]
+}
+
 source_set("test_support") {
   configs += [ "//build/config/compiler:enable_arc" ]
   testonly = true
@@ -40,6 +55,7 @@ source_set("test_support") {
   deps = [
     ":overlays",
     "//base",
+    "//ios/chrome/browser/infobars",
     "//ios/chrome/browser/overlays",
     "//ios/chrome/browser/overlays/public/common/infobars",
   ]

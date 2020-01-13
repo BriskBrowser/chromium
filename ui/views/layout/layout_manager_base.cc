@@ -120,6 +120,8 @@ void LayoutManagerBase::ApplyLayout(const ProposedLayout& layout) {
     // Since we have a non-const reference to the parent here, we can safely use
     // a non-const reference to the child.
     View* const child_view = child_layout.child_view;
+    // Should not be attempting to modify a child view that has been removed.
+    DCHECK(host_view()->GetIndexOf(child_view) >= 0);
     if (child_view->GetVisible() != child_layout.visible)
       SetViewVisibility(child_view, child_layout.visible);
 
@@ -329,8 +331,8 @@ bool LayoutManagerBase::PropagateViewVisibilitySet(View* host,
 
 void LayoutManagerBase::PropagateInstalled(View* host) {
   host_view_ = host;
-  for (auto it = host->children().begin(); it != host->children().end(); ++it) {
-    child_infos_.emplace(*it, ChildInfo{(*it)->GetVisible(), false});
+  for (auto* it : host->children()) {
+    child_infos_.emplace(it, ChildInfo{it->GetVisible(), false});
   }
 
   for (auto& owned_layout : owned_layouts_)

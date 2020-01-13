@@ -13,7 +13,9 @@
 #include "third_party/blink/renderer/core/fileapi/file_error.h"
 #include "third_party/blink/renderer/modules/native_file_system/file_system_create_writer_options.h"
 #include "third_party/blink/renderer/modules/native_file_system/native_file_system_error.h"
+#include "third_party/blink/renderer/modules/native_file_system/native_file_system_writable_file_stream.h"
 #include "third_party/blink/renderer/modules/native_file_system/native_file_system_writer.h"
+#include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/file_metadata.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
@@ -65,15 +67,53 @@ ScriptPromise NativeFileSystemFileHandle::createWriter(
   return result;
 }
 
-ScriptPromise NativeFileSystemFileHandle::getFile(ScriptState* script_state) {
+ScriptPromise NativeFileSystemFileHandle::createWritable(
+    ScriptState* script_state,
+    const FileSystemCreateWriterOptions* options,
+    ExceptionState& exception_state) {
+  DCHECK(RuntimeEnabledFeatures::WritableFileStreamEnabled());
+
+  if (!mojo_ptr_) {
+    exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError, "");
+    return ScriptPromise();
+  }
+
   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise result = resolver->Promise();
 
+  mojo_ptr_->CreateFileWriter(
+      options->keepExistingData(),
+      WTF::Bind(
+          [](ScriptPromiseResolver* resolver,
+             mojom::blink::NativeFileSystemErrorPtr result,
+             mojo::PendingRemote<mojom::blink::NativeFileSystemFileWriter>
+                 writer) {
+            ScriptState* script_state = resolver->GetScriptState();
+            if (!script_state)
+              return;
+            if (result->status != mojom::blink::NativeFileSystemStatus::kOk) {
+              native_file_system_error::Reject(resolver, *result);
+              return;
+            }
+
+            resolver->Resolve(NativeFileSystemWritableFileStream::Create(
+                script_state, std::move(writer)));
+          },
+          WrapPersistent(resolver)));
+
+  return result;
+}
+
+ScriptPromise NativeFileSystemFileHandle::getFile(
+    ScriptState* script_state,
+    ExceptionState& exception_state) {
   if (!mojo_ptr_) {
-    resolver->Reject(MakeGarbageCollected<DOMException>(
-        DOMExceptionCode::kInvalidStateError));
-    return result;
+    exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError, "");
+    return ScriptPromise();
   }
+
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
+  ScriptPromise result = resolver->Promise();
 
   mojo_ptr_->AsBlob(WTF::Bind(
       [](ScriptPromiseResolver* resolver, const String& name,

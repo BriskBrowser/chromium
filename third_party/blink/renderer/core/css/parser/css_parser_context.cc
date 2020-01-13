@@ -14,6 +14,7 @@
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/deprecation.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
+#include "third_party/blink/renderer/core/html/html_document.h"
 #include "third_party/blink/renderer/core/html/imports/html_imports_controller.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/core/page/page.h"
@@ -118,7 +119,7 @@ CSSParserContext::CSSParserContext(
           profile,
           Referrer(base_url_override.StrippedForUseAsReferrer(),
                    referrer_policy_override),
-          document.IsHTMLDocument(),
+          IsA<HTMLDocument>(document),
           document.GetSettings()
               ? document.GetSettings()
                     ->GetUseLegacyBackgroundSizeShorthandBehavior()
@@ -242,6 +243,10 @@ void CSSParserContext::Count(CSSParserMode mode, CSSPropertyID property) const {
 
 bool CSSParserContext::IsDocumentHandleEqual(const Document* other) const {
   return document_.Get() == other;
+}
+
+const Document* CSSParserContext::GetDocument() const {
+  return document_.Get();
 }
 
 void CSSParserContext::ReportLayoutAnimationsViolationIfNeeded(

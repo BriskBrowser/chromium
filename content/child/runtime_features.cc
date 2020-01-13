@@ -182,15 +182,10 @@ void SetRuntimeFeaturesFromChromiumFeatures() {
           {wf::EnablePeriodicBackgroundSync, features::kPeriodicBackgroundSync,
            kEnableOnly},
           {wf::EnableWebXR, features::kWebXr, kUseFeatureState},
-          {wf::EnableWebXRARDOMOverlay, features::kWebXrArDOMOverlay,
-           kEnableOnly},
           {wf::EnableWebXRARModule, features::kWebXrArModule, kEnableOnly},
           {wf::EnableWebXRHitTest, features::kWebXrHitTest, kEnableOnly},
-          {wf::EnableWebXRAnchors, features::kWebXrAnchors, kEnableOnly},
-          {wf::EnableWebXRPlaneDetection, features::kWebXrPlaneDetection,
+          {wf::EnableWebXRIncubations, features::kWebXrIncubations,
            kEnableOnly},
-          {wf::EnableWebXrGamepadModule, features::kWebXrGamepadModule,
-           kUseFeatureState},
           {wf::EnableFetchMetadata, network::features::kFetchMetadata,
            kUseFeatureState},
           {wf::EnableFetchMetadataDestination,
@@ -339,8 +334,6 @@ void SetRuntimeFeaturesFromChromiumFeatures() {
   // function and using feature string name with EnableFeatureFromString.
   const RuntimeFeatureToChromiumFeatureMap<const char*>
       runtimeFeatureNameToChromiumFeatureMapping[] = {
-          {"FastBorderRadius", blink::features::kFastBorderRadius,
-           kUseFeatureState},
           {"FontSrcLocalMatching", features::kFontSrcLocalMatching,
            kUseFeatureState},
           {"LegacyWindowsDWriteFontFallback",
@@ -526,9 +519,6 @@ void SetCustomizedRuntimeFeaturesFromCombinedArgs(
   // They're moved here to distinguish them from actual base checks
   WebRuntimeFeatures::EnableOverlayScrollbars(ui::IsOverlayScrollbarEnabled());
 
-  WebRuntimeFeatures::EnableFormControlsRefresh(
-      features::IsFormControlsRefreshEnabled());
-
   if (base::FeatureList::GetInstance()->IsFeatureOverriddenFromCommandLine(
           blink::features::kNativeFileSystemAPI.name,
           base::FeatureList::OVERRIDE_ENABLE_FEATURE)) {
@@ -555,7 +545,6 @@ void SetCustomizedRuntimeFeaturesFromCombinedArgs(
     WebRuntimeFeatures::EnableNetInfoDownlinkMax(true);
     WebRuntimeFeatures::EnableFetchMetadata(true);
     WebRuntimeFeatures::EnableFetchMetadataDestination(true);
-    WebRuntimeFeatures::EnableFeatureFromString("FastBorderRadius", true);
     WebRuntimeFeatures::EnableDisplayLocking(true);
   }
 

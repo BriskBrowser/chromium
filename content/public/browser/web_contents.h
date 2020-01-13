@@ -84,6 +84,7 @@ class RenderWidgetHostView;
 class WebContentsDelegate;
 struct CustomContextMenuContext;
 struct DropData;
+struct FaviconURL;
 struct MHTMLGenerationParams;
 
 // WebContents is the core class in content/. A WebContents renders web content
@@ -628,6 +629,19 @@ class WebContents : public PageNavigator,
   // Returns a vector to the inner WebContents within this WebContents.
   virtual std::vector<WebContents*> GetInnerWebContents() = 0;
 
+  // Returns the user-visible WebContents that is responsible for the UI
+  // activity in the provided WebContents. For example, this delegate may be
+  // aware that the contents is embedded in some other contents, or hosts
+  // background activity on behalf of a user-visible tab which should be used to
+  // display dialogs and similar affordances to the user.
+  //
+  // This may be distinct from the outer web contents (for example, the
+  // responsible contents may logically "own" a contents but not currently embed
+  // it for rendering).
+  //
+  // Always returns a non-null value.
+  virtual WebContents* GetResponsibleWebContents() = 0;
+
   // Invoked when visible security state changes.
   virtual void DidChangeVisibleSecurityState() = 0;
 
@@ -1035,6 +1049,12 @@ class WebContents : public PageNavigator,
 
   // The source ID of the last committed navigation.
   virtual ukm::SourceId GetLastCommittedSourceId() = 0;
+
+  // Returns the raw list of favicon candidates as reported to observers via
+  // WebContentsObserver::DidUpdateFaviconURL() since the last navigation start.
+  // Consider using FaviconDriver in components/favicon if possible for more
+  // reliable favicon-related state.
+  virtual std::vector<FaviconURL> GetFaviconURLs() = 0;
 
  private:
   // This interface should only be implemented inside content.

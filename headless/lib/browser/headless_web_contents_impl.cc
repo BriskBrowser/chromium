@@ -85,8 +85,7 @@ class HeadlessWebContentsImpl::Delegate : public content::WebContentsDelegate {
     return security_state::GetSecurityStyle(
         security_state::GetSecurityLevel(
             *visible_security_state.get(),
-            false /* used_policy_installed_certificate */,
-            base::BindRepeating(&content::IsOriginSecure)),
+            false /* used_policy_installed_certificate */),
         *visible_security_state.get(), security_style_explanations);
   }
 #endif  // !defined(CHROME_MULTIPLE_DLL_CHILD)
@@ -307,8 +306,8 @@ HeadlessWebContentsImpl::~HeadlessWebContentsImpl() {
     render_process_host_->RemoveObserver(this);
   // Defer destruction of WindowTreeHost, as it does sync mojo calls
   // in the destructor of ui::Compositor.
-  base::DeleteSoon(FROM_HERE, {base::CurrentThread()},
-                   std::move(window_tree_host_));
+  base::SequencedTaskRunnerHandle::Get()->DeleteSoon(
+      FROM_HERE, std::move(window_tree_host_));
 }
 
 void HeadlessWebContentsImpl::RenderFrameCreated(

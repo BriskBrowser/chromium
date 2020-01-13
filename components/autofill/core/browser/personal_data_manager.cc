@@ -77,7 +77,8 @@ enum class MigrateUserOptedInWalletSyncType {
   kNotMigrated = 0,
   kMigratedFromCanonicalEmail = 1,
   kMigratedFromNonCanonicalEmail = 2,
-  kMaxValue = kMigratedFromNonCanonicalEmail,
+  kNotMigratedUnexpectedPrimaryAccountIdWithEmail = 3,
+  kMaxValue = kNotMigratedUnexpectedPrimaryAccountIdWithEmail,
 };
 
 template <typename T>
@@ -2006,7 +2007,7 @@ std::vector<Suggestion> PersonalDataManager::GetSuggestionsForCards(
       // Otherwise the label is the card number, or if that is empty the
       // cardholder name. The label should never repeat the value.
       if (type.GetStorableType() == CREDIT_CARD_NUMBER) {
-        suggestion->value = credit_card->NetworkOrBankNameAndLastFourDigits();
+        suggestion->value = credit_card->NetworkAndLastFourDigits();
 
 #if defined(OS_ANDROID) || defined(OS_IOS)
         suggestion->label = credit_card->GetInfo(
@@ -2028,7 +2029,7 @@ std::vector<Suggestion> PersonalDataManager::GetSuggestionsForCards(
         suggestion->label =
             base::FeatureList::IsEnabled(features::kAutofillKeyboardAccessory)
                 ? credit_card->ObfuscatedLastFourDigits()
-                : credit_card->NetworkOrBankNameAndLastFourDigits();
+                : credit_card->NetworkAndLastFourDigits();
 #elif defined(OS_IOS)
         // E.g. "••••1234"".
         suggestion->label = credit_card->ObfuscatedLastFourDigits();
@@ -2531,7 +2532,15 @@ void PersonalDataManager::MigrateUserOptedInWalletSyncTransportIfNeeded() {
 
   // When migration is started or done, the primary account is created from a
   // Gaia ID.
-  DCHECK(!primary_account_id.IsEmail());
+  if (primary_account_id.IsEmail()) {
+    DLOG(ERROR) << "Unexpected primary account id from an email ["
+                << primary_account_id << "].";
+    base::UmaHistogramEnumeration(
+        "Autofill.MigrateUserOptedInToWalletSync",
+        MigrateUserOptedInWalletSyncType::
+            kNotMigratedUnexpectedPrimaryAccountIdWithEmail);
+    return;
+  }
 
   CoreAccountId legacy_account_id_from_email =
       CoreAccountId::FromEmail(gaia::CanonicalizeEmail(primary_account.email));

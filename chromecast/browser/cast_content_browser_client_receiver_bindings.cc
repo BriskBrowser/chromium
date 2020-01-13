@@ -36,7 +36,7 @@
 #include "chromecast/external_mojo/broker_service/broker_service.h"
 #endif
 
-#if BUILDFLAG(ENABLE_CAST_WAYLAND_SERVER)
+#if defined(OS_LINUX) && defined(USE_OZONE)
 #include "chromecast/browser/webview/js_channel_service.h"
 #include "chromecast/common/mojom/js_channel.mojom.h"
 #endif
@@ -107,8 +107,9 @@ void CastContentBrowserClient::ExposeInterfacesToRenderer(
     blink::AssociatedInterfaceRegistry* associated_registry,
     content::RenderProcessHost* render_process_host) {
   registry->AddInterface(
-      base::Bind(&media::MediaCapsImpl::AddReceiver,
-                 base::Unretained(cast_browser_main_parts_->media_caps())),
+      base::BindRepeating(
+          &media::MediaCapsImpl::AddReceiver,
+          base::Unretained(cast_browser_main_parts_->media_caps())),
       base::ThreadTaskRunnerHandle::Get());
 
 #if !defined(OS_ANDROID) && !defined(OS_FUCHSIA)
@@ -117,8 +118,8 @@ void CastContentBrowserClient::ExposeInterfacesToRenderer(
   }
 
   registry->AddInterface(
-      base::Bind(&MemoryPressureControllerImpl::AddReceiver,
-                 base::Unretained(memory_pressure_controller_.get())),
+      base::BindRepeating(&MemoryPressureControllerImpl::AddReceiver,
+                          base::Unretained(memory_pressure_controller_.get())),
       base::ThreadTaskRunnerHandle::Get());
 #endif  // !defined(OS_ANDROID) && !defined(OS_FUCHSIA)
 }
@@ -231,7 +232,7 @@ void CastContentBrowserClient::RunServiceInstance(
 void CastContentBrowserClient::BindHostReceiverForRenderer(
     content::RenderProcessHost* render_process_host,
     mojo::GenericPendingReceiver receiver) {
-#if BUILDFLAG(ENABLE_CAST_WAYLAND_SERVER)
+#if defined(OS_LINUX) && defined(USE_OZONE)
   if (auto r = receiver.As<::chromecast::mojom::JsChannelBindingProvider>()) {
     JsChannelService::Create(render_process_host, std::move(r),
                              base::ThreadTaskRunnerHandle::Get());

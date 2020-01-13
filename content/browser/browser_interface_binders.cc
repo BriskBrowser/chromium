@@ -100,7 +100,7 @@
 #include "third_party/blink/public/mojom/worker/shared_worker_connector.mojom.h"
 
 #if !defined(OS_ANDROID)
-#include "content/browser/installedapp/installed_app_provider_impl_default.h"
+#include "content/browser/installedapp/installed_app_provider_impl.h"
 #include "content/public/common/content_switches.h"
 #include "third_party/blink/public/mojom/hid/hid.mojom.h"
 #include "third_party/blink/public/mojom/installedapp/installed_app_provider.mojom.h"
@@ -208,8 +208,8 @@ void BindQuotaDispatcherHost(
 void BindSharedWorkerConnector(
     RenderFrameHostImpl* host,
     mojo::PendingReceiver<blink::mojom::SharedWorkerConnector> receiver) {
-  SharedWorkerConnectorImpl::Create(host->GetProcess()->GetID(),
-                                    host->GetRoutingID(), std::move(receiver));
+  SharedWorkerConnectorImpl::Create(host->GetGlobalFrameRoutingId(),
+                                    std::move(receiver));
 }
 
 #if defined(OS_ANDROID)
@@ -320,7 +320,6 @@ void RunOrPostTaskToBindServiceWorkerReceiver(
     void (RenderProcessHost::*method)(Args...),
     Args... args) {
   DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
-  DCHECK(host->IsProviderForServiceWorker());
   content::RunOrPostTaskOnThread(
       FROM_HERE, BrowserThread::UI,
       base::BindOnce(
@@ -626,10 +625,9 @@ void PopulateFrameBinders(RenderFrameHostImpl* host,
   map->Add<blink::mojom::HidService>(base::BindRepeating(
       &RenderFrameHostImpl::GetHidService, base::Unretained(host)));
 
-  // The default (no-op) implementation of InstalledAppProvider. On Android, the
-  // real implementation is provided in Java.
   map->Add<blink::mojom::InstalledAppProvider>(
-      base::BindRepeating(&InstalledAppProviderImplDefault::Create));
+      base::BindRepeating(&RenderFrameHostImpl::CreateInstalledAppProvider,
+                          base::Unretained(host)));
 
   map->Add<blink::mojom::SerialService>(base::BindRepeating(
       &RenderFrameHostImpl::BindSerialService, base::Unretained(host)));

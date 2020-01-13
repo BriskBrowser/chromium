@@ -9,7 +9,6 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/debug/alias.h"
-#include "base/debug/dump_without_crashing.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/metrics/field_trial_params.h"
@@ -47,7 +46,7 @@
 #include "content/browser/renderer_host/render_view_host_delegate.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
-#include "content/browser/service_worker/service_worker_navigation_handle.h"
+#include "content/browser/service_worker/service_worker_main_resource_handle.h"
 #include "content/browser/site_instance_impl.h"
 #include "content/browser/web_package/prefetched_signed_exchange_cache.h"
 #include "content/browser/web_package/web_bundle_handle_tracker.h"
@@ -296,6 +295,17 @@ void AddAdditionalRequestHeaders(net::HttpRequestHeaders* headers,
         url, origin_header_value, referrer->policy);
     headers->SetHeader(net::HttpRequestHeaders::kOrigin,
                        origin_header_value.Serialize());
+  }
+
+  if (base::FeatureList::IsEnabled(features::kDocumentPolicy)) {
+    const blink::DocumentPolicy::FeatureState& required_policy =
+        frame_tree_node->effective_frame_policy().required_document_policy;
+    if (!required_policy.empty()) {
+      base::Optional<std::string> policy_header =
+          blink::DocumentPolicy::Serialize(required_policy);
+      DCHECK(policy_header);
+      headers->SetHeader("Sec-Required-Document-Policy", policy_header.value());
+    }
   }
 }
 
@@ -1680,6 +1690,8 @@ void NavigationRequest::OnResponseStarted(
   if (render_frame_host_) {
     render_frame_host_->set_cross_origin_embedder_policy(
         cross_origin_embedder_policy);
+    render_frame_host_->set_cross_origin_opener_policy(
+        response_head_->cross_origin_opener_policy);
   }
 
   if (!browser_initiated_ && render_frame_host_ &&
@@ -1855,6 +1867,7 @@ void NavigationRequest::OnRequestFailedInternal(
   pending_entry_ref_.reset();
 
   net_error_ = static_cast<net::Error>(status.error_code);
+  resolve_error_info_ = status.resolve_error_info;
 
   // If the request was canceled by the user do not show an error page.
   if (status.error_code == net::ERR_ABORTED) {
@@ -2010,8 +2023,8 @@ void NavigationRequest::OnStartChecksComplete(
   // comment in the header for |loader_|.
   DCHECK(!loader_);
 
-  // Only initialize the ServiceWorkerNavigationHandle if it can be created for
-  // this frame.
+  // Only initialize the ServiceWorkerMainResourceHandle if it can be created
+  // for this frame.
   bool can_create_service_worker =
       (frame_tree_node_->pending_frame_policy().sandbox_flags &
        blink::WebSandboxFlags::kOrigin) != blink::WebSandboxFlags::kOrigin;
@@ -2019,8 +2032,8 @@ void NavigationRequest::OnStartChecksComplete(
     ServiceWorkerContextWrapper* service_worker_context =
         static_cast<ServiceWorkerContextWrapper*>(
             partition->GetServiceWorkerContext());
-    service_worker_handle_ =
-        std::make_unique<ServiceWorkerNavigationHandle>(service_worker_context);
+    service_worker_handle_ = std::make_unique<ServiceWorkerMainResourceHandle>(
+        service_worker_context);
   }
 
   if (IsSchemeSupportedForAppCache(common_params_->url)) {
@@ -2076,7 +2089,7 @@ void NavigationRequest::OnStartChecksComplete(
   // Mark the fetch_start (Navigation Timing API).
   commit_params_->navigation_timing->fetch_start = base::TimeTicks::Now();
 
-  GURL site_for_cookies =
+  net::SiteForCookies site_for_cookies =
       frame_tree_node_->current_frame_host()
           ->ComputeSiteForCookiesForNavigation(common_params_->url);
   bool parent_is_main_frame = !frame_tree_node_->parent()
@@ -2251,7 +2264,8 @@ void NavigationRequest::OnWillProcessResponseChecksComplete(
           std::move(resource_request), redirect_chain_, response_head_.Clone(),
           std::move(response_body_), std::move(url_loader_client_endpoints_),
           ssl_info_.has_value() ? ssl_info_->cert_status : 0,
-          frame_tree_node_->frame_tree_node_id());
+          frame_tree_node_->frame_tree_node_id(),
+          from_download_cross_origin_redirect_);
 
       OnRequestFailedInternal(
           network::URLLoaderCompletionStatus(net::ERR_ABORTED),
@@ -2445,7 +2459,6 @@ void NavigationRequest::CommitNavigation() {
         std::move(subresource_loader_params_->prefetched_signed_exchanges);
   }
 
-  AddNetworkServiceDebugEvent("COM");
   render_frame_host_->CommitNavigation(
       this, std::move(common_params), std::move(commit_params),
       std::move(response_head), std::move(response_body_),
@@ -2505,14 +2518,9 @@ void NavigationRequest::RenderProcessHostDestroyed(RenderProcessHost* host) {
   ResetExpectedProcess();
 }
 
-void NavigationRequest::RenderProcessReady(RenderProcessHost* host) {
-  AddNetworkServiceDebugEvent("RPR");
-}
-
 void NavigationRequest::RenderProcessExited(
     RenderProcessHost* host,
     const ChildProcessTerminationInfo& info) {
-  AddNetworkServiceDebugEvent("RPE");
 }
 
 void NavigationRequest::UpdateSiteURL(
@@ -3189,7 +3197,6 @@ void NavigationRequest::DidCommitNavigation(
     bool did_replace_entry,
     const GURL& previous_url,
     NavigationType navigation_type) {
-  AddNetworkServiceDebugEvent("DCN");
   common_params_->url = params.url;
   did_replace_entry_ = did_replace_entry;
   should_update_history_ = params.should_update_history;
@@ -3303,9 +3310,6 @@ void NavigationRequest::ReadyToCommitNavigation(bool is_error) {
   TRACE_EVENT_ASYNC_STEP_INTO0("navigation", "NavigationHandle", this,
                                "ReadyToCommitNavigation");
 
-  AddNetworkServiceDebugEvent(
-      std::string("RTCN") +
-      (render_frame_host_->GetProcess()->IsReady() ? "1" : "0"));
   state_ = READY_TO_COMMIT;
   ready_to_commit_time_ = base::TimeTicks::Now();
   RestartCommitTimeout();
@@ -3349,7 +3353,6 @@ bool NavigationRequest::IsWaitingToCommit() {
 }
 
 void NavigationRequest::RenderProcessBlockedStateChanged(bool blocked) {
-  AddNetworkServiceDebugEvent(std::string("B") + (blocked ? "1" : "0"));
   if (blocked)
     StopCommitTimeout();
   else
@@ -3385,46 +3388,6 @@ void NavigationRequest::RestartCommitTimeout() {
 
 void NavigationRequest::OnCommitTimeout() {
   DCHECK_EQ(READY_TO_COMMIT, state_);
-  AddNetworkServiceDebugEvent("T");
-#if defined(OS_ANDROID)
-  // Rate limit the number of stack dumps so we don't overwhelm our crash
-  // reports.
-  // TODO(http://crbug.com/934317): Remove this once done debugging renderer
-  // hangs.
-  if (base::RandDouble() < 0.001) {
-    static base::debug::CrashKeyString* url_key =
-        base::debug::AllocateCrashKeyString("commit_timeout_url",
-                                            base::debug::CrashKeySize::Size256);
-    base::debug::ScopedCrashKeyString scoped_url(
-        url_key, common_params_->url.possibly_invalid_spec());
-
-    static base::debug::CrashKeyString* last_crash_key =
-        base::debug::AllocateCrashKeyString("ns_last_crash_ms",
-                                            base::debug::CrashKeySize::Size32);
-    base::debug::ScopedCrashKeyString scoped_last_crash(
-        last_crash_key,
-        base::NumberToString(
-            GetTimeSinceLastNetworkServiceCrash().InMilliseconds()));
-
-    static base::debug::CrashKeyString* memory_key =
-        base::debug::AllocateCrashKeyString("physical_memory_mb",
-                                            base::debug::CrashKeySize::Size32);
-    base::debug::ScopedCrashKeyString scoped_memory(
-        memory_key,
-        base::NumberToString(base::SysInfo::AmountOfPhysicalMemoryMB()));
-
-    static base::debug::CrashKeyString* debug_string_key =
-        base::debug::AllocateCrashKeyString("ns_debug_events",
-                                            base::debug::CrashKeySize::Size256);
-    base::debug::ScopedCrashKeyString scoped_debug_string(
-        debug_string_key, GetNetworkServiceDebugEventsString());
-    base::debug::DumpWithoutCrashing();
-
-    if (IsOutOfProcessNetworkService())
-      GetNetworkService()->DumpWithoutCrashing(base::Time::Now());
-  }
-#endif
-
   PingNetworkService(base::BindOnce(
       [](base::Time start_time) {
         UMA_HISTOGRAM_MEDIUM_TIMES(
@@ -3687,6 +3650,10 @@ NavigationRequest::GetAuthChallengeInfo() {
   return auth_challenge_info_;
 }
 
+net::ResolveErrorInfo NavigationRequest::GetResolveErrorInfo() {
+  return resolve_error_info_;
+}
+
 net::NetworkIsolationKey NavigationRequest::GetNetworkIsolationKey() {
   if (network_isolation_key_)
     return network_isolation_key_.value();
@@ -3781,10 +3748,6 @@ bool NavigationRequest::IsSameProcess() {
 
 int NavigationRequest::GetNavigationEntryOffset() {
   return navigation_entry_offset_;
-}
-
-bool NavigationRequest::FromDownloadCrossOriginRedirect() {
-  return from_download_cross_origin_redirect_;
 }
 
 const net::ProxyServer& NavigationRequest::GetProxyServer() {

@@ -420,7 +420,9 @@ URLLoader::URLLoader(
         request.trusted_params->network_isolation_key);
   }
 
-  if (request.trusted_params) {
+  if (factory_params_->disable_secure_dns) {
+    url_request_->SetDisableSecureDns(true);
+  } else if (request.trusted_params) {
     url_request_->SetDisableSecureDns(
         request.trusted_params->disable_secure_dns);
   }
@@ -511,7 +513,7 @@ class URLLoader::FileOpenerForUpload {
 
   FileOpenerForUpload(std::vector<base::FilePath> paths,
                       URLLoader* url_loader,
-                      uint32_t process_id,
+                      int32_t process_id,
                       mojom::NetworkContextClient* const network_context_client,
                       SetUpUploadCallback set_up_upload_callback)
       : paths_(std::move(paths)),
@@ -595,7 +597,7 @@ class URLLoader::FileOpenerForUpload {
   // The paths of files for upload
   const std::vector<base::FilePath> paths_;
   URLLoader* const url_loader_;
-  const uint32_t process_id_;
+  const int32_t process_id_;
   mojom::NetworkContextClient* const network_context_client_;
   SetUpUploadCallback set_up_upload_callback_;
   // The files opened so far.
@@ -1008,8 +1010,9 @@ void URLLoader::OnResponseStarted(net::URLRequest* url_request, int net_error) {
           network::features::kOutOfBlinkFrameAncestors)) {
     // Parse the Content-Security-Policy headers.
     ContentSecurityPolicy policy;
-    if (policy.Parse(url_request_->url(), *url_request_->response_headers()))
-      response_->content_security_policy = policy.TakeContentSecurityPolicy();
+    if (url_request_->response_headers())
+      policy.Parse(url_request_->url(), *url_request_->response_headers());
+    response_->content_security_policy = policy.TakeContentSecurityPolicy();
   }
 
   if (base::FeatureList::IsEnabled(features::kCrossOriginIsolation)) {
@@ -1256,11 +1259,11 @@ net::LoadState URLLoader::GetLoadStateForTesting() const {
   return url_request_->GetLoadState().state;
 }
 
-uint32_t URLLoader::GetRenderFrameId() const {
+int32_t URLLoader::GetRenderFrameId() const {
   return render_frame_id_;
 }
 
-uint32_t URLLoader::GetProcessId() const {
+int32_t URLLoader::GetProcessId() const {
   return factory_params_->process_id;
 }
 
@@ -1382,6 +1385,8 @@ void URLLoader::NotifyCompleted(int error_code) {
     status.encoded_body_length = url_request_->GetRawBodyBytes();
     status.decoded_body_length = total_written_bytes_;
     status.proxy_server = url_request_->proxy_server();
+    status.resolve_error_info =
+        url_request_->response_info().resolve_error_info;
 
     if ((options_ & mojom::kURLLoadOptionSendSSLInfoForCertificateError) &&
         net::IsCertStatusError(url_request_->ssl_info().cert_status)) {
@@ -1501,8 +1506,7 @@ void URLLoader::SetRawRequestHeadersAndNotify(
     if (!reported_cookies.empty()) {
       network_context_client_->OnCookiesRead(
           /* is_service_worker = */ false, GetProcessId(), GetRenderFrameId(),
-          url_request_->url(),
-          url_request_->site_for_cookies().RepresentativeUrl(),
+          url_request_->url(), url_request_->site_for_cookies(),
           reported_cookies);
     }
   }
@@ -1707,8 +1711,7 @@ void URLLoader::ReportFlaggedResponseCookies() {
     if (!reported_cookies.empty()) {
       network_context_client_->OnCookiesChanged(
           /* is_service_worker = */ false, GetProcessId(), GetRenderFrameId(),
-          url_request_->url(),
-          url_request_->site_for_cookies().RepresentativeUrl(),
+          url_request_->url(), url_request_->site_for_cookies(),
           reported_cookies);
     }
   }

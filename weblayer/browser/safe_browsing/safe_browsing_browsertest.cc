@@ -6,8 +6,8 @@
 
 #include "base/task/post_task.h"
 #include "components/safe_browsing/android/safe_browsing_api_handler.h"
-#include "components/safe_browsing/base_blocking_page.h"
-#include "components/safe_browsing/db/v4_protocol_manager_util.h"
+#include "components/safe_browsing/content/base_blocking_page.h"
+#include "components/safe_browsing/core/db/v4_protocol_manager_util.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/interstitial_page.h"
@@ -79,8 +79,7 @@ class SafeBrowsingBrowserTest : public WebLayerBrowserTest {
   ~SafeBrowsingBrowserTest() override = default;
 
   // WebLayerBrowserTest:
-  void PreRunTestOnMainThread() override {
-    WebLayerBrowserTest::PreRunTestOnMainThread();
+  void SetUpOnMainThread() override {
     NavigateAndWaitForCompletion(GURL("about:blank"), shell());
     safe_browsing::SafeBrowsingApiHandler::SetInstance(fake_handler_.get());
     ASSERT_TRUE(embedded_test_server()->Start());

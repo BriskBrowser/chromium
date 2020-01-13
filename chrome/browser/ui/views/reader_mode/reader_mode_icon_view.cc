@@ -14,9 +14,14 @@
 
 using dom_distiller::url_utils::IsDistilledPage;
 
-ReaderModeIconView::ReaderModeIconView(CommandUpdater* command_updater,
-                                       PageActionIconView::Delegate* delegate)
-    : PageActionIconView(command_updater, IDC_DISTILL_PAGE, delegate) {}
+ReaderModeIconView::ReaderModeIconView(
+    CommandUpdater* command_updater,
+    IconLabelBubbleView::Delegate* icon_label_bubble_delegate,
+    PageActionIconView::Delegate* page_action_icon_delegate)
+    : PageActionIconView(command_updater,
+                         IDC_DISTILL_PAGE,
+                         icon_label_bubble_delegate,
+                         page_action_icon_delegate) {}
 
 void ReaderModeIconView::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
@@ -53,6 +58,10 @@ const gfx::VectorIcon& ReaderModeIconView::GetVectorIcon() const {
 
 base::string16 ReaderModeIconView::GetTextForTooltipAndAccessibleName() const {
   return l10n_util::GetStringUTF16(IDS_DISTILL_PAGE);
+}
+
+const char* ReaderModeIconView::GetClassName() const {
+  return "ReaderModeIconView";
 }
 
 // TODO(gilmanmh): Consider displaying a bubble the first time a user

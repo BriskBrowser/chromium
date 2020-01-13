@@ -10,7 +10,7 @@
 Polymer({
   is: 'oobe-eula-md',
 
-  behaviors: [I18nBehavior, OobeDialogHostBehavior],
+  behaviors: [OobeI18nBehavior, OobeDialogHostBehavior],
 
   properties: {
     /**
@@ -172,6 +172,7 @@ Polymer({
    * @private
    */
   onUsageStatsHelpLinkClicked_: function(e) {
+    this.$['learn-more'].focus();
     chrome.send('eulaOnLearnMore');
     e.stopPropagation();
   },

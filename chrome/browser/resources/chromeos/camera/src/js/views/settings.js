@@ -2,22 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-'use strict';
-
-/**
- * Namespace for the Camera app.
- */
-var cca = cca || {};
-
-/**
- * Namespace for views.
- */
-cca.views = cca.views || {};
-
-/**
- * import {Resolution} from '../type.js';
- */
-var Resolution = Resolution || {};
+// eslint-disable-next-line no-unused-vars
+import {Camera3DeviceInfo} from '../device/camera3_device_info.js';
+import {PhotoConstraintsPreferrer,  // eslint-disable-line no-unused-vars
+        VideoConstraintsPreferrer,  // eslint-disable-line no-unused-vars
+} from '../device/constraints_preferrer.js';
+// eslint-disable-next-line no-unused-vars
+import {DeviceInfoUpdater} from '../device/device_info_updater.js';
+import * as nav from '../nav.js';
+import * as state from '../state.js';
+import {Resolution,      // eslint-disable-line no-unused-vars
+        ResolutionList,  // eslint-disable-line no-unused-vars
+} from '../type.js';
+import * as util from '../util.js';
+import {View, ViewName} from './view.js';
 
 /* eslint-disable no-unused-vars */
 
@@ -26,31 +24,31 @@ var Resolution = Resolution || {};
  * available resolutions for a particular video device.
  * @typedef {{prefResol: !Resolution, resols: !ResolutionList}}
  */
-cca.views.ResolutionConfig;
+let ResolutionConfig;
 
 /**
  * Photo and video resolution configuration for a particular video device.
  * @typedef {{
  *   deviceId: string,
- *   photo: !cca.views.ResolutionConfig,
- *   video: !cca.views.ResolutionConfig,
+ *   photo: !ResolutionConfig,
+ *   video: !ResolutionConfig,
  * }}
  */
-cca.views.DeviceSetting;
+let DeviceSetting;
 
 /* eslint-enable no-unused-vars */
 
 /**
- * Creates the base controller of settings view.
+ * Base controller of settings view.
  */
-cca.views.BaseSettings = class extends cca.views.View {
+export class BaseSettings extends View {
   /**
-   * @param {string} selector Selector text of the view's root element.
+   * @param {ViewName} name Name of the view.
    * @param {!Object<string, !function(Event=)>=} itemHandlers Click-handlers
    *     mapped by element ids.
    */
-  constructor(selector, itemHandlers = {}) {
-    super(selector, true, true);
+  constructor(name, itemHandlers = {}) {
+    super(name, true, true);
 
     this.root.querySelector('.menu-header button')
         .addEventListener('click', () => this.leave());
@@ -69,34 +67,35 @@ cca.views.BaseSettings = class extends cca.views.View {
   focus() {
     this.rootElement_.querySelector('[tabindex]').focus();
   }
+
   /**
    * Opens sub-settings.
-   * @param {string} id Settings identifier.
+   * @param {ViewName} name Name of settings view.
    * @private
    */
-  openSubSettings(id) {
+  openSubSettings(name) {
     // Dismiss master-settings if sub-settings was dismissed by background
     // click.
-    cca.nav.open(id).then((cond) => cond && cond.bkgnd && this.leave(cond));
+    nav.open(name).then((cond) => cond && cond.bkgnd && this.leave(cond));
   }
-};
-
+}
 
 /**
- * Creates the controller of master settings view.
+ * Controller of master settings view.
  */
-cca.views.MasterSettings = class extends cca.views.BaseSettings {
+export class MasterSettings extends BaseSettings {
   /**
    * @public
    */
   constructor() {
-    super('#settings', {
-      'settings-gridtype': () => this.openSubSettings('gridsettings'),
-      'settings-timerdur': () => this.openSubSettings('timersettings'),
-      'settings-resolution': () => this.openSubSettings('resolutionsettings'),
-      'settings-expert': () => this.openSubSettings('expertsettings'),
+    super(ViewName.SETTINGS, {
+      'settings-gridtype': () => this.openSubSettings(ViewName.GRID_SETTINGS),
+      'settings-timerdur': () => this.openSubSettings(ViewName.TIMER_SETTINGS),
+      'settings-resolution': () =>
+          this.openSubSettings(ViewName.RESOLUTION_SETTINGS),
+      'settings-expert': () => this.openSubSettings(ViewName.EXPERT_SETTINGS),
       'settings-feedback': () => this.openFeedback(),
-      'settings-help': () => cca.util.openHelp(),
+      'settings-help': () => util.openHelp(),
     });
   }
 
@@ -119,20 +118,20 @@ cca.views.MasterSettings = class extends cca.views.BaseSettings {
     const id = 'gfdkimpbcpahaombhbimeihdjnejgicl';  // Feedback extension id.
     chrome.runtime.sendMessage(id, data);
   }
-};
+}
 
 /**
- * Creates the controller of resolution settings view.
+ * Controller of resolution settings view.
  */
-cca.views.ResolutionSettings = class extends cca.views.BaseSettings {
+export class ResolutionSettings extends BaseSettings {
   /**
-   * @param {!cca.device.DeviceInfoUpdater} infoUpdater
-   * @param {!cca.device.PhotoConstraintsPreferrer} photoPreferrer
-   * @param {!cca.device.VideoConstraintsPreferrer} videoPreferrer
+   * @param {!DeviceInfoUpdater} infoUpdater
+   * @param {!PhotoConstraintsPreferrer} photoPreferrer
+   * @param {!VideoConstraintsPreferrer} videoPreferrer
    */
   constructor(infoUpdater, photoPreferrer, videoPreferrer) {
     /**
-     * @param {function(): ?cca.views.DeviceSetting} getSetting
+     * @param {function(): ?DeviceSetting} getSetting
      * @param {function(): !HTMLElement} getElement
      * @param {boolean} isPhoto
      * @return {!function()}
@@ -152,7 +151,7 @@ cca.views.ResolutionSettings = class extends cca.views.BaseSettings {
         }
       }
     };
-    super('#resolutionsettings', {
+    super(ViewName.RESOLUTION_SETTINGS, {
       'settings-front-photores': createOpenMenuHandler(
           () => this.frontSetting_, () => this.frontPhotoItem_, true),
       'settings-front-videores': createOpenMenuHandler(
@@ -164,13 +163,13 @@ cca.views.ResolutionSettings = class extends cca.views.BaseSettings {
     });
 
     /**
-     * @type {!cca.device.PhotoConstraintsPreferrer}
+     * @type {!PhotoConstraintsPreferrer}
      * @private
      */
     this.photoPreferrer_ = photoPreferrer;
 
     /**
-     * @type {!cca.device.VideoConstraintsPreferrer}
+     * @type {!VideoConstraintsPreferrer}
      * @private
      */
     this.videoPreferrer_ = videoPreferrer;
@@ -240,21 +239,21 @@ cca.views.ResolutionSettings = class extends cca.views.BaseSettings {
 
     /**
      * Device setting of front camera. Null if no front camera.
-     * @type {?cca.views.DeviceSetting}
+     * @type {?DeviceSetting}
      * @private
      */
     this.frontSetting_ = null;
 
     /**
      * Device setting of back camera. Null if no front camera.
-     * @type {?cca.views.DeviceSetting}
+     * @type {?DeviceSetting}
      * @private
      */
     this.backSetting_ = null;
 
     /**
      * Device setting of external cameras.
-     * @type {!Array<!cca.views.DeviceSetting>}
+     * @type {!Array<!DeviceSetting>}
      * @private
      */
     this.externalSettings_ = [];
@@ -267,10 +266,10 @@ cca.views.ResolutionSettings = class extends cca.views.BaseSettings {
     this.openedSettingDeviceId_ = null;
 
     infoUpdater.addDeviceChangeListener(async (updater) => {
-      /** @type {?Array<!cca.device.Camera3DeviceInfo>} */
+      /** @type {?Array<!Camera3DeviceInfo>} */
       const devices = await updater.getCamera3DevicesInfo();
       if (devices === null) {
-        cca.state.set('no-resolution-settings', true);
+        state.set(state.State.NO_RESOLUTION_SETTINGS, true);
         return;
       }
 
@@ -278,7 +277,7 @@ cca.views.ResolutionSettings = class extends cca.views.BaseSettings {
       this.externalSettings_ = [];
 
       devices.forEach(({deviceId, facing, photoResols, videoResols}) => {
-        const /** !cca.views.DeviceSetting */ deviceSetting = {
+        const /** !DeviceSetting */ deviceSetting = {
           deviceId,
           photo: {
             prefResol: /** @type {!Resolution} */ (
@@ -364,7 +363,7 @@ cca.views.ResolutionSettings = class extends cca.views.BaseSettings {
   /**
    * Finds photo and video resolution setting of target device id.
    * @param {string} deviceId
-   * @return {?cca.views.DeviceSetting}
+   * @return {?DeviceSetting}
    * @private
    */
   getDeviceSetting_(deviceId) {
@@ -385,7 +384,7 @@ cca.views.ResolutionSettings = class extends cca.views.BaseSettings {
     /**
      * @param {!HTMLElement} item
      * @param {string} id
-     * @param {!cca.views.ResolutionConfig} config
+     * @param {!ResolutionConfig} config
      * @param {!function(!Resolution, !ResolutionList): string} optTextTempl
      */
     const prepItem = (item, id, {prefResol, resols}, optTextTempl) => {
@@ -396,7 +395,7 @@ cca.views.ResolutionSettings = class extends cca.views.BaseSettings {
     };
 
     // Update front camera setting
-    cca.state.set('has-front-camera', this.frontSetting_ !== null);
+    state.set(state.State.HAS_FRONT_CAMERA, this.frontSetting_ !== null);
     if (this.frontSetting_) {
       const {deviceId, photo, video} = this.frontSetting_;
       prepItem(this.frontPhotoItem_, deviceId, photo, this.photoOptTextTempl_);
@@ -404,7 +403,7 @@ cca.views.ResolutionSettings = class extends cca.views.BaseSettings {
     }
 
     // Update back camera setting
-    cca.state.set('has-back-camera', this.backSetting_ !== null);
+    state.set(state.State.HAS_BACK_CAMERA, this.backSetting_ !== null);
     if (this.backSetting_) {
       const {deviceId, photo, video} = this.backSetting_;
       prepItem(this.backPhotoItem_, deviceId, photo, this.photoOptTextTempl_);
@@ -440,7 +439,7 @@ cca.views.ResolutionSettings = class extends cca.views.BaseSettings {
       if (deviceId !== focusedId) {
         const extItem = /** @type {!HTMLElement} */ (
             document.importNode(this.extcamItemTempl_.content, true));
-        cca.util.setupI18nElements(extItem);
+        util.setupI18nElements(extItem);
         [titleItem, photoItem, videoItem] =
             /** @type {!NodeList<!HTMLElement>}*/ (
                 extItem.querySelectorAll('.menu-item'));
@@ -476,13 +475,14 @@ cca.views.ResolutionSettings = class extends cca.views.BaseSettings {
       prepItem(videoItem, deviceId, config.video, this.videoOptTextTempl_);
     });
     // Force closing opened setting of unplugged device.
-    if ((cca.state.get('photoresolutionsettings') ||
-         cca.state.get('videoresolutionsettings')) &&
+    if ((state.get(ViewName.PHOTO_RESOLUTION_SETTINGS) ||
+         state.get(ViewName.VIDEO_RESOLUTION_SETTINGS)) &&
         this.openedSettingDeviceId_ !== null &&
         this.getDeviceSetting_(this.openedSettingDeviceId_) === null) {
-      cca.nav.close(
-          cca.state.get('photoresolutionsettings') ? 'photoresolutionsettings' :
-                                                     'videoresolutionsettings');
+      nav.close(
+          state.get(ViewName.PHOTO_RESOLUTION_SETTINGS) ?
+              ViewName.PHOTO_RESOLUTION_SETTINGS :
+              ViewName.VIDEO_RESOLUTION_SETTINGS);
     }
   }
 
@@ -508,7 +508,7 @@ cca.views.ResolutionSettings = class extends cca.views.BaseSettings {
         this.photoOptTextTempl_(photo.prefResol, photo.resols);
 
     // Update setting option if it's opened.
-    if (cca.state.get('photoresolutionsettings') &&
+    if (state.get(ViewName.PHOTO_RESOLUTION_SETTINGS) &&
         this.openedSettingDeviceId_ === deviceId) {
       this.photoResMenu_
           .querySelector(
@@ -541,7 +541,7 @@ cca.views.ResolutionSettings = class extends cca.views.BaseSettings {
         this.videoOptTextTempl_(video.prefResol);
 
     // Update setting option if it's opened.
-    if (cca.state.get('videoresolutionsettings') &&
+    if (state.get(ViewName.VIDEO_RESOLUTION_SETTINGS) &&
         this.openedSettingDeviceId_ === deviceId) {
       this.videoResMenu_
           .querySelector(
@@ -554,7 +554,7 @@ cca.views.ResolutionSettings = class extends cca.views.BaseSettings {
 
   /**
    * Opens photo resolution setting view.
-   * @param {!cca.views.DeviceSetting} Setting of video device to be opened.
+   * @param {!DeviceSetting} Setting of video device to be opened.
    * @param {!HTMLElement} resolItem Dom element from upper layer menu item
    *     showing title of the selected resolution.
    * @private
@@ -565,12 +565,12 @@ cca.views.ResolutionSettings = class extends cca.views.BaseSettings {
         resolItem, this.photoResMenu_, this.photoOptTextTempl_,
         (r) => this.photoPreferrer_.changePreferredResolution(deviceId, r),
         photo.resols, photo.prefResol);
-    this.openSubSettings('photoresolutionsettings');
+    this.openSubSettings(ViewName.PHOTO_RESOLUTION_SETTINGS);
   }
 
   /**
    * Opens video resolution setting view.
-   * @param {!cca.views.DeviceSetting} Setting of video device to be opened.
+   * @param {!DeviceSetting} Setting of video device to be opened.
    * @param {!HTMLElement} resolItem Dom element from upper layer menu item
    *     showing title of the selected resolution.
    * @private
@@ -581,7 +581,7 @@ cca.views.ResolutionSettings = class extends cca.views.BaseSettings {
         resolItem, this.videoResMenu_, this.videoOptTextTempl_,
         (r) => this.videoPreferrer_.changePreferredResolution(deviceId, r),
         video.resols, video.prefResol);
-    this.openSubSettings('videoresolutionsettings');
+    this.openSubSettings(ViewName.VIDEO_RESOLUTION_SETTINGS);
   }
 
   /**
@@ -618,7 +618,8 @@ cca.views.ResolutionSettings = class extends cca.views.BaseSettings {
         inputElement.checked = true;
       }
       inputElement.addEventListener('click', (event) => {
-        if (!cca.state.get('streaming') || cca.state.get('taking')) {
+        if (!state.get(state.State.STREAMING) ||
+            state.get(state.State.TAKING)) {
           event.preventDefault();
         }
       });
@@ -631,4 +632,11 @@ cca.views.ResolutionSettings = class extends cca.views.BaseSettings {
       menu.appendChild(item);
     });
   }
-};
+}
+
+/** @const */
+cca.views.BaseSettings = BaseSettings;
+/** @const */
+cca.views.MasterSettings = MasterSettings;
+/** @const */
+cca.views.ResolutionSettings = ResolutionSettings;

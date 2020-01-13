@@ -60,6 +60,7 @@
 #include "ui/views/paint_info.h"
 #include "ui/views/view_model_utils.h"
 #include "ui/views/widget/widget.h"
+#include "ui/wm/core/coordinate_conversion.h"
 
 namespace ash {
 
@@ -464,8 +465,8 @@ void AppsGridView::ResetForShowApps() {
 }
 
 void AppsGridView::DisableFocusForShowingActiveFolder(bool disabled) {
-  for (int i = 0; i < view_model_.view_size(); ++i)
-    view_model_.view_at(i)->SetEnabled(!disabled);
+  for (const auto& entry : view_model_.entries())
+    entry.view->SetEnabled(!disabled);
 
   // Ignore the grid view in accessibility tree so that items inside it will not
   // be accessed by ChromeVox.
@@ -478,8 +479,8 @@ void AppsGridView::OnTabletModeChanged(bool started) {
   pagination_controller_->set_is_tablet_mode(started);
 
   // Enable/Disable folder icons's background blur based on tablet mode.
-  for (int i = 0; i < view_model_.view_size(); ++i) {
-    auto* item_view = view_model_.view_at(i);
+  for (const auto& entry : view_model_.entries()) {
+    auto* item_view = static_cast<AppListItemView*>(entry.view);
     if (item_view->item()->is_folder())
       item_view->SetBackgroundBlurEnabled(started);
   }
@@ -548,8 +549,8 @@ void AppsGridView::InitiateDrag(AppListItemView* view,
   if (drag_view_ || pulsing_blocks_model_.view_size())
     return;
 
-  for (int i = 0; i < view_model_.view_size(); ++i)
-    view_model_.view_at(i)->EnsureLayer();
+  for (const auto& entry : view_model_.entries())
+    static_cast<AppListItemView*>(entry.view)->EnsureLayer();
   drag_view_ = view;
 
   // Dragged view should have focus. This also fixed the issue
@@ -849,8 +850,8 @@ void AppsGridView::InitiateDragFromReparentItemInRootLevelGridView(
                           contents_view_->GetAppListMainView()->view_delegate(),
                           false /* is_in_folder */);
   items_container_->AddChildView(view);
-  for (int i = 0; i < view_model_.view_size(); ++i)
-    view_model_.view_at(i)->EnsureLayer();
+  for (const auto& entry : view_model_.entries())
+    static_cast<AppListItemView*>(entry.view)->EnsureLayer();
   view->EnsureLayer();
   drag_view_ = view;
 
@@ -1121,10 +1122,10 @@ void AppsGridView::OnMouseEvent(ui::MouseEvent* event) {
       !event->IsLeftMouseButton()) {
     return;
   }
-
-  gfx::Point point_in_screen = event->location();
-  ConvertPointToScreen(static_cast<views::View*>(event->target()),
-                       &point_in_screen);
+  gfx::PointF point_in_screen = event->root_location_f();
+  auto* view_target = static_cast<views::View*>(event->target());
+  wm::ConvertPointToScreen(view_target->GetWidget()->GetNativeWindow(),
+                           &point_in_screen);
 
   switch (event->type()) {
     case ui::ET_MOUSE_PRESSED:
@@ -1184,8 +1185,8 @@ void AppsGridView::OnMouseEvent(ui::MouseEvent* event) {
       const bool should_handle = ShouldHandleDragEvent(*event);
 
       is_in_mouse_drag_ = false;
-      mouse_drag_start_point_ = gfx::Point();
-      last_mouse_drag_point_ = gfx::Point();
+      mouse_drag_start_point_ = gfx::PointF();
+      last_mouse_drag_point_ = gfx::PointF();
 
       if (!should_handle) {
         gfx::Point drag_location_in_app_list = event->location();
@@ -2023,8 +2024,8 @@ void AppsGridView::UpdateOpacity(bool restore_opacity) {
     // opacity. This needs to be done on all views within |view_model_| because
     // some item view might have been moved out from the current page. See also
     // https://crbug.com/990529.
-    for (int i = 0; i < view_model_.view_size(); ++i)
-      view_model_.view_at(i)->DestroyLayer();
+    for (const auto& entry : view_model_.entries())
+      entry.view->DestroyLayer();
     return;
   }
 
@@ -2779,7 +2780,7 @@ void AppsGridView::TransitionChanged() {
 
   // Sets the transform to locate the scrolled content.
   gfx::Size grid_size = GetTileGridSize();
-  gfx::Vector2d translate;
+  gfx::Vector2dF translate;
   const int dir =
       transition.target_page > pagination_model_.selected_page() ? -1 : 1;
   if (pagination_controller_->scroll_axis() ==
@@ -2876,8 +2877,8 @@ void AppsGridView::OnBoundsAnimatorProgressed(views::BoundsAnimator* animator) {
 void AppsGridView::OnBoundsAnimatorDone(views::BoundsAnimator* animator) {
   if (drag_view_)
     return;
-  for (int i = 0; i < view_model_.view_size(); ++i)
-    view_model_.view_at(i)->DestroyLayer();
+  for (const auto& entry : view_model_.entries())
+    entry.view->DestroyLayer();
 }
 
 GridIndex AppsGridView::GetNearestTileIndexForPoint(
@@ -2946,12 +2947,13 @@ AppListItemView* AppsGridView::GetViewDisplayedAtSlotOnCurrentPage(
   tile_rect.Offset(
       CalculateTransitionOffset(pagination_model_.selected_page()));
 
-  for (int i = 0; i < view_model_.view_size(); ++i) {
-    AppListItemView* view = GetItemViewAt(i);
-    if (view->bounds() == tile_rect && view != drag_view_)
-      return view;
-  }
-  return nullptr;
+  const auto& entries = view_model_.entries();
+  const auto iter =
+      std::find_if(entries.begin(), entries.end(), [&](const auto& entry) {
+        return entry.view->bounds() == tile_rect && entry.view != drag_view_;
+      });
+  return iter == entries.end() ? nullptr
+                               : static_cast<AppListItemView*>(iter->view);
 }
 
 void AppsGridView::SetAsFolderDroppingTarget(const GridIndex& target_index,
@@ -3286,12 +3288,12 @@ void AppsGridView::CalculateIdealBounds() {
 }
 
 int AppsGridView::GetModelIndexOfItem(const AppListItem* item) const {
-  for (int i = 0; i < view_model_.view_size(); ++i) {
-    if (view_model_.view_at(i)->item() == item) {
-      return i;
-    }
-  }
-  return view_model_.view_size();
+  const auto& entries = view_model_.entries();
+  const auto iter =
+      std::find_if(entries.begin(), entries.end(), [item](const auto& entry) {
+        return static_cast<AppListItemView*>(entry.view)->item() == item;
+      });
+  return std::distance(entries.begin(), iter);
 }
 
 int AppsGridView::GetTargetModelIndexFromItemIndex(size_t item_index) {

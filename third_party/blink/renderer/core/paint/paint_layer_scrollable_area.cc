@@ -100,6 +100,7 @@
 #include "third_party/blink/renderer/platform/graphics/graphics_layer.h"
 #include "third_party/blink/renderer/platform/graphics/paint/drawing_recorder.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
+#include "ui/base/ui_base_features.h"
 
 namespace blink {
 
@@ -230,9 +231,9 @@ void PaintLayerScrollableArea::DisposeImpl() {
   layer_ = nullptr;
 }
 
-bool PaintLayerScrollableArea::ApplyPendingHistoryRestoreScrollOffset() {
+void PaintLayerScrollableArea::ApplyPendingHistoryRestoreScrollOffset() {
   if (!pending_view_state_)
-    return false;
+    return;
 
   // TODO(pnoland): attempt to restore the anchor in more places than this.
   // Anchor-based restore should allow for earlier restoration.
@@ -245,7 +246,7 @@ bool PaintLayerScrollableArea::ApplyPendingHistoryRestoreScrollOffset() {
     SetScrollOffset(pending_view_state_->scroll_offset_, kProgrammaticScroll);
   }
 
-  return true;
+  pending_view_state_.reset();
 }
 
 void PaintLayerScrollableArea::Trace(blink::Visitor* visitor) {
@@ -514,7 +515,7 @@ void PaintLayerScrollableArea::UpdateScrollOffset(
   // should be impacted by a scroll).
   if (!frame_view->IsInPerformLayout()) {
     if (!Layer()->IsRootLayer()) {
-      Layer()->SetNeedsCompositingInputsUpdate();
+      Layer()->SetNeedsCompositingInputsUpdate(false);
       Layer()->ClearClipRects();
     }
 
@@ -778,7 +779,7 @@ void PaintLayerScrollableArea::ContentsResized() {
   ScrollableArea::ContentsResized();
   // Need to update the bounds of the scroll property.
   GetLayoutBox()->SetNeedsPaintPropertyUpdate();
-  Layer()->SetNeedsCompositingInputsUpdate();
+  Layer()->SetNeedsCompositingInputsUpdate(false);
 }
 
 IntPoint PaintLayerScrollableArea::LastKnownMousePosition() const {
@@ -1100,7 +1101,9 @@ void PaintLayerScrollableArea::UpdateAfterLayout() {
   } else if (!HasScrollbar() && resizer_will_change) {
     Layer()->DirtyStackingContextZOrderLists();
   }
-
+  // The snap container data will be updated at the end of the layout update. If
+  // the data changes, then this will try to re-snap.
+  SetSnapContainerDataNeedsUpdate(true);
   {
     // Hits in
     // compositing/overflow/automatically-opt-into-composited-scrolling-after-style-change.html.
@@ -1178,8 +1181,7 @@ void PaintLayerScrollableArea::DidChangeGlobalRootScroller() {
   // Recalculate the snap container data since the scrolling behaviour for this
   // layout box changed (i.e. it either became the layout viewport or it
   // is no longer the layout viewport).
-  GetLayoutBox()->GetDocument().GetSnapCoordinator().UpdateSnapContainerData(
-      *GetLayoutBox());
+  SetSnapContainerDataNeedsUpdate(true);
 }
 
 bool PaintLayerScrollableArea::ShouldPerformScrollAnchoring() const {
@@ -1758,6 +1760,23 @@ bool PaintLayerScrollableArea::SetTargetSnapAreaElementIds(
   return false;
 }
 
+bool PaintLayerScrollableArea::SnapContainerDataNeedsUpdate() const {
+  return RareData() ? RareData()->snap_container_data_needs_update_ : false;
+}
+
+void PaintLayerScrollableArea::SetSnapContainerDataNeedsUpdate(
+    bool needs_update) {
+  EnsureRareData().snap_container_data_needs_update_ = needs_update;
+}
+
+bool PaintLayerScrollableArea::NeedsResnap() const {
+  return RareData() ? RareData()->needs_resnap_ : false;
+}
+
+void PaintLayerScrollableArea::SetNeedsResnap(bool needs_resnap) {
+  EnsureRareData().needs_resnap_ = needs_resnap;
+}
+
 base::Optional<FloatPoint>
 PaintLayerScrollableArea::GetSnapPositionAndSetTarget(
     const cc::SnapSelectionStrategy& strategy) {
@@ -2013,7 +2032,7 @@ void PaintLayerScrollableArea::InvalidateAllStickyConstraints() {
     for (PaintLayer* sticky_layer : d->sticky_constraints_map_.Keys()) {
       if (sticky_layer->GetLayoutObject().StyleRef().GetPosition() ==
           EPosition::kSticky) {
-        sticky_layer->SetNeedsCompositingInputsUpdate();
+        sticky_layer->SetNeedsCompositingInputsUpdate(false);
         sticky_layer->GetLayoutObject().SetNeedsPaintPropertyUpdate();
       }
     }
@@ -2028,7 +2047,7 @@ void PaintLayerScrollableArea::InvalidateStickyConstraintsFor(
     d->sticky_constraints_map_.erase(layer);
     if (needs_compositing_update &&
         layer->GetLayoutObject().StyleRef().HasStickyConstrainedPosition()) {
-      layer->SetNeedsCompositingInputsUpdate();
+      layer->SetNeedsCompositingInputsUpdate(false);
       layer->GetLayoutObject().SetNeedsPaintPropertyUpdate();
     }
   }
@@ -2340,7 +2359,7 @@ void PaintLayerScrollableArea::UpdateCompositingLayersAfterScroll() {
       }
     }
   } else {
-    Layer()->SetNeedsCompositingInputsUpdate();
+    Layer()->SetNeedsCompositingInputsUpdate(false);
   }
 }
 
@@ -2603,7 +2622,7 @@ Scrollbar* PaintLayerScrollableArea::ScrollbarManager::CreateScrollbar(
           style_source.StyleRef().EffectiveAppearance());
     }
     Element* style_source_element = nullptr;
-    if (RuntimeEnabledFeatures::FormControlsRefreshEnabled()) {
+    if (::features::IsFormControlsRefreshEnabled()) {
       style_source_element = DynamicTo<Element>(style_source.GetNode());
     }
     scrollbar = MakeGarbageCollected<Scrollbar>(
@@ -2929,6 +2948,8 @@ void PaintLayerScrollableArea::InvalidatePaintOfScrollControlsIfNeeded(
       box_geometry_has_been_invalidated, context));
 
   IntRect scroll_corner_and_resizer_visual_rect = ScrollCornerAndResizerRect();
+  scroll_corner_and_resizer_visual_rect.MoveBy(
+      RoundedIntPoint(box.FirstFragment().PaintOffset()));
   if (ScrollControlNeedsPaintInvalidation(
           scroll_corner_and_resizer_visual_rect,
           scroll_corner_and_resizer_visual_rect_,
@@ -3083,10 +3104,7 @@ bool PaintLayerScrollableArea::ScrollingBackgroundDisplayItemClient::
 
 IntRect PaintLayerScrollableArea::ScrollCornerDisplayItemClient::VisualRect()
     const {
-  IntRect rect = scrollable_area_->ScrollCornerAndResizerRect();
-  rect.MoveBy(RoundedIntPoint(
-      scrollable_area_->GetLayoutBox()->FirstFragment().PaintOffset()));
-  return rect;
+  return scrollable_area_->scroll_corner_and_resizer_visual_rect_;
 }
 
 String PaintLayerScrollableArea::ScrollCornerDisplayItemClient::DebugName()

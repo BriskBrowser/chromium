@@ -31,6 +31,7 @@
 #include "media/gpu/vp8_decoder.h"
 #include "media/gpu/vp9_decoder.h"
 #include "media/video/video_decode_accelerator.h"
+#include "ui/gfx/native_pixmap_handle.h"
 #include "ui/gl/gl_fence_egl.h"
 
 namespace media {
@@ -160,15 +161,8 @@ class MEDIA_GPU_EXPORT V4L2SliceVideoDecodeAccelerator
   // Recycle V4L2 output buffer with |index|. Used as surface release callback.
   void ReuseOutputBuffer(V4L2ReadableBufferRef buffer);
 
-  // Queue a |dec_surface| to device for decoding.
-  void Enqueue(scoped_refptr<V4L2DecodeSurface> dec_surface);
-
   // Dequeue any V4L2 buffers available and process.
   void Dequeue();
-
-  // V4L2 QBUF helpers.
-  bool EnqueueInputRecord(V4L2DecodeSurface* dec_surface);
-  bool EnqueueOutputRecord(V4L2DecodeSurface* dec_surface);
 
   // Set input and output formats in hardware.
   bool SetupFormats();
@@ -264,13 +258,11 @@ class MEDIA_GPU_EXPORT V4L2SliceVideoDecodeAccelerator
   // via AssignPictureBuffers() on decoder thread.
   void AssignPictureBuffersTask(const std::vector<PictureBuffer>& buffers);
 
-  // Use buffer backed by dmabuf file descriptors in |passed_dmabuf_fds| for the
-  // OutputRecord associated with |picture_buffer_id|, taking ownership of the
-  // file descriptors. |stride| is the number of bytes from one row of pixels
-  // to the next row.
+  // Use buffer backed by |handle| for the OutputRecord associated with
+  // |picture_buffer_id|. |handle| does not need to be valid if we are in
+  // ALLOCATE mode and using an image processor.
   void ImportBufferForPictureTask(int32_t picture_buffer_id,
-                                  std::vector<base::ScopedFD> passed_dmabuf_fds,
-                                  int32_t stride);
+                                  gfx::NativePixmapHandle handle);
 
   // Check that |planes| and |dmabuf_fds| are valid in import mode and call
   // ImportBufferForPictureTask.
@@ -280,11 +272,11 @@ class MEDIA_GPU_EXPORT V4L2SliceVideoDecodeAccelerator
 
   // Create a GLImage for the buffer associated with V4L2 |buffer_index| and
   // for |picture_buffer_id|, backed by dmabuf file descriptors in
-  // |passed_dmabuf_fds|, taking ownership of them.
+  // |dmabuf_fds|, taking ownership of them.
   // The GLImage will be associated |client_texture_id| in gles2 decoder.
   void CreateGLImageFor(size_t buffer_index,
                         int32_t picture_buffer_id,
-                        std::vector<base::ScopedFD> passed_dmabuf_fds,
+                        gfx::NativePixmapHandle handle,
                         GLuint client_texture_id,
                         GLuint texture_id,
                         const gfx::Size& size,
@@ -365,7 +357,6 @@ class MEDIA_GPU_EXPORT V4L2SliceVideoDecodeAccelerator
   // VideoCodecProfiles supported by a v4l2 decoder driver.
   std::vector<VideoCodecProfile> supported_profiles_;
 
-  size_t input_planes_count_;
   size_t output_planes_count_;
 
   // GPU Child thread task runner.

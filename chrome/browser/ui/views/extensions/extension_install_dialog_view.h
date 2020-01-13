@@ -14,7 +14,6 @@
 #include "chrome/browser/extensions/extension_install_prompt.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/controls/button/button.h"
-#include "ui/views/controls/link_listener.h"
 #include "ui/views/view.h"
 
 class Profile;
@@ -23,15 +22,10 @@ namespace content {
 class PageNavigator;
 }
 
-namespace views {
-class Link;
-}
-
 // Modal dialog that shows when the user attempts to install an extension. Also
 // shown if the extension is already installed but needs additional permissions.
 // Not a normal "bubble" despite being a subclass of BubbleDialogDelegateView.
-class ExtensionInstallDialogView : public views::BubbleDialogDelegateView,
-                                   public views::LinkListener {
+class ExtensionInstallDialogView : public views::BubbleDialogDelegateView {
  public:
   // The views::View::id of the ratings section in the dialog.
   static const int kRatingsViewId = 1;
@@ -59,7 +53,6 @@ class ExtensionInstallDialogView : public views::BubbleDialogDelegateView,
   void AddedToWidget() override;
   bool Cancel() override;
   bool Accept() override;
-  int GetDialogButtons() const override;
   bool IsDialogButtonEnabled(ui::DialogButton button) const override;
   bool ShouldShowCloseButton() const override;
 
@@ -68,8 +61,7 @@ class ExtensionInstallDialogView : public views::BubbleDialogDelegateView,
   base::string16 GetAccessibleWindowTitle() const override;
   ui::ModalType GetModalType() const override;
 
-  // views::LinkListener:
-  void LinkClicked(views::Link* source, int event_flags) override;
+  void LinkClicked();
 
   // Creates the contents area that contains permissions and other extension
   // info.

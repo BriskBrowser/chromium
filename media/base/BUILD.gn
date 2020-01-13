@@ -153,6 +153,8 @@ jumbo_source_set("base") {
     "flinging_controller.h",
     "format_utils.cc",
     "format_utils.h",
+    "frame_rate_estimator.cc",
+    "frame_rate_estimator.h",
     "hdr_metadata.cc",
     "hdr_metadata.h",
     "key_system_names.cc",
@@ -176,16 +178,18 @@ jumbo_source_set("base") {
     "media_export.h",
     "media_log.cc",
     "media_log.h",
-    "media_log_event.h",
     "media_log_properties.cc",
     "media_log_properties.h",
     "media_log_properties_helper.h",
+    "media_log_record.h",
     "media_observer.cc",
     "media_observer.h",
     "media_permission.cc",
     "media_permission.h",
     "media_resource.cc",
     "media_resource.h",
+    "media_serializers.h",
+    "media_serializers_base.h",
     "media_status.cc",
     "media_status.h",
     "media_status_observer.h",
@@ -522,8 +526,10 @@ source_set("unit_tests") {
     "fake_demuxer_stream_unittest.cc",
     "fallback_video_decoder_unittest.cc",
     "feedback_signal_accumulator_unittest.cc",
+    "frame_rate_estimator_unittest.cc",
     "key_systems_unittest.cc",
     "media_log_unittest.cc",
+    "media_serializers_unittest.cc",
     "media_url_demuxer_unittest.cc",
     "mime_util_unittest.cc",
     "moving_average_unittest.cc",
@@ -581,6 +587,14 @@ source_set("unit_tests") {
 
   if (is_linux || is_win) {
     sources += [ "keyboard_event_counter_unittest.cc" ]
+  }
+  if (is_win) {
+    sources += [ "win/dxgi_device_scope_handle_unittest.cc" ]
+    deps += [ "//media/base/win:media_foundation_util" ]
+    libs = [
+      "d3d11.lib",
+      "mfplat.lib",
+    ]
   }
 }
 

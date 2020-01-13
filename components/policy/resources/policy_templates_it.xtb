@@ -237,13 +237,6 @@ Se questa norma non viene impostata, verrà applicato il comportamento predefini
           Questo criterio consente di fornire un valore di riserva per i criteri più specifici <ph name="IDLE_ACTION_AC_POLICY_NAME" /> e <ph name="IDLE_ACTION_BATTERY_POLICY_NAME" />. Se questo criterio viene impostato, il suo valore viene utilizzato se non viene impostato il rispettivo criterio più specifico.
 
           Se questo criterio non viene impostato, il comportamento dei criteri più specifici rimane invariato.</translation>
-<translation id="1383493480903114193">Questa norma forza l'esecuzione del codice di networking nel processo del browser.
-
-      Questa norma è disattivata per impostazione predefinita e, se attivata, rende gli utenti vulnerabili ai problemi di sicurezza dopo che il processo di networking viene limitato tramite sandbox.
-
-      Questa norma è pensata per offrire alle aziende la possibilità di migrare a software di terze parti che non dipendono dalla combinazione delle API di networking. I server proxy sono consigliati negli LSP e nelle patching API di Win32.
-
-      Se questa norma non è impostata, il codice di networking potrebbe essere eseguito al di fuori del processo di browser, a seconda delle prove sul campo dell'esperimento NetworkService.</translation>
 <translation id="1384459581748403878">Riferimento: <ph name="REFERENCE_URL" /></translation>
 <translation id="138847842893090358">Indica lo stato di aggiornamento del sistema operativo</translation>
 <translation id="1393485621820363363">Stampanti aziendali associate ai dispositivi attive</translation>
@@ -1029,6 +1022,14 @@ Questa norma viene rispettata soltanto se la norma "DefaultSearchProviderEnabled
           Il valore deve essere un array di dizionari JSON sotto forma di stringa. Ogni dizionario deve avere il formato <ph name="AUTO_SELECT_CERTIFICATE_FOR_URLS_EXAMPLE" />, dove <ph name="URL_PATTERN_PLACEHOLDER" /> rappresenta un pattern di impostazioni contenuti. <ph name="FILTER_PLACEHOLDER" /> limita la gamma di certificati client che il browser può selezionare automaticamente. Indipendentemente dal filtro, saranno selezionati solo i certificati che soddisfano la richiesta di certificato del server. Ad esempio, se <ph name="FILTER_PLACEHOLDER" /> ha il formato <ph name="AUTO_SELECT_CERTIFICATE_FOR_URLS_FILTER_EXAMPLE" />, vengono inoltre selezionati solo i certificati client emessi da un certificato con valore CommonName uguale a <ph name="ISSUER_CN_PLACEHOLDER" />. Se <ph name="FILTER_PLACEHOLDER" /> contiene una sezione <ph name="ISSUER_STRING_VALUE" /> e una sezione <ph name="SUBJECT_STRING_VALUE" />, per poter essere selezionati, i certificati client devono soddisfare entrambe le condizioni. Se <ph name="FILTER_PLACEHOLDER" /> specifica un'organizzazione ("O"), per poter essere selezionati, i certificati devono avere almeno un'organizzazione corrispondente al valore specificato. Se <ph name="FILTER_PLACEHOLDER" /> specifica un'unità organizzativa ("UO"), per poter essere selezionati, i certificati devono avere almeno un'unità organizzativa corrispondente al valore specificato. Se <ph name="FILTER_PLACEHOLDER" /> è il dizionario vuoto <ph name="EMPTY_DICTIONARY" />, la selezione dei certificati client non viene limitata ulteriormente.
 
           Se questo criterio non è impostato, la selezione automatica non avviene per nessun sito.</translation>
+<translation id="2528659559494311776">Questo criterio controlla una funzionalità di sicurezza nel protocollo TLS 1.3 che protegge le connessioni da attacchi di downgrade. È compatibile con le versioni precedenti e non interesserà le connessioni a server o proxy TLS 1.2 conformi. Tuttavia, un difetto di implementazione nelle versioni precedenti di alcuni proxy che intercettano connessioni TLS li rende incompatibili.
+
+      Se questo criterio è impostato su True o non è impostato, <ph name="PRODUCT_NAME" /> attiverà queste protezioni di sicurezza per tutte le connessioni.
+
+      Se questo criterio è impostato su False, <ph name="PRODUCT_NAME" /> disattiverà queste protezioni di sicurezza per le connessioni autenticate con certificati CA installati a livello locale. Queste protezioni sono sempre attive per le connessioni autenticate con certificati CA considerati pubblicamente attendibili.
+
+      Il valore predefinito di questo criterio è stato modificato in <ph name="PRODUCT_NAME" /> 81 da False a True. Il codice di errore previsto per il problema di connessione dei proxy interessati è ERR_TLS13_DOWNGRADE_DETECTED. Gli amministratori a cui occorre più tempo per eseguire l'upgrade dei proxy interessati potrebbero usare questo criterio per disattivare temporaneamente questa funzionalità di sicurezza. Dopo la versione 85, questo criterio verrà rimosso.
+      </translation>
 <translation id="2529659024053332711">Consente di specificare il comportamento all'avvio.
 
           Se viene selezionata l'opzione "Apri la pagina Nuova scheda", all'avvio di <ph name="PRODUCT_NAME" /> verrà sempre aperta la pagina Nuova scheda.
@@ -1565,6 +1566,15 @@ Questa norma viene rispettata soltanto se viene attivata la norma "DefaultSearch
       Se questa impostazione viene disattivata o non viene impostato alcun valore, la Modalità con restrizioni di YouTube non viene imposta da <ph name="PRODUCT_NAME" />. La Modalità con restrizioni potrebbe essere comunque imposta da norme esterne, ad esempio dalle norme di YouTube.</translation>
 <translation id="3428247105888806363">Attiva previsione di rete</translation>
 <translation id="3432863169147125747">Consente di gestire le impostazioni di stampa.</translation>
+<translation id="3434053014926283175">Imposta il pulsante destro come pulsante principale del mouse.
+
+          Se questo criterio viene attivato, il pulsante destro del mouse sarà sempre il pulsante principale nella schermata di accesso.
+
+          Se questo criterio viene disattivato, il pulsante sinistro del mouse sarà sempre il pulsante principale nella schermata di accesso.
+
+          Se imposti questo criterio, gli utenti non potranno modificarlo o ignorarlo.
+
+          Se questo criterio non viene impostato, inizialmente il pulsante principale sulla pagina di accesso sarà il pulsante sinistro del mouse, ma l'utente può cambiarlo in qualsiasi momento.</translation>
 <translation id="3434932177006334880">Il nome di questa impostazione era EnableWebBasedSignin nelle versioni di Chrome precedenti alla versione 42 e a partire dalla versione 43 di Chrome tale impostazione non verrà più supportata.
 
       Questa impostazione è utile per i clienti aziendali che utilizzano soluzioni SSO non ancora compatibili con il nuovo flusso di accesso incorporato.
@@ -2371,7 +2381,7 @@ Se questa norma non viene impostata, l'impostazione verrà attivata ma gli utent
 
       Questo rilevamento potrebbe non essere necessario in un ambiente aziendale in cui la configurazione di rete è nota, perché causa del traffico DNS e HTTP all'avvio e a ogni modifica della configurazione DNS.
 
-      Se questo criterio non viene impostato o viene attivato, i controlli dell'intercettazione DNS vengono eseguiti. Se viene disattivato i controlli non vengono eseguiti.</translation>
+      Se questo criterio non viene impostato o viene attivato, i controlli dell'intercettazione DNS vengono eseguiti. Se viene disattivato, i controlli non vengono eseguiti.</translation>
 <translation id="4703402283970867140">Attiva il modello di oscuramento smart per ritardare l'oscuramento dello schermo</translation>
 <translation id="4722122254122249791">Attiva isolamento sito per origini specificate</translation>
 <translation id="4722399051042571387">Se questa norma viene impostata su false, gli utenti non potranno impostare PIN non sicuri e facili da intuire.
@@ -3394,11 +3404,11 @@ Questa norma viene rispettata soltanto se la norma "DefaultSearchProviderEnabled
 <translation id="6473623140202114570">Configura l'elenco di domini sui quali Navigazione sicura non attiverà avvisi.</translation>
 <translation id="6487780893361255867">Consente di usare l'implementazione <ph name="CORS" /> legacy anziché la nuova implementazione <ph name="CORS" />.
 
-      Se questo criterio viene impostato su True, viene usata l'implementazione legacy, che dovrebbe essere compatibile con le versioni precedenti.
+      Se questo criterio viene impostato su true, viene usata l'implementazione legacy, che dovrebbe essere compatibile con le versioni precedenti.
 
-      Se questo criterio viene impostato su False o non viene impostato, viene usata la nuova implementazione, che potrebbe causare problemi di compatibilità per le aziende.
+      Se questo criterio viene impostato su false o non viene impostato, viene usata la nuova implementazione, che potrebbe causare problemi di compatibilità per le aziende.
 
-      Questo criterio verrà rimosso dopo un paio di aggiornamenti.
+      Questo criterio verrà rimosso dopo il lancio di un paio di nuove versioni.
 
       Per informazioni dettagliate su <ph name="CORS" />, visita la pagina <ph name="CORS_HELP_URL" />.
 
@@ -4115,21 +4125,6 @@ Se questa norma non viene impostata, verranno utilizzate le dimensioni predefini
       Quando questa norma è impostata, il codice di accesso genitori può essere verificato sul dispositivo dell'utente bambino o ragazzo.
       Quando questa norma non è impostata, non è possibile verificare il codice di accesso genitori sul dispositivo dell'utente bambino o ragazzo.</translation>
 <translation id="7625444193696794922">Consente di specificare il canale di rilascio su cui deve essere bloccato questo dispositivo.</translation>
-<translation id="7625498350540361483">
-      Se il criterio è impostato su true, <ph name="PRODUCT_NAME" /> può raccogliere log eventi WebRTC dai servizi Google (ad es., Google Meet) e caricare i log su Google.
-
-      Se il criterio è impostato su false, <ph name="PRODUCT_NAME" /> non può raccogliere né caricare questi log.
-
-      Se il criterio non è impostato, fino alla versione M76 inclusa, <ph name="PRODUCT_NAME" /> non può raccogliere né caricare questi log.
-
-      Se il criterio non è impostato, a partire dalla versione M77, <ph name="PRODUCT_NAME" /> può raccogliere o caricare questi log per impostazione predefinita se il profilo del browser è considerato gestito, ovvero se il profilo riceve criteri a livello di cloud o macchina e se non si tratta di un profilo secondario, temporaneo, di accesso o in incognito.
-
-      Questi log contengono informazioni diagnostiche utili per il debug dei problemi relativi a chiamate vocali o videochiamate in Chrome, ad esempio data/ora e dimensioni dei pacchetti RTP inviati e ricevuti, feedback sulla congestione della rete, nonché metadati su tempo e qualità dei frame audio e video. Questi log non contengono l'audio o i video delle chiamate.
-
-      Questa raccolta di dati da parte di Chrome può essere attivata soltanto dai servizi web di Google, ad esempio Google Hangouts o Google Meet.
-
-      Google potrebbe associare questi log tramite un ID sessione ad altri log raccolti dal servizio Google stesso al fine di facilitare il debug.
-      </translation>
 <translation id="7632724434767231364">Nome della libreria GSSAPI</translation>
 <translation id="7635471475589566552">Consente di configurare in <ph name="PRODUCT_NAME" /> le impostazioni della lingua e di impedirne la modifica agli utenti. Se attivi questa impostazione, <ph name="PRODUCT_NAME" /> utilizzerà le impostazioni della lingua specificate. Se la lingua configurata non è supportata, verrà utilizzata la lingua "en-US". Se questa impostazione viene disattivata o non viene impostata, <ph name="PRODUCT_NAME" /> utilizzerà la lingua preferita specificata dall'utente (se configurata), quella del sistema o la lingua di riserva "en-US".</translation>
 <translation id="7643883929273267746">Limita gli account visibili in <ph name="PRODUCT_NAME" /></translation>
@@ -4427,6 +4422,7 @@ Se la norma non viene configurata, la modalità ad alto contrasto viene inizialm
           Se imposti questo criterio, gli utenti non potranno modificarlo o ignorarlo.
 
           Se questo criterio non viene impostato, inizialmente l'evidenziazione del cursore è disattivata, ma l'utente può attivarla in qualsiasi momento.</translation>
+<translation id="8171924760436219650">Imposta il pulsante destro come pulsante principale del mouse nella schermata di accesso</translation>
 <translation id="8172676363520748127">Se la norma è attivata, non è possibile acquisire screenshot utilizzando scorciatoie da tastiera o API di estensioni.
 
       Se la norma è disattivata o non è specificata, è possibile acquisire screenshot.</translation>

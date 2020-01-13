@@ -237,7 +237,7 @@ CompositorAnimations::CheckCanStartEffectOnCompositor(
         case CSSPropertyID::kTranslate:
         case CSSPropertyID::kTransform:
           if (keyframe->GetCompositorKeyframeValue() &&
-              ToCompositorKeyframeTransform(
+              To<CompositorKeyframeTransform>(
                   keyframe->GetCompositorKeyframeValue())
                   ->GetTransformOperations()
                   .DependsOnBoxSize()) {
@@ -246,7 +246,7 @@ CompositorAnimations::CheckCanStartEffectOnCompositor(
           break;
         case CSSPropertyID::kFilter:
           if (keyframe->GetCompositorKeyframeValue() &&
-              ToCompositorKeyframeFilterOperations(
+              To<CompositorKeyframeFilterOperations>(
                   keyframe->GetCompositorKeyframeValue())
                   ->Operations()
                   .HasFilterThatMovesPixels()) {
@@ -334,7 +334,8 @@ CompositorAnimations::CheckCanStartEffectOnCompositor(
   }
 
   CompositorTiming out;
-  if (!ConvertTimingForCompositor(timing, 0, out, animation_playback_rate)) {
+  if (!ConvertTimingForCompositor(timing, base::TimeDelta(), out,
+                                  animation_playback_rate)) {
     reasons |= kEffectHasUnsupportedTimingParameters;
   }
 
@@ -440,7 +441,7 @@ void CompositorAnimations::StartAnimationOnCompositor(
     const Element& element,
     int group,
     base::Optional<double> start_time,
-    double time_offset,
+    base::TimeDelta time_offset,
     const Timing& timing,
     const Animation* animation,
     CompositorAnimation& compositor_animation,
@@ -490,7 +491,7 @@ void CompositorAnimations::PauseAnimationForTestingOnCompositor(
     const Element& element,
     const Animation& animation,
     int id,
-    double pause_time) {
+    base::TimeDelta pause_time) {
   DCHECK_EQ(CheckCanStartElementOnCompositor(element), kNoFailure);
   CompositorAnimation* compositor_animation =
       animation.GetCompositorAnimation();
@@ -537,7 +538,7 @@ void CompositorAnimations::AttachCompositedLayers(
 
 bool CompositorAnimations::ConvertTimingForCompositor(
     const Timing& timing,
-    double time_offset,
+    base::TimeDelta time_offset,
     CompositorTiming& out,
     double animation_playback_rate) {
   timing.AssertValid();
@@ -559,7 +560,7 @@ bool CompositorAnimations::ConvertTimingForCompositor(
   out.direction = timing.direction;
   // Compositor's time offset is positive for seeking into the animation.
   out.scaled_time_offset =
-      -timing.start_delay / animation_playback_rate + time_offset;
+      -timing.start_delay / animation_playback_rate + time_offset.InSecondsF();
   out.playback_rate = animation_playback_rate;
   out.fill_mode = timing.fill_mode == Timing::FillMode::AUTO
                       ? Timing::FillMode::NONE
@@ -586,7 +587,7 @@ void AddKeyframeToCurve(CompositorFilterAnimationCurve& curve,
   CompositorFilterKeyframe filter_keyframe(
       keyframe->Offset(),
       builder.BuildFilterOperations(
-          ToCompositorKeyframeFilterOperations(value)->Operations()),
+          To<CompositorKeyframeFilterOperations>(value)->Operations()),
       keyframe_timing_function);
   curve.AddKeyframe(filter_keyframe);
 }
@@ -596,7 +597,7 @@ void AddKeyframeToCurve(CompositorFloatAnimationCurve& curve,
                         const CompositorKeyframeValue* value,
                         const TimingFunction& keyframe_timing_function) {
   CompositorFloatKeyframe float_keyframe(
-      keyframe->Offset(), ToCompositorKeyframeDouble(value)->ToDouble(),
+      keyframe->Offset(), To<CompositorKeyframeDouble>(value)->ToDouble(),
       keyframe_timing_function);
   curve.AddKeyframe(float_keyframe);
 }
@@ -606,7 +607,7 @@ void AddKeyframeToCurve(CompositorColorAnimationCurve& curve,
                         const CompositorKeyframeValue* value,
                         const TimingFunction& keyframe_timing_function) {
   CompositorColorKeyframe color_keyframe(
-      keyframe->Offset(), ToCompositorKeyframeColor(value)->ToColor(),
+      keyframe->Offset(), To<CompositorKeyframeColor>(value)->ToColor(),
       keyframe_timing_function);
   curve.AddKeyframe(color_keyframe);
 }
@@ -617,7 +618,7 @@ void AddKeyframeToCurve(CompositorTransformAnimationCurve& curve,
                         const TimingFunction& keyframe_timing_function) {
   CompositorTransformOperations ops;
   ToCompositorTransformOperations(
-      ToCompositorKeyframeTransform(value)->GetTransformOperations(), &ops);
+      To<CompositorKeyframeTransform>(value)->GetTransformOperations(), &ops);
 
   CompositorTransformKeyframe transform_keyframe(
       keyframe->Offset(), std::move(ops), keyframe_timing_function);
@@ -649,7 +650,7 @@ void CompositorAnimations::GetAnimationOnCompositor(
     const Timing& timing,
     int group,
     base::Optional<double> start_time,
-    double time_offset,
+    base::TimeDelta time_offset,
     const KeyframeEffectModelBase& effect,
     Vector<std::unique_ptr<CompositorKeyframeModel>>& keyframe_models,
     double animation_playback_rate) {

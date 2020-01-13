@@ -14,11 +14,9 @@ class DOMException;
 
 size_t GetNDEFMessageSize(const device::mojom::blink::NDEFMessage& message);
 
-device::mojom::blink::NDEFPushTarget StringToNDEFPushTarget(
-    const WTF::String& target);
-
 DOMException* NDEFErrorTypeToDOMException(
-    device::mojom::blink::NDEFErrorType error_type);
+    device::mojom::blink::NDEFErrorType error_type,
+    const String& error_message);
 
 }  // namespace blink
 

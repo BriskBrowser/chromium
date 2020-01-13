@@ -558,40 +558,33 @@ OverviewWindowDragController::CompleteNormalDrag(
       },
       overview_grid)};
 
-  // Attempt to move a window to a different desk.
   if (virtual_desks_bar_enabled_) {
     item_->SetOpacity(original_opacity_);
 
+    // Attempt to move a window to a different desk.
     if (overview_grid->MaybeDropItemOnDeskMiniView(rounded_screen_point,
                                                    item_)) {
       // Window was successfully moved to another desk, and |item_| was
       // removed from the grid. It may never be accessed after this.
       item_ = nullptr;
       overview_session_->PositionWindows(/*animate=*/true);
-      return DragResult::kSuccessfulDragToDesk;
+      return DragResult::kDragToDesk;
     }
   }
 
-  // Attempt to snap a window if SplitView is enabled.
-  DCHECK(item_);
-  if (should_allow_split_view_) {
-    // If the window was dragged around but should not be snapped, move it
-    // back to overview window grid.
-    if (!ShouldUpdateDragIndicatorsOrSnap(location_in_screen) ||
-        snap_position_ == SplitViewController::NONE) {
-      item_->set_should_restack_on_animation_end(true);
-      overview_session_->PositionWindows(/*animate=*/true);
-      return DragResult::kCanceledDragToSnap;
-    }
-
+  // Snap a window if appropriate.
+  if (should_allow_split_view_ && snap_position_ != SplitViewController::NONE &&
+      ShouldUpdateDragIndicatorsOrSnap(location_in_screen)) {
     SnapWindow(snap_position_);
     overview_session_->PositionWindows(/*animate=*/true);
-    return DragResult::kSuccessfulDragToSnap;
+    return DragResult::kSnap;
   }
 
+  // Drop a window into overview because we have not done anything else with it.
+  DCHECK(item_);
   item_->set_should_restack_on_animation_end(true);
   overview_session_->PositionWindows(/*animate=*/true);
-  return DragResult::kNeverDisambiguated;
+  return DragResult::kDropIntoOverview;
 }
 
 void OverviewWindowDragController::UpdateDragIndicatorsAndOverviewGrid(
@@ -607,7 +600,7 @@ void OverviewWindowDragController::UpdateDragIndicatorsAndOverviewGrid(
           /*is_dragging=*/true,
           SplitViewDragIndicators::WindowDraggingState::kFromOverview,
           snap_position_));
-  overview_session_->RearrangeDuringDrag(item_->GetWindow());
+  overview_session_->RearrangeDuringDrag(item_);
 }
 
 aura::Window* OverviewWindowDragController::GetRootWindowBeingDraggedIn()
@@ -718,8 +711,6 @@ void OverviewWindowDragController::SnapWindow(
   DCHECK(!SplitViewController::Get(Shell::GetPrimaryRootWindow())
               ->IsDividerAnimating());
   aura::Window* window = item_->GetWindow();
-  // TODO(crbug.com/970013): Properly implement the multi-display behavior which
-  // involves reparenting |window| to put it on the destination display.
   SplitViewController::Get(GetRootWindowBeingDraggedIn())
       ->SnapWindow(window, snap_position,
                    /*use_divider_spawn_animation=*/true);

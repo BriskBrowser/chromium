@@ -20,7 +20,7 @@
 <link rel="import" href="../../prefs/prefs_behavior.html">
 <link rel="import" href="../device_page/device_page.html">
 <link rel="import" href="../internet_page/internet_page.html">
-<link rel="import" href="../../multidevice_page/multidevice_page.html">
+<link rel="import" href="../multidevice_page/multidevice_page.html">
 
 <dom-module id="os-settings-page">
   <template>
@@ -141,7 +141,7 @@
           </settings-section>
         </template>
         <template is="dom-if" if="[[!isGuestMode_]]" restamp>
-          <settings-section page-title="$i18n{peoplePageTitle}"
+          <settings-section page-title="$i18n{osPeoplePageTitle}"
               section="people">
             <os-settings-people-page prefs="{{prefs}}"
                 page-visibility="[[pageVisibility]]">

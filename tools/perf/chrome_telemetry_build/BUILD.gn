@@ -16,6 +16,7 @@ group("telemetry_chrome_test") {
 
   data_deps = [
     ":telemetry_chrome_test_without_chrome",
+    "//third_party/perfetto/src/trace_processor:trace_processor_shell",
   ]
   data = []
 
@@ -34,6 +35,7 @@ group("telemetry_chrome_test") {
         "//android_webview:system_webview_apk",
         "//android_webview/tools/system_webview_shell:system_webview_shell_apk",
         "//chrome/android:monochrome_public_apk",
+        "//chrome/android:monochrome_public_bundle",
       ]
     }
   } else {

@@ -9,6 +9,7 @@
 #include "ash/public/cpp/presentation_time_recorder.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/screen_util.h"
+#include "ash/shelf/shelf_app_button.h"
 #include "ash/shelf/shelf_focus_cycler.h"
 #include "ash/shelf/shelf_navigation_widget.h"
 #include "ash/shelf/shelf_tooltip_manager.h"
@@ -129,6 +130,58 @@ int GetAppIconEndPadding() {
 }
 
 }  // namespace
+
+////////////////////////////////////////////////////////////////////////////////
+// DragIconDropAnimationDelegate
+
+class ScrollableShelfView::DragIconDropAnimationDelegate
+    : public ui::ImplicitAnimationObserver {
+ public:
+  DragIconDropAnimationDelegate(views::View* original_view,
+                                const gfx::Rect& target_bounds,
+                                std::unique_ptr<DragImageView> proxy_view)
+      : original_view_(original_view),
+        target_bounds_(target_bounds),
+        proxy_view_(std::move(proxy_view)) {}
+  ~DragIconDropAnimationDelegate() override = default;
+
+  DragIconDropAnimationDelegate(const DragIconDropAnimationDelegate&) = delete;
+  DragIconDropAnimationDelegate& operator=(
+      const DragIconDropAnimationDelegate&) = delete;
+
+  void StartAnimation() {
+    ui::ScopedLayerAnimationSettings animation_settings(
+        proxy_view_->layer()->GetAnimator());
+    animation_settings.SetTweenType(gfx::Tween::FAST_OUT_LINEAR_IN);
+    animation_settings.SetPreemptionStrategy(
+        ui::LayerAnimator::IMMEDIATELY_SET_NEW_TARGET);
+    animation_settings.AddObserver(this);
+
+    proxy_view_->layer()->SetBounds(target_bounds_);
+  }
+
+  // ui::ImplicitAnimationObserver:
+  void OnImplicitAnimationsCompleted() override {
+    StopObserving();
+
+    // Destructs the proxy image view and shows the original drag view at the
+    // end of animation.
+    original_view_->layer()->SetOpacity(1.0f);
+    proxy_view_.reset();
+  }
+
+ private:
+  // Original app icon being dragged in ShelfView.
+  views::View* original_view_ = nullptr;
+
+  // The target bounds after icon is dropped in |proxy_view_| parent's
+  // coordinates.
+  gfx::Rect target_bounds_;
+
+  // Placeholder icon representing |original_icon_| that moves with the pointer
+  // while being dragged.
+  std::unique_ptr<DragImageView> proxy_view_;
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 // GradientLayerDelegate
@@ -443,8 +496,6 @@ ScrollableShelfView::~ScrollableShelfView() {
 }
 
 void ScrollableShelfView::Init() {
-  shelf_view_->Init();
-
   // Although there is no animation for ScrollableShelfView, a layer is still
   // needed. Otherwise, the child view without its own layer will be painted on
   // RootView and RootView is beneath |opaque_background_| in ShelfWidget. As a
@@ -479,6 +530,10 @@ void ScrollableShelfView::Init() {
   GetShelf()->tooltip()->set_shelf_tooltip_delegate(this);
 
   set_context_menu_controller(this);
+
+  // Initializes |shelf_view_| after scrollable shelf view's children are
+  // initialized.
+  shelf_view_->Init();
 }
 
 void ScrollableShelfView::OnFocusRingActivationChanged(bool activated) {
@@ -578,15 +633,17 @@ float ScrollableShelfView::CalculateClampedScrollOffset(float scroll) const {
 }
 
 void ScrollableShelfView::StartShelfScrollAnimation(float scroll_distance) {
-  StopObservingImplicitAnimations();
-  during_scroll_animation_ = true;
+  const gfx::Vector2dF scroll_offset_before_update = scroll_offset_;
+  UpdateScrollOffset(scroll_distance);
 
-  // If layout strategy is altered, gradient zone should be updated in Layout().
-  // Otherwise, we have to update the gradient zone explicitly for scroll
-  // animation.
-  if (!UpdateScrollOffset(scroll_distance))
-    MaybeUpdateGradientZone(/*is_left_arrow_changed=*/false,
-                            /*is_right_arrow_changed=*/false);
+  if (scroll_offset_before_update == scroll_offset_)
+    return;
+
+  StopObservingImplicitAnimations();
+
+  during_scroll_animation_ = true;
+  MaybeUpdateGradientZone(/*is_left_arrow_changed=*/false,
+                          /*is_right_arrow_changed=*/false);
 
   ui::ScopedLayerAnimationSettings animation_settings(
       shelf_view_->layer()->GetAnimator());
@@ -671,7 +728,8 @@ void ScrollableShelfView::Layout() {
   gfx::Size arrow_button_group_size(kArrowButtonGroupWidth,
                                     shelf_container_bounds.height());
 
-  // The bounds of |left_arrow_| and |right_arrow_| in the parent coordinates.
+  // The bounds of |left_arrow_| and |right_arrow_| are in the
+  // ScrollableShelfView's local coordinates.
   gfx::Rect left_arrow_bounds;
   gfx::Rect right_arrow_bounds;
 
@@ -718,15 +776,22 @@ void ScrollableShelfView::Layout() {
       (right_arrow_->bounds() != right_arrow_bounds) ||
       (!right_arrow_bounds.IsEmpty() && !right_arrow_->GetVisible());
 
-  // Layout |left_arrow| if it should show.
+  // Layout |left_arrow_| if it should show.
   left_arrow_->SetVisible(!left_arrow_bounds.IsEmpty());
   if (left_arrow_->GetVisible())
     left_arrow_->SetBoundsRect(left_arrow_bounds);
 
-  // Layout |right_arrow| if it should show.
+  // Layout |right_arrow_| if it should show.
   right_arrow_->SetVisible(!right_arrow_bounds.IsEmpty());
   if (right_arrow_->GetVisible())
     right_arrow_->SetBoundsRect(right_arrow_bounds);
+
+  // Layer::Clone(), which may be triggered by screen rotation, does not copy
+  // the mask layer. So we may need to reset the mask layer.
+  if (!layer()->layer_mask_layer()) {
+    DCHECK(!gradient_layer_delegate_->layer()->layer_mask_back_link());
+    layer()->SetMaskLayer(gradient_layer_delegate_->layer());
+  }
 
   if (gradient_layer_delegate_->layer()->bounds() != layer()->bounds())
     gradient_layer_delegate_->layer()->SetBounds(layer()->bounds());
@@ -893,6 +958,11 @@ void ScrollableShelfView::ScrollRectToVisible(const gfx::Rect& rect) {
   ScrollToMainOffset(main_axis_offset_after_scroll, /*animating=*/true);
 }
 
+std::unique_ptr<ui::Layer> ScrollableShelfView::RecreateLayer() {
+  layer()->SetMaskLayer(nullptr);
+  return views::View::RecreateLayer();
+}
+
 const char* ScrollableShelfView::GetClassName() const {
   return "ScrollableShelfView";
 }
@@ -941,7 +1011,9 @@ void ScrollableShelfView::ShowContextMenuForViewImpl(
   shelf_view_->ShowContextMenuForViewImpl(shelf_view_, point, source_type);
 }
 
-void ScrollableShelfView::OnShelfAlignmentChanged(aura::Window* root_window) {
+void ScrollableShelfView::OnShelfAlignmentChanged(
+    aura::Window* root_window,
+    ShelfAlignment old_alignment) {
   const bool is_horizontal_alignment = GetShelf()->IsHorizontalAlignment();
   left_arrow_->set_is_horizontal_alignment(is_horizontal_alignment);
   right_arrow_->set_is_horizontal_alignment(is_horizontal_alignment);
@@ -1026,6 +1098,8 @@ void ScrollableShelfView::CreateDragIconProxyByLocationWithNoAnimation(
   drag_icon_->GetWidget()->SetVisibilityAnimationTransition(
       views::Widget::ANIMATE_NONE);
   drag_icon_->SetWidgetVisible(true);
+  drag_icon_->SetPaintToLayer();
+  drag_icon_->layer()->SetFillsBoundsOpaquely(false);
 }
 
 void ScrollableShelfView::UpdateDragIconProxy(
@@ -1044,10 +1118,47 @@ void ScrollableShelfView::UpdateDragIconProxy(
 }
 
 void ScrollableShelfView::DestroyDragIconProxy() {
-  drag_icon_.reset();
-
   if (page_flip_timer_.IsRunning())
     page_flip_timer_.AbandonAndStop();
+
+  views::View* drag_view = shelf_view_->drag_view();
+
+  const bool should_start_animation =
+      drag_view && !shelf_view_->dragged_off_shelf() && drag_icon_.get();
+  if (!should_start_animation) {
+    drag_icon_.reset();
+    return;
+  }
+
+  // The ideal bounds stored in view model are in |shelf_view_|'s coordinates.
+  views::ViewModel* shelf_view_model = shelf_view_->view_model();
+  const gfx::Rect target_bounds = shelf_view_model->ideal_bounds(
+      shelf_view_model->GetIndexOfView(drag_view));
+  const gfx::Rect mirrored_target_bounds =
+      shelf_view_->GetMirroredRect(target_bounds);
+
+  // No animation is created if the target slot for the drag icon is not on the
+  // current page. This edge case may be triggered by trying to move the icon of
+  // a running app to the area exclusively for pinned apps.
+  gfx::RectF target_bounds_in_local(mirrored_target_bounds);
+  ConvertRectToTarget(shelf_view_, this, &target_bounds_in_local);
+  if (!visible_space_.Contains(gfx::ToEnclosedRect(target_bounds_in_local))) {
+    drag_icon_.reset();
+    drag_view->layer()->SetOpacity(1.0f);
+    return;
+  }
+
+  // Converts the ideal bounds to |drag_icon_|'s coordinates. Notes that
+  // |drag_icon_| and |shelf_view_| are in different widgets.
+  gfx::Point origin_point = mirrored_target_bounds.origin();
+  ConvertPointToScreen(shelf_view_, &origin_point);
+  ConvertPointFromScreen(drag_icon_->parent(), &origin_point);
+
+  drag_icon_drop_animation_delegate_ =
+      std::make_unique<DragIconDropAnimationDelegate>(
+          drag_view, gfx::Rect(origin_point, target_bounds.size()),
+          std::move(drag_icon_));
+  drag_icon_drop_animation_delegate_->StartAnimation();
 }
 
 bool ScrollableShelfView::StartDrag(
@@ -1262,17 +1373,20 @@ bool ScrollableShelfView::ProcessGestureEvent(const ui::GestureEvent& event) {
       return false;
     }
 
-    layout_strategy_ = layout_strategy_before_main_axis_scrolling_;
     const int scroll_velocity = is_horizontal_alignment
                                     ? event.details().velocity_x()
                                     : event.details().velocity_y();
-    float page_scrolling_offset =
-        CalculatePageScrollingOffset(scroll_velocity < 0, layout_strategy_);
-    ScrollToMainOffset((is_horizontal_alignment
-                            ? scroll_offset_before_main_axis_scrolling_.x()
-                            : scroll_offset_before_main_axis_scrolling_.y()) +
-                           page_scrolling_offset,
-                       /*animating=*/true);
+    float page_scrolling_offset = CalculatePageScrollingOffset(
+        scroll_velocity < 0, layout_strategy_before_main_axis_scrolling_);
+
+    // Only starts animation when scroll distance is greater than zero.
+    if (std::fabs(page_scrolling_offset) > 0.f) {
+      ScrollToMainOffset((is_horizontal_alignment
+                              ? scroll_offset_before_main_axis_scrolling_.x()
+                              : scroll_offset_before_main_axis_scrolling_.y()) +
+                             page_scrolling_offset,
+                         /*animating=*/true);
+    }
 
     return true;
   }
@@ -1409,13 +1523,23 @@ void ScrollableShelfView::UpdateGradientZone() {
 
 ScrollableShelfView::FadeZone ScrollableShelfView::CalculateStartGradientZone()
     const {
+  if (!should_show_start_gradient_zone_)
+    return FadeZone();
+
   gfx::Rect zone_rect;
   bool fade_in = false;
   const bool is_horizontal_alignment = GetShelf()->IsHorizontalAlignment();
-  const gfx::Rect left_arrow_bounds = left_arrow_->bounds();
-
-  if (!should_show_start_gradient_zone_)
-    return FadeZone();
+  gfx::Rect left_arrow_bounds;
+  if (left_arrow_->GetVisible()) {
+    left_arrow_bounds = left_arrow_->bounds();
+  } else {
+    // If the arrow button is invisible, the gradient zone is created on
+    // the side of |visible_space_|.
+    left_arrow_bounds = gfx::Rect(
+        is_horizontal_alignment ? GetMirroredRect(visible_space_).x() : 0,
+        is_horizontal_alignment ? 0 : visible_space_.y(), /*width=*/0,
+        /*height=*/0);
+  }
 
   if (is_horizontal_alignment) {
     int gradient_start;
@@ -1447,13 +1571,25 @@ ScrollableShelfView::FadeZone ScrollableShelfView::CalculateStartGradientZone()
 
 ScrollableShelfView::FadeZone ScrollableShelfView::CalculateEndGradientZone()
     const {
+  if (!should_show_end_gradient_zone_)
+    return FadeZone();
+
   gfx::Rect zone_rect;
   bool fade_in = false;
   const bool is_horizontal_alignment = GetShelf()->IsHorizontalAlignment();
-  const gfx::Rect right_arrow_bounds = right_arrow_->bounds();
 
-  if (!should_show_end_gradient_zone_)
-    return FadeZone();
+  gfx::Rect right_arrow_bounds;
+  if (right_arrow_->GetVisible()) {
+    right_arrow_bounds = right_arrow_->bounds();
+  } else {
+    // If the arrow button is invisible, the gradient zone is created on
+    // the side of |visible_space_|.
+    right_arrow_bounds = gfx::Rect(
+        is_horizontal_alignment ? GetMirroredRect(visible_space_).right() : 0,
+        is_horizontal_alignment ? 0 : visible_space_.bottom(),
+        /*width=*/0,
+        /*height=*/0);
+  }
 
   if (is_horizontal_alignment) {
     int gradient_start;
@@ -1490,8 +1626,8 @@ void ScrollableShelfView::UpdateGradientZoneState() {
   }
 
   if (during_scroll_animation_) {
-    should_show_start_gradient_zone_ = ShouldShowLeftArrow();
-    should_show_end_gradient_zone_ = ShouldShowRightArrow();
+    should_show_start_gradient_zone_ = true;
+    should_show_end_gradient_zone_ = true;
     return;
   }
 
@@ -1677,7 +1813,10 @@ void ScrollableShelfView::UpdateAvailableSpace() {
 
   // The hotseat uses |available_space_| to determine where to show its
   // background, so notify it when it is recalculated.
-  GetShelf()->shelf_widget()->hotseat_widget()->UpdateOpaqueBackground();
+  if (HotseatWidget::ShouldShowHotseatBackground()) {
+    GetShelf()->shelf_widget()->hotseat_widget()->SetOpaqueBackground(
+        GetHotseatBackgroundBounds());
+  }
 
   // Paddings are within the shelf view. It makes sure that |shelf_view_|'s
   // bounds are not changed by adding/removing the shelf icon under the same
@@ -1802,7 +1941,15 @@ bool ScrollableShelfView::IsDragIconWithinVisibleSpace() const {
   gfx::Rect visible_space_in_screen = visible_space_;
   views::View::ConvertRectToScreen(this, &visible_space_in_screen);
 
-  return visible_space_in_screen.Contains(drag_icon_->GetBoundsInScreen());
+  const gfx::Rect drag_icon_screen_bounds = drag_icon_->GetBoundsInScreen();
+
+  if (GetShelf()->IsHorizontalAlignment()) {
+    return drag_icon_screen_bounds.x() >= visible_space_in_screen.x() &&
+           drag_icon_screen_bounds.right() <= visible_space_in_screen.right();
+  }
+
+  return drag_icon_screen_bounds.y() >= visible_space_in_screen.y() &&
+         drag_icon_screen_bounds.bottom() <= visible_space_in_screen.bottom();
 }
 
 bool ScrollableShelfView::ShouldDelegateScrollToShelf(
@@ -1827,7 +1974,7 @@ float ScrollableShelfView::CalculateMainAxisScrollDistance() const {
                                              : scroll_offset_.y();
 }
 
-bool ScrollableShelfView::UpdateScrollOffset(float target_offset) {
+void ScrollableShelfView::UpdateScrollOffset(float target_offset) {
   target_offset = CalculateClampedScrollOffset(target_offset);
 
   if (GetShelf()->IsHorizontalAlignment())
@@ -1849,8 +1996,6 @@ bool ScrollableShelfView::UpdateScrollOffset(float target_offset) {
   shelf_container_view_->layer()->SetClipRect(visible_space_);
 
   UpdateTappableIconIndices();
-
-  return strategy_needs_update;
 }
 
 void ScrollableShelfView::UpdateAvailableSpaceAndScroll() {

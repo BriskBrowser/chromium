@@ -9,6 +9,7 @@
 
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
+#include "base/strings/strcat.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
@@ -52,7 +53,6 @@
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/link.h"
-#include "ui/views/controls/link_listener.h"
 #include "ui/views/layout/box_layout.h"
 
 #if !defined(OS_CHROMEOS)
@@ -117,9 +117,11 @@ views::View* AnchorViewForBrowser(const extensions::Extension* extension,
       // anchor to a visible action. Right now this view is most likely not
       // visible, and will fall back on the default case on showing the
       // installed dialog anchored to the general extensions toolbar button.
-      reference_view =
-          browser_view->toolbar_button_provider()->GetToolbarActionViewForId(
-              extension->id());
+      ExtensionsToolbarContainer* const container =
+          browser_view->toolbar_button_provider()
+              ->GetExtensionsToolbarContainer();
+      if (container)
+        reference_view = container->GetViewForId(extension->id());
     } else {
       BrowserActionsContainer* container =
           browser_view->toolbar()->browser_actions();
@@ -286,8 +288,7 @@ base::string16 GetHowToUseDescription(const Extension* extension,
 //    GENERIC        -> The app menu. This case includes pageActions that don't
 //                      specify a default icon.
 class ExtensionInstalledBubbleView : public BubbleSyncPromoDelegate,
-                                     public views::BubbleDialogDelegateView,
-                                     public views::LinkListener {
+                                     public views::BubbleDialogDelegateView {
  public:
   ExtensionInstalledBubbleView(
       BubbleReference reference,
@@ -313,13 +314,9 @@ class ExtensionInstalledBubbleView : public BubbleSyncPromoDelegate,
   void OnEnableSync(const AccountInfo& account_info,
                     bool is_default_promo_account) override;
 
-  // views::LinkListener:
-  void LinkClicked(views::Link* source, int event_flags) override;
+  void LinkClicked();
 
   BubbleReference bubble_reference_;
-
-  // The shortcut to open the manage shortcuts page.
-  views::Link* manage_shortcut_;
 
   Browser* const browser_;
   const scoped_refptr<const extensions::Extension> extension_;
@@ -338,7 +335,6 @@ ExtensionInstalledBubbleView::ExtensionInstalledBubbleView(
                                    ? views::BubbleBorder::TOP_LEFT
                                    : views::BubbleBorder::TOP_RIGHT),
       bubble_reference_(bubble_reference),
-      manage_shortcut_(nullptr),
       browser_(browser),
       extension_(extension),
       icon_(MakeIconFromBitmap(icon)) {
@@ -430,11 +426,11 @@ void ExtensionInstalledBubbleView::Init() {
   }
 
   if (ShouldShowKeybinding(extension_.get(), browser_)) {
-    manage_shortcut_ = new views::Link(
-        l10n_util::GetStringUTF16(IDS_EXTENSION_INSTALLED_MANAGE_SHORTCUTS));
-    manage_shortcut_->set_listener(this);
-    manage_shortcut_->SetUnderline(false);
-    AddChildView(manage_shortcut_);
+    auto* manage_shortcut = AddChildView(std::make_unique<views::Link>(
+        l10n_util::GetStringUTF16(IDS_EXTENSION_INSTALLED_MANAGE_SHORTCUTS)));
+    manage_shortcut->set_callback(base::BindRepeating(
+        &ExtensionInstalledBubbleView::LinkClicked, base::Unretained(this)));
+    manage_shortcut->SetUnderline(false);
   }
 
   if (ShouldShowHowToManage(extension_.get(), browser_)) {
@@ -452,14 +448,10 @@ void ExtensionInstalledBubbleView::OnEnableSync(const AccountInfo& account,
   CloseBubble(BUBBLE_CLOSE_NAVIGATED);
 }
 
-void ExtensionInstalledBubbleView::LinkClicked(views::Link* source,
-                                               int event_flags) {
-  DCHECK_EQ(manage_shortcut_, source);
-
-  std::string configure_url = chrome::kChromeUIExtensionsURL;
-  configure_url += chrome::kExtensionConfigureCommandsSubPage;
-  NavigateParams params(
-      GetSingletonTabNavigateParams(browser_, GURL(configure_url)));
+void ExtensionInstalledBubbleView::LinkClicked() {
+  const GURL kUrl(base::StrCat({chrome::kChromeUIExtensionsURL,
+                                chrome::kExtensionConfigureCommandsSubPage}));
+  NavigateParams params = GetSingletonTabNavigateParams(browser_, kUrl);
   Navigate(&params);
   CloseBubble(BUBBLE_CLOSE_NAVIGATED);
 }

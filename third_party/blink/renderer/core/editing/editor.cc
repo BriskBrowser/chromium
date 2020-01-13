@@ -634,13 +634,13 @@ void Editor::Redo() {
 
 void Editor::SetBaseWritingDirection(WritingDirection direction) {
   Element* focused_element = GetFrame().GetDocument()->FocusedElement();
-  if (IsTextControl(focused_element)) {
+  if (auto* text_control = ToTextControlOrNull(focused_element)) {
     if (direction == WritingDirection::kNatural)
       return;
-    focused_element->setAttribute(
+    text_control->setAttribute(
         html_names::kDirAttr,
         direction == WritingDirection::kLeftToRight ? "ltr" : "rtl");
-    focused_element->DispatchInputEvent();
+    text_control->DispatchInputEvent();
     return;
   }
 
@@ -725,7 +725,8 @@ void Editor::ComputeAndSetTypingStyle(CSSPropertyValueSet* style,
       EditingStyle::kPreserveWritingDirection);
 
   // Handle block styles, substracting these from the typing style.
-  EditingStyle* block_style = typing_style_->ExtractAndRemoveBlockProperties();
+  EditingStyle* block_style =
+      typing_style_->ExtractAndRemoveBlockProperties(GetFrame().GetDocument());
   if (!block_style->IsEmpty()) {
     DCHECK(GetFrame().GetDocument());
     MakeGarbageCollected<ApplyStyleCommand>(*GetFrame().GetDocument(),

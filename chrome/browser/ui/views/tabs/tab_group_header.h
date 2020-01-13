@@ -22,7 +22,7 @@ class View;
 // strip flow and positioned left of the leftmost tab in the group.
 class TabGroupHeader : public TabSlotView {
  public:
-  TabGroupHeader(TabStrip* tab_strip, tab_groups::TabGroupId group);
+  TabGroupHeader(TabStrip* tab_strip, const tab_groups::TabGroupId& group);
   ~TabGroupHeader() override = default;
 
   // TabSlotView:
@@ -43,6 +43,8 @@ class TabGroupHeader : public TabSlotView {
   void RemoveObserverFromWidget(views::Widget* widget);
 
  private:
+  friend class TabGroupEditorBubbleViewDialogBrowserTest;
+
   // Calculate the width for this View.
   int CalculateWidth() const;
 
@@ -60,6 +62,7 @@ class TabGroupHeader : public TabSlotView {
 
     void Opened(views::Widget* bubble_widget);
     bool is_open() const { return is_open_; }
+    views::Widget* widget() const { return widget_; }
 
     // views::WidgetObserver:
     void OnWidgetDestroyed(views::Widget* widget) override;

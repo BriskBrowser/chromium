@@ -19,7 +19,6 @@
 <translation id="1929939181775079593">Chromium не отвечает. Перезапустить сейчас?</translation>
 <translation id="1966382378801805537">Chromium не удалось определить или задать браузер по умолчанию</translation>
 <translation id="2008474315282236005">С устройства будет удален 1 объект. Чтобы восстановить данные позже, войдите в Chromium как <ph name="USER_EMAIL" />.</translation>
-<translation id="2119636228670142020">О &amp;Chromium OS</translation>
 <translation id="2147976119693222405">Не удалось синхронизировать данные. Войдите, чтобы исправить эту ошибку.</translation>
 <translation id="2241627712206172106">Если, кроме вас, компьютером пользуется кто-то ещё, например родные или друзья, они тоже смогут настроить Chromium на свой вкус.</translation>
 <translation id="2347108572062610441">Расширение изменило стартовую страницу Chromium.</translation>
@@ -37,7 +36,6 @@
 <translation id="2770231113462710648">Назначить браузером по умолчанию:</translation>
 <translation id="2799223571221894425">Перезапустить</translation>
 <translation id="2805036593126168338">Не удалось синхронизировать пароли. Войдите, чтобы исправить эту ошибку.</translation>
-<translation id="2838154144102149890">Чтобы выполнить обновление, необходимо остановить работу Chromium. В результате могут быть потеряны несохраненные изменения, внесенные другими пользователями на этом компьютере.</translation>
 <translation id="2847479871509788944">Удалить из Chromium</translation>
 <translation id="2886012850691518054">(Необязательно) Помогите сделать Chromium лучше, автоматически отправляя статистику использования и отчеты об ошибках в Google.</translation>
 <translation id="2910007522516064972">О &amp;Chromium</translation>
@@ -145,7 +143,6 @@
 <translation id="6847869444787758381">Chromium сообщит вам, если возникнет проблема с безопасностью ваших паролей.</translation>
 <translation id="6857782730669500492">Chromium – <ph name="PAGE_TITLE" /></translation>
 <translation id="6863361426438995919">Google Pay (скопирована в Chromium)</translation>
-<translation id="6868056391275687737">Запущены другие экземпляры Chromium. Чтобы выполнить обновление, закройте их.</translation>
 <translation id="6893813176749746474">Chromium был обновлен, однако вы не использовали его в течение последних 30 дней.</translation>
 <translation id="6964305034639999644">Открыть ссылку в режиме инкогнито браузера Chromium</translation>
 <translation id="6990124437352146030">Для этого сайта Chromium запрашивает доступ к микрофону.</translation>
@@ -201,7 +198,6 @@
 <translation id="8697124171261953979">Кроме того, расширение изменило стартовую страницу Chromium и поисковую систему, используемую по умолчанию при вводе запроса в омнибокс.</translation>
 <translation id="8704119203788522458">Ваш персональный Chromium</translation>
 <translation id="8739167630197873875">Вы удаляете файлы cookie при выходе из Chromium. Чтобы продолжить синхронизацию, измените <ph name="COOKIE_SETTINGS_LINK" />.</translation>
-<translation id="8748383401829947534">Закройте все экземпляры Chromium</translation>
 <translation id="8796602469536043152">Для этого сайта Chromium запрашивает доступ к камере и микрофону.</translation>
 <translation id="8803635938069941624">Условия использования Chromium OS</translation>
 <translation id="8821041990367117597">Chromium не удалось синхронизировать данные, поскольку ваши учетные сведения устарели.</translation>

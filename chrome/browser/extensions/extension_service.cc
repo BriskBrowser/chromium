@@ -89,6 +89,7 @@
 #include "extensions/browser/management_policy.h"
 #include "extensions/browser/runtime_data.h"
 #include "extensions/browser/uninstall_reason.h"
+#include "extensions/browser/unloaded_extension_reason.h"
 #include "extensions/browser/update_observer.h"
 #include "extensions/browser/updater/extension_cache.h"
 #include "extensions/browser/updater/extension_downloader.h"
@@ -953,20 +954,13 @@ void ExtensionService::CheckManagementPolicy() {
 
   ExtensionManagement* management =
       ExtensionManagementFactory::GetForBrowserContext(profile());
+
   PermissionsUpdater(profile()).SetDefaultPolicyHostRestrictions(
       management->GetDefaultPolicyBlockedHosts(),
       management->GetDefaultPolicyAllowedHosts());
+
   for (const auto& extension : registry_->enabled_extensions()) {
-    bool uses_default =
-        management->UsesDefaultPolicyHostRestrictions(extension.get());
-    if (uses_default) {
-      PermissionsUpdater(profile()).SetUsesDefaultHostRestrictions(
-          extension.get());
-    } else {
-      PermissionsUpdater(profile()).SetPolicyHostRestrictions(
-          extension.get(), management->GetPolicyBlockedHosts(extension.get()),
-          management->GetPolicyAllowedHosts(extension.get()));
-    }
+    SetPolicySettingsForExtension(extension.get());
   }
 
   // Loop through the disabled extension list, find extensions to re-enable
@@ -1290,6 +1284,15 @@ void ExtensionService::CheckPermissionsIncrease(const Extension* extension,
     std::unique_ptr<const PermissionSet> granted_permissions =
         extension_prefs_->GetGrantedPermissions(extension->id());
     CHECK(granted_permissions.get());
+    // We check the union of both granted permissions and runtime granted
+    // permissions as it is possible for permissions which were withheld during
+    // installation to have never entered the granted set, but to have later
+    // been granted as runtime permissions.
+    std::unique_ptr<const PermissionSet> runtime_granted_permissions =
+        extension_prefs_->GetRuntimeGrantedPermissions(extension->id());
+    std::unique_ptr<const PermissionSet> total_permissions =
+        PermissionSet::CreateUnion(*granted_permissions,
+                                   *runtime_granted_permissions);
 
     // Here, we check if an extension's privileges have increased in a manner
     // that requires the user's approval. This could occur because the browser
@@ -1297,7 +1300,7 @@ void ExtensionService::CheckPermissionsIncrease(const Extension* extension,
     // to a version that requires additional privileges.
     is_privilege_increase =
         PermissionMessageProvider::Get()->IsPrivilegeIncrease(
-            *granted_permissions,
+            *total_permissions,
             extension->permissions_data()->active_permissions(),
             extension->GetType());
 
@@ -1631,6 +1634,19 @@ void ExtensionService::FinishInstallation(
   // was not available.
   if (SharedModuleInfo::IsSharedModule(extension))
     MaybeFinishDelayedInstallations();
+}
+
+void ExtensionService::SetPolicySettingsForExtension(
+    const Extension* extension) {
+  ExtensionManagement* management =
+      ExtensionManagementFactory::GetForBrowserContext(profile());
+  if (management->UsesDefaultPolicyHostRestrictions(extension)) {
+    PermissionsUpdater(profile()).SetUsesDefaultHostRestrictions(extension);
+  } else {
+    PermissionsUpdater(profile()).SetPolicyHostRestrictions(
+        extension, management->GetPolicyBlockedHosts(extension),
+        management->GetPolicyAllowedHosts(extension));
+  }
 }
 
 const Extension* ExtensionService::GetPendingExtensionUpdate(

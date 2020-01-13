@@ -273,12 +273,10 @@ void KeyframeEffect::AddKeyframeModel(
 }
 
 void KeyframeEffect::PauseKeyframeModel(int keyframe_model_id,
-                                        double time_offset) {
-  const base::TimeDelta pause_offset =
-      base::TimeDelta::FromSecondsD(time_offset);
+                                        base::TimeDelta time_offset) {
   for (auto& keyframe_model : keyframe_models_) {
     if (keyframe_model->id() == keyframe_model_id) {
-      keyframe_model->Pause(pause_offset);
+      keyframe_model->Pause(time_offset);
     }
   }
 
@@ -782,6 +780,10 @@ void KeyframeEffect::PushPropertiesTo(KeyframeEffect* keyframe_effect_impl) {
     }
   }
 
+  keyframe_effect_impl->scroll_offset_animation_was_interrupted_ =
+      scroll_offset_animation_was_interrupted_;
+  scroll_offset_animation_was_interrupted_ = false;
+
   // If neither main nor impl have any KeyframeModels, there is nothing further
   // to synchronize.
   if (!has_any_keyframe_model() &&
@@ -803,9 +805,6 @@ void KeyframeEffect::PushPropertiesTo(KeyframeEffect* keyframe_effect_impl) {
     if (current_impl)
       keyframe_model->PushPropertiesTo(current_impl);
   }
-  keyframe_effect_impl->scroll_offset_animation_was_interrupted_ =
-      scroll_offset_animation_was_interrupted_;
-  scroll_offset_animation_was_interrupted_ = false;
 
   keyframe_effect_impl->UpdateTickingState();
 }

@@ -13,6 +13,7 @@ import("//build/config/features.gni")
 import("//build/config/sanitizers/sanitizers.gni")
 import("//build/config/ui.gni")
 import("//build/util/generate_wrapper.gni")
+import("//chrome/browser/media/router/features.gni")
 import("//components/nacl/features.gni")
 import("//device/vr/buildflags/buildflags.gni")
 import("//extensions/buildflags/buildflags.gni")
@@ -211,6 +212,10 @@ group("gn_all") {
     ]
   }
 
+  if (enable_openscreen) {
+    deps += [ "//chrome/browser/media/router:openscreen_unittests" ]
+  }
+
   if (!is_ios && !is_fuchsia) {
     deps += [
       "//chrome/test:telemetry_perf_unittests",
@@ -320,6 +325,7 @@ group("gn_all") {
       "//base/android/linker:chromium_android_linker",
       "//build/android/gyp/test:hello_world",
       "//build/android/stacktrace:java_deobfuscate",
+      "//build/config/android/test/proto:test_build_protos",
       "//chrome/android/webapk/shell_apk:maps_go_webapk",
       "//chrome/android/webapk/shell_apk:webapk",
       "//chrome/android/webapk/shell_apk/prepare_upload_dir:prepare_webapk_shell_upload_dir",

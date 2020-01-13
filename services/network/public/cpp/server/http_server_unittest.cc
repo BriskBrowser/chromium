@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/auto_reset.h"
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/run_loop.h"
@@ -187,7 +188,11 @@ class HttpServerTest : public testing::Test, public HttpServer::Delegate {
     run_loop.Run();
     EXPECT_EQ(net::OK, net_error);
 
-    server_.reset(new HttpServer(std::move(server_socket_), this));
+    server_ = std::make_unique<HttpServer>(std::move(server_socket_), this);
+    // Wait for the HttpServer to start accepting connections. Since this is
+    // done in response to a request sent over a Mojo socket, it happens
+    // asynchronously.
+    base::RunLoop().RunUntilIdle();
   }
 
   void OnConnect(int connection_id) override {
@@ -228,9 +233,11 @@ class HttpServerTest : public testing::Test, public HttpServer::Delegate {
       return;
 
     base::RunLoop run_loop;
-    run_loop_quit_func_ = run_loop.QuitClosure();
+    base::AutoReset<base::RepeatingClosure> run_loop_quit_func(
+        &run_loop_quit_func_, run_loop.QuitClosure());
     run_loop.Run();
-    run_loop_quit_func_.Reset();
+
+    ASSERT_EQ(requests_.size(), count);
   }
 
   void RunUntilConnectionIdClosed(int connection_id) {
@@ -242,9 +249,13 @@ class HttpServerTest : public testing::Test, public HttpServer::Delegate {
     }
 
     base::RunLoop run_loop;
-    run_loop_quit_func_ = run_loop.QuitClosure();
+    base::AutoReset<base::RepeatingClosure> run_loop_quit_func(
+        &run_loop_quit_func_, run_loop.QuitClosure());
     run_loop.Run();
-    run_loop_quit_func_.Reset();
+
+    iter = connection_map_.find(connection_id);
+    ASSERT_TRUE(iter != connection_map_.end());
+    ASSERT_FALSE(iter->second);
   }
 
   HttpServerRequestInfo GetRequest(size_t request_index) {

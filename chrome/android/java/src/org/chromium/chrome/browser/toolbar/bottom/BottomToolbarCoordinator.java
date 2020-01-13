@@ -10,12 +10,13 @@ import android.view.View.OnLongClickListener;
 import android.view.ViewGroup;
 import android.view.ViewStub;
 
-import org.chromium.base.ObservableSupplier;
+import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ActivityTabProvider;
 import org.chromium.chrome.browser.ThemeColorProvider;
 import org.chromium.chrome.browser.compositor.layouts.OverviewModeBehavior;
 import org.chromium.chrome.browser.compositor.layouts.OverviewModeBehavior.OverviewModeObserver;
+import org.chromium.chrome.browser.tasks.ReturnToChromeExperimentsUtil;
 import org.chromium.chrome.browser.toolbar.IncognitoStateProvider;
 import org.chromium.chrome.browser.toolbar.MenuButton;
 import org.chromium.chrome.browser.toolbar.TabCountProvider;
@@ -90,15 +91,20 @@ class BottomToolbarCoordinator {
             TabCountProvider tabCountProvider, IncognitoStateProvider incognitoStateProvider,
             ViewGroup topToolbarRoot) {
         mBrowsingModeCoordinator.initializeWithNative(tabSwitcherListener, menuButtonHelper,
-                tabCountProvider, mThemeColorProvider, incognitoStateProvider);
+                tabCountProvider, mThemeColorProvider, incognitoStateProvider,
+                overviewModeBehavior);
         mTabSwitcherModeCoordinator = new TabSwitcherBottomToolbarCoordinator(mTabSwitcherModeStub,
                 topToolbarRoot, incognitoStateProvider, mThemeColorProvider, newTabClickListener,
                 closeTabsClickListener, menuButtonHelper, tabCountProvider);
-        mOverviewModeBehavior = overviewModeBehavior;
-        mOverviewModeObserver = new BottomToolbarAnimationCoordinator(
-                mBrowsingModeCoordinator, mTabSwitcherModeCoordinator);
-        if (mOverviewModeBehavior != null) {
-            mOverviewModeBehavior.addOverviewModeObserver(mOverviewModeObserver);
+        // Do not change bottom bar if StartSurface Single Pane is enabled and HomePage is not
+        // customized.
+        if (!ReturnToChromeExperimentsUtil.shouldShowStartSurfaceAsTheHomePage()) {
+            mOverviewModeBehavior = overviewModeBehavior;
+            mOverviewModeObserver = new BottomToolbarAnimationCoordinator(
+                    mBrowsingModeCoordinator, mTabSwitcherModeCoordinator);
+            if (mOverviewModeBehavior != null) {
+                mOverviewModeBehavior.addOverviewModeObserver(mOverviewModeObserver);
+            }
         }
     }
 

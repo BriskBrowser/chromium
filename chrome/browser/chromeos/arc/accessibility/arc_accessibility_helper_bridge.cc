@@ -12,6 +12,7 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/memory/singleton.h"
+#include "chrome/browser/chromeos/arc/accessibility/geometry_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_list_prefs_factory.h"
 #include "chrome/common/extensions/api/accessibility_private.h"
@@ -35,6 +36,7 @@
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/views/controls/native/native_view_host.h"
 #include "ui/views/widget/widget.h"
 
@@ -57,7 +59,8 @@ void DispatchFocusChange(arc::mojom::AccessibilityNodeInfoData* node_data,
                          Profile* profile) {
   chromeos::AccessibilityManager* accessibility_manager =
       chromeos::AccessibilityManager::Get();
-  if (!accessibility_manager || accessibility_manager->profile() != profile)
+  if (!node_data || !accessibility_manager ||
+      accessibility_manager->profile() != profile)
     return;
 
   exo::WMHelper* wm_helper = exo::WMHelper::GetInstance();
@@ -68,25 +71,9 @@ void DispatchFocusChange(arc::mojom::AccessibilityNodeInfoData* node_data,
   if (!active_window)
     return;
 
-  aura::Window* toplevel_window = active_window->GetToplevelWindow();
-
-  gfx::Rect bounds_in_screen = gfx::ScaleToEnclosingRect(
-      node_data->bounds_in_screen,
-      1.0f / toplevel_window->layer()->device_scale_factor());
-
-  views::Widget* widget = views::Widget::GetWidgetForNativeView(active_window);
-  DCHECK(widget);
-
-  // On Android side, content is rendered without considering height of
-  // caption bar, e.g. Content is rendered at y:0 instead of y:32 where 32 is
-  // height of caption bar. Add back height of caption bar here.
-  if (widget->IsMaximized()) {
-    bounds_in_screen.Offset(
-        0, static_cast<int>(static_cast<float>(widget->non_client_view()
-                                                   ->frame_view()
-                                                   ->GetBoundsForClientView()
-                                                   .y())));
-  }
+  gfx::Rect bounds_in_screen = gfx::ToEnclosingRect(arc::ToChromeBounds(
+      node_data->bounds_in_screen, wm_helper,
+      views::Widget::GetWidgetForNativeView(active_window)));
 
   accessibility_manager->OnViewFocusedInArc(bounds_in_screen);
 }
@@ -341,7 +328,7 @@ void ArcAccessibilityHelperBridge::Shutdown() {
 }
 
 void ArcAccessibilityHelperBridge::OnConnectionReady() {
-  UpdateFilterType();
+  UpdateEnabledFeature();
   UpdateCaptionSettings();
 
   chromeos::AccessibilityManager* accessibility_manager =
@@ -417,21 +404,27 @@ void ArcAccessibilityHelperBridge::HandleFilterTypeAllEvent(
 
     tree_source = GetFromKey(KeyForInputMethod());
   } else {
-    if (event_data->task_id == kNoTaskId)
-      return;
-
     aura::Window* active_window = GetActiveWindow();
     if (!active_window)
       return;
 
-    int32_t task_id = arc::GetWindowTaskId(active_window);
-    if (task_id != event_data->task_id)
-      return;
+    auto task_id = arc::GetWindowTaskId(active_window);
+    if (event_data->task_id != kNoTaskId) {
+      // Event data has task ID. Check task ID.
+      if (task_id != event_data->task_id)
+        return;
+    } else {
+      // Event data does not have task ID. Check window ID instead.
+      auto window_id = exo::GetShellClientAccessibilityId(active_window);
+      if (window_id != event_data->window_id)
+        return;
+    }
 
-    tree_source = GetFromKey(KeyForTaskId(task_id));
+    auto key = KeyForTaskId(task_id);
+    tree_source = GetFromKey(key);
 
     if (!tree_source) {
-      tree_source = CreateFromKey(KeyForTaskId(event_data->task_id));
+      tree_source = CreateFromKey(key);
 
       ui::AXTreeData tree_data;
       tree_source->GetTreeData(&tree_data);
@@ -468,6 +461,13 @@ void ArcAccessibilityHelperBridge::HandleFilterTypeAllEvent(
     }
   } else if (!is_notification_event) {
     UpdateWindowProperties(GetActiveWindow());
+  }
+
+  if (is_focus_highlight_enabled_ &&
+      event_data->event_type ==
+          arc::mojom::AccessibilityEventType::VIEW_FOCUSED) {
+    DispatchFocusChange(
+        tree_source->GetFromId(event_data->source_id)->GetNode(), profile_);
   }
 }
 
@@ -702,7 +702,27 @@ void ArcAccessibilityHelperBridge::OnGetTextLocationDataResult(
   if (!tree_source)
     return;
 
-  tree_source->NotifyGetTextLocationDataResult(data, result_rect);
+  tree_source->NotifyGetTextLocationDataResult(
+      data, OnGetTextLocationDataResultInternal(result_rect));
+}
+
+base::Optional<gfx::Rect>
+ArcAccessibilityHelperBridge::OnGetTextLocationDataResultInternal(
+    const base::Optional<gfx::Rect>& result_rect) const {
+  if (!result_rect)
+    return base::nullopt;
+
+  exo::WMHelper* wm_helper = exo::WMHelper::GetInstance();
+  if (!wm_helper)
+    return base::nullopt;
+
+  aura::Window* active_window = wm_helper->GetActiveWindow();
+  if (!active_window)
+    return base::nullopt;
+
+  gfx::RectF rect_f = arc::ToChromeScale(*result_rect, wm_helper);
+  arc::ScaleDeviceFactor(rect_f, active_window->GetToplevelWindow());
+  return gfx::ToEnclosingRect(rect_f);
 }
 
 void ArcAccessibilityHelperBridge::OnAccessibilityStatusChanged(
@@ -718,7 +738,7 @@ void ArcAccessibilityHelperBridge::OnAccessibilityStatusChanged(
     return;
   }
 
-  UpdateFilterType();
+  UpdateEnabledFeature();
   UpdateWindowProperties(GetActiveWindow());
 
   if (event_details.notification_type ==
@@ -753,7 +773,7 @@ ArcAccessibilityHelperBridge::GetFilterTypeForProfile(Profile* profile) {
   return arc::mojom::AccessibilityFilterType::OFF;
 }
 
-void ArcAccessibilityHelperBridge::UpdateFilterType() {
+void ArcAccessibilityHelperBridge::UpdateEnabledFeature() {
   arc::mojom::AccessibilityFilterType filter_type =
       GetFilterTypeForProfile(profile_);
 
@@ -761,6 +781,10 @@ void ArcAccessibilityHelperBridge::UpdateFilterType() {
       arc_bridge_service_->accessibility_helper(), SetFilter);
   if (instance)
     instance->SetFilter(filter_type);
+
+  is_focus_highlight_enabled_ =
+      filter_type != arc::mojom::AccessibilityFilterType::OFF &&
+      chromeos::AccessibilityManager::Get()->IsFocusHighlightEnabled();
 
   bool add_activation_observer =
       filter_type == arc::mojom::AccessibilityFilterType::ALL;

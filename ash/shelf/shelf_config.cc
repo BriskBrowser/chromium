@@ -61,7 +61,9 @@ ShelfConfig::ShelfConfig()
       shelf_blur_radius_(30),
       mousewheel_scroll_offset_threshold_(20),
       in_app_control_button_height_inset_(4) {
-  UpdateIsDense();
+  // Ensure ShelfConfig observers are notified if |is_dense_| is updated.
+  if (UpdateIsDense())
+    OnShelfConfigUpdated();
 }
 
 ShelfConfig::~ShelfConfig() = default;
@@ -100,16 +102,22 @@ void ShelfConfig::Shutdown() {
 }
 
 void ShelfConfig::OnTabletModeStarted() {
-  UpdateIsDense();
+  // Ensure ShelfConfig observers are notified if |is_dense_| is updated.
+  if (UpdateIsDense())
+    OnShelfConfigUpdated();
 }
 
 void ShelfConfig::OnTabletModeEnded() {
-  UpdateIsDense();
+  // Ensure ShelfConfig observers are notified if |is_dense_| is updated.
+  if (UpdateIsDense())
+    OnShelfConfigUpdated();
 }
 
 void ShelfConfig::OnDisplayMetricsChanged(const display::Display& display,
                                           uint32_t changed_metrics) {
-  UpdateIsDense();
+  // Ensure ShelfConfig observers are notified if |is_dense_| is updated.
+  if (UpdateIsDense())
+    OnShelfConfigUpdated();
 }
 
 void ShelfConfig::OnAppListVisibilityWillChange(bool shown,
@@ -119,14 +127,13 @@ void ShelfConfig::OnAppListVisibilityWillChange(bool shown,
   DCHECK_NE(is_app_list_visible_, shown);
 
   is_app_list_visible_ = shown;
-  OnShelfConfigUpdated();
-}
 
-void ShelfConfig::SetAssistantVisible(bool visible) {
-  if (is_assistant_visible_ == visible)
-    return;
+  // Ensure |is_dense_| is updated since this code path can be triggered
+  // by a tablet mode change before the tablet mode change has propagated to
+  // ShelfConfig. Updating |is_dense_| here will minimize the number of times
+  // OnShelfConfigUpdated() is called during a tablet mode change.
+  UpdateIsDense();
 
-  is_assistant_visible_ = visible;
   OnShelfConfigUpdated();
 }
 
@@ -212,12 +219,11 @@ bool ShelfConfig::is_in_app() const {
   const auto* session = shell->session_controller();
   if (!session)
     return false;
-
   return session->GetSessionState() == session_manager::SessionState::ACTIVE &&
-         (!is_app_list_visible_ || is_assistant_visible_);
+         !is_app_list_visible_;
 }
 
-void ShelfConfig::UpdateIsDense() {
+bool ShelfConfig::UpdateIsDense() {
   const gfx::Rect screen_size =
       display::Screen::GetScreen()->GetPrimaryDisplay().bounds();
 
@@ -227,10 +233,10 @@ void ShelfConfig::UpdateIsDense() {
        (screen_size.width() <= kDenseShelfScreenSizeThreshold ||
         screen_size.height() <= kDenseShelfScreenSizeThreshold));
   if (new_is_dense == is_dense_)
-    return;
+    return false;
 
   is_dense_ = new_is_dense;
-  OnShelfConfigUpdated();
+  return true;
 }
 
 int ShelfConfig::GetShelfSize(bool ignore_in_app_state) const {

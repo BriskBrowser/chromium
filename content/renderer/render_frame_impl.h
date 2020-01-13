@@ -434,6 +434,7 @@ class CONTENT_EXPORT RenderFrameImpl
   // RenderFrame implementation:
   RenderView* GetRenderView() override;
   RenderAccessibility* GetRenderAccessibility() override;
+  std::unique_ptr<AXTreeSnapshotter> CreateAXTreeSnapshotter() override;
   int GetRoutingID() override;
   blink::WebLocalFrame* GetWebFrame() override;
   const WebPreferences& GetWebkitPreferences() override;
@@ -580,6 +581,7 @@ class CONTENT_EXPORT RenderFrameImpl
       mojom::CommitNavigationParamsPtr commit_params,
       bool has_stale_copy_in_cache,
       int error_code,
+      net::ResolveErrorInfo resolve_error_info,
       const base::Optional<std::string>& error_page_content,
       std::unique_ptr<blink::PendingURLLoaderFactoryBundle>
           subresource_loader_factories,
@@ -658,7 +660,6 @@ class CONTENT_EXPORT RenderFrameImpl
   service_manager::InterfaceProvider* GetInterfaceProvider() override;
   blink::AssociatedInterfaceProvider* GetRemoteNavigationAssociatedInterfaces()
       override;
-  void DidAccessInitialDocument() override;
   blink::WebLocalFrame* CreateChildFrame(
       blink::WebLocalFrame* parent,
       blink::WebTreeScopeType scope,
@@ -735,9 +736,6 @@ class CONTENT_EXPORT RenderFrameImpl
   void ForwardResourceTimingToParent(
       const blink::WebResourceTimingInfo& info) override;
   void DispatchLoad() override;
-  void DidBlockNavigation(const blink::WebURL& blocked_url,
-                          const blink::WebURL& initiator_url,
-                          blink::NavigationBlockedReason reason) override;
   void NavigateBackForwardSoon(int offset, bool has_user_gesture) override;
   base::UnguessableToken GetDevToolsFrameToken() override;
   void RenderFallbackContentInParentProcess() override;
@@ -807,9 +805,6 @@ class CONTENT_EXPORT RenderFrameImpl
   void ScrollRectToVisibleInParentFrame(
       const blink::WebRect& rect_to_scroll,
       const blink::WebScrollIntoViewParams& params) override;
-  void BubbleLogicalScrollInParentFrame(
-      blink::WebScrollDirection direction,
-      ui::input_types::ScrollGranularity granularity) override;
   blink::BrowserInterfaceBrokerProxy* GetBrowserInterfaceBroker() override;
 
   // WebFrameSerializerClient implementation:
@@ -1067,9 +1062,9 @@ class CONTENT_EXPORT RenderFrameImpl
   // content/common/*_messages.h for the message that the function is handling.
   void OnBeforeUnload(bool is_reload);
   void OnSwapIn();
-  void OnSwapOut(int proxy_routing_id,
-                 bool is_loading,
-                 const FrameReplicationState& replicated_frame_state);
+  void OnUnload(int proxy_routing_id,
+                bool is_loading,
+                const FrameReplicationState& replicated_frame_state);
   void OnDeleteFrame(FrameDeleteIntention intent);
   void OnStop();
   void OnShowContextMenu(const gfx::Point& location);
@@ -1572,9 +1567,6 @@ class CONTENT_EXPORT RenderFrameImpl
 
   // Only used when PerNavigationMojoInterface is enabled.
   std::unique_ptr<NavigationClient> navigation_client_impl_;
-
-  // Indicates whether |didAccessInitialDocument| was called.
-  bool has_accessed_initial_document_;
 
   // Creates various media clients.
   MediaFactory media_factory_;

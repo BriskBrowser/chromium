@@ -72,7 +72,8 @@ class RulesetManagerTest : public DNRTestBase {
     ASSERT_TRUE(base::CreateDirectory(extension_dir));
     WriteManifestAndRuleset(extension_dir, kJSONRulesetFilepath,
                             kJSONRulesFilename, rules, host_permissions,
-                            has_background_script);
+                            has_background_script,
+                            false /* has_feedback_permission */);
 
     last_loaded_extension_ =
         CreateExtensionLoader()->LoadExtension(extension_dir);
@@ -92,8 +93,7 @@ class RulesetManagerTest : public DNRTestBase {
                   RulesetSource::CreateStatic(*last_loaded_extension_),
                   expected_checksum, &matchers[0]));
 
-    *matcher = std::make_unique<CompositeMatcher>(std::move(matchers),
-                                                  nullptr /* action_tracker */);
+    *matcher = std::make_unique<CompositeMatcher>(std::move(matchers));
   }
 
   void SetIncognitoEnabled(const Extension* extension, bool incognito_enabled) {
@@ -392,7 +392,7 @@ TEST_P(RulesetManagerTest, ExtensionScheme) {
     ASSERT_NO_FATAL_FAILURE(CreateMatcherForRules(
         {rule}, "test extension", &matcher,
         std::vector<std::string>({URLPattern::kAllUrlsPattern}),
-        true /* has_background_script*/));
+        true /* has_background_script */));
     extension_1 = last_loaded_extension();
     manager()->AddRuleset(extension_1->id(), std::move(matcher),
                           URLPatternSet());
@@ -411,7 +411,7 @@ TEST_P(RulesetManagerTest, ExtensionScheme) {
     ASSERT_NO_FATAL_FAILURE(CreateMatcherForRules(
         {rule}, "test extension_2", &matcher,
         std::vector<std::string>({URLPattern::kAllUrlsPattern}),
-        true /* has_background_script*/));
+        true /* has_background_script */));
     extension_2 = last_loaded_extension();
     manager()->AddRuleset(extension_2->id(), std::move(matcher),
                           URLPatternSet());

@@ -42,6 +42,7 @@
 #include "chrome/browser/ui/singleton_tabs.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
+#include "chrome/browser/ui/web_applications/web_app_dialog_utils.h"
 #include "chrome/browser/ui/web_applications/web_app_launch_utils.h"
 #include "chrome/browser/ui/webui/inspect_ui.h"
 #include "chrome/common/content_restriction.h"
@@ -465,7 +466,7 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
       web_app::ReparentWebAppForSecureActiveTab(browser_);
       break;
     case IDC_MOVE_TAB_TO_NEW_WINDOW:
-      MoveTabToNewWindow(browser_);
+      MoveActiveTabToNewWindow(browser_);
       break;
 
 #if defined(OS_CHROMEOS)
@@ -639,13 +640,13 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
       break;
     case IDC_CREATE_SHORTCUT:
       base::RecordAction(base::UserMetricsAction("CreateShortcut"));
-      CreateBookmarkAppFromCurrentWebContents(browser_,
-                                              true /* force_shortcut_app */);
+      web_app::CreateWebAppFromCurrentWebContents(
+          browser_, true /* force_shortcut_app */);
       break;
     case IDC_INSTALL_PWA:
       base::RecordAction(base::UserMetricsAction("InstallWebAppFromMenu"));
-      CreateBookmarkAppFromCurrentWebContents(browser_,
-                                              false /* force_shortcut_app */);
+      web_app::CreateWebAppFromCurrentWebContents(
+          browser_, false /* force_shortcut_app */);
       break;
     case IDC_DEV_TOOLS:
       ToggleDevToolsWindow(browser_, DevToolsToggleAction::Show());
@@ -744,7 +745,7 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
       ToggleDistilledView(browser_);
       break;
     case IDC_ROUTE_MEDIA:
-      RouteMedia(browser_);
+      RouteMediaInvokedFromAppMenu(browser_);
       break;
     case IDC_WINDOW_MUTE_SITE:
       MuteSite(browser_);
@@ -1144,7 +1145,7 @@ void BrowserCommandController::UpdateCommandsForTabState() {
   command_updater_.UpdateCommandEnabled(IDC_WINDOW_CLOSE_OTHER_TABS,
                                         CanCloseOtherTabs(browser_));
   command_updater_.UpdateCommandEnabled(IDC_MOVE_TAB_TO_NEW_WINDOW,
-                                        CanMoveTabToNewWindow(browser_));
+                                        CanMoveActiveTabToNewWindow(browser_));
 
   // Page-related commands
   window()->SetStarredState(
@@ -1157,13 +1158,14 @@ void BrowserCommandController::UpdateCommandsForTabState() {
   if (browser_->is_type_devtools())
     command_updater_.UpdateCommandEnabled(IDC_OPEN_FILE, false);
 
-  bool can_create_bookmark_app = CanCreateBookmarkApp(browser_);
-  command_updater_.UpdateCommandEnabled(IDC_INSTALL_PWA,
-                                        can_create_bookmark_app);
+  bool can_create_web_app = web_app::CanCreateWebApp(browser_);
+  command_updater_.UpdateCommandEnabled(IDC_INSTALL_PWA, can_create_web_app);
   command_updater_.UpdateCommandEnabled(IDC_CREATE_SHORTCUT,
-                                        can_create_bookmark_app);
+                                        can_create_web_app);
+  // Note that additional logic in AppMenuModel::Build() controls the presence
+  // of this command.
   command_updater_.UpdateCommandEnabled(IDC_OPEN_IN_PWA_WINDOW,
-                                        can_create_bookmark_app);
+                                        web_app::CanPopOutWebApp(profile()));
 
   command_updater_.UpdateCommandEnabled(
       IDC_TOGGLE_REQUEST_TABLET_SITE,

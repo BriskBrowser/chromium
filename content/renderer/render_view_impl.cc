@@ -148,6 +148,7 @@
 #include "third_party/icu/source/common/unicode/uchar.h"
 #include "third_party/icu/source/common/unicode/uscript.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/base/ui_base_switches_util.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
@@ -440,6 +441,7 @@ RenderViewImpl::RenderViewImpl(CompositorDependencies* compositor_deps,
     : routing_id_(params.view_id),
       renderer_wide_named_frame_lookup_(
           params.renderer_wide_named_frame_lookup),
+      widgets_never_composited_(params.never_composited),
       compositor_deps_(compositor_deps),
       webkit_preferences_(params.web_preferences),
       session_storage_namespace_id_(params.session_storage_namespace_id) {
@@ -454,9 +456,6 @@ void RenderViewImpl::Initialize(
     RenderWidget::ShowCallback show_callback,
     scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
   DCHECK(RenderThread::IsMainThread());
-  // We have either a main frame or a proxy routing id.
-  DCHECK_NE(params->main_frame_routing_id != MSG_ROUTING_NONE,
-            params->proxy_routing_id != MSG_ROUTING_NONE);
 
   RenderThread::Get()->AddRoute(routing_id_, this);
 
@@ -488,20 +487,6 @@ void RenderViewImpl::Initialize(
     main_render_frame_ = RenderFrameImpl::CreateMainFrame(
         this, compositor_deps, opener_frame, &params, std::move(show_callback));
   } else {
-    // TODO(https://crbug.com/995981): We should not need to create a
-    // RenderWidget for a remote main frame.
-    undead_render_widget_ = RenderWidget::CreateForFrame(
-        params->main_frame_widget_routing_id, compositor_deps,
-        params->visual_properties.display_mode,
-        /*is_undead=*/true, params->never_visible);
-    undead_render_widget_->set_delegate(this);
-    // We intentionally pass in a null webwidget since it is not needed
-    // for remote frames, and we don't have one or a ScreenInfo until we have
-    // a local main frame.
-    undead_render_widget_->InitForMainFrame(std::move(show_callback),
-                                            /*web_frame_widget=*/nullptr,
-                                            /*screen_info=*/nullptr);
-
     RenderFrameProxy::CreateFrameProxy(params->proxy_routing_id, GetRoutingID(),
                                        opener_frame, MSG_ROUTING_NONE,
                                        params->replicated_frame_state,
@@ -1010,9 +995,14 @@ RenderViewImpl* RenderViewImpl::Create(
     RenderWidget::ShowCallback show_callback,
     scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
   DCHECK(params->view_id != MSG_ROUTING_NONE);
-  DCHECK(params->main_frame_widget_routing_id != MSG_ROUTING_NONE);
-  RenderViewImpl* render_view;
+  // Frame and widget routing ids come together.
+  DCHECK_EQ(params->main_frame_routing_id == MSG_ROUTING_NONE,
+            params->main_frame_widget_routing_id == MSG_ROUTING_NONE);
+  // We have either a main frame or a proxy routing id.
+  DCHECK_NE(params->main_frame_routing_id != MSG_ROUTING_NONE,
+            params->proxy_routing_id != MSG_ROUTING_NONE);
 
+  RenderViewImpl* render_view;
   if (g_create_render_view_impl) {
     render_view = g_create_render_view_impl(compositor_deps, *params);
   } else {
@@ -1027,22 +1017,22 @@ RenderViewImpl* RenderViewImpl::Create(
 void RenderViewImpl::Destroy() {
   destroying_ = true;
 
-  // If there is no local main frame, then destroying the WebView will not
-  // detach anything, and the RenderWidget will not be destroyed. So we have
-  // to do it here.
-  bool close_render_widget_here = !main_render_frame_;
-
   webview_->Close();
   // The webview_ is already destroyed by the time we get here, remove any
   // references to it.
   g_view_map.Get().erase(webview_);
   webview_ = nullptr;
 
+  // If there is no local main frame, then destroying the WebView will not
+  // detach anything, and the RenderWidget will not be destroyed. So we have
+  // to do it here. But only if we have previously created a local main frame
+  // and RenderWidget else |undead_render_widget_| is null.
+  //
   // We do this after WebView has closed, though it should not matter. WebView
   // only uses the RenderWidget through WebWidgetClient that it accesses through
   // a main frame. So it should not be able to see this happening when there is
   // no local main frame.
-  if (close_render_widget_here) {
+  if (undead_render_widget_) {
     RenderWidget* closing_widget = undead_render_widget_.get();
     closing_widget->CloseForFrame(std::move(undead_render_widget_));
   }
@@ -1360,7 +1350,7 @@ WebView* RenderViewImpl::CreateView(
   // render view. So we just assume that the new one is not another background
   // page instead of passing on our own value.
   // TODO(vangelis): Can we tell if the new view will be a background page?
-  bool never_visible = false;
+  bool never_composited = false;
 
   // The initial hidden state for the RenderViewImpl here has to match what the
   // browser will eventually decide for the given disposition. Since we have to
@@ -1393,7 +1383,7 @@ WebView* RenderViewImpl::CreateView(
   view_params->replicated_frame_state.name = frame_name_utf8;
   view_params->devtools_main_frame_token = reply->devtools_main_frame_token;
   view_params->hidden = is_background_tab;
-  view_params->never_visible = never_visible;
+  view_params->never_composited = never_composited;
   view_params->visual_properties = reply->visual_properties;
 
   // Unretained() is safe here because our calling function will also call
@@ -1435,7 +1425,7 @@ blink::WebPagePopup* RenderViewImpl::CreatePopup(
       widget_routing_id, opener_render_widget->compositor_deps(),
       blink::mojom::DisplayMode::kUndefined,
       /*hidden=*/false,
-      /*never_visible=*/false, std::move(widget_channel_receiver));
+      /*never_composited=*/false, std::move(widget_channel_receiver));
 
   // The returned WebPagePopup is self-referencing, so the pointer here is not
   // an owning pointer. It is de-referenced by calling Close().
@@ -1840,6 +1830,12 @@ void RenderViewImpl::ApplyPageVisibilityState(
 }
 
 RenderWidget* RenderViewImpl::ReviveUndeadMainFrameRenderWidget() {
+  // There will be no undead RenderWidget until a local main frame has existed
+  // at some point in the past. Returning null signals that a RenderWidget will
+  // need to be created instead.
+  if (!undead_render_widget_)
+    return nullptr;
+
   render_widget_ = std::move(undead_render_widget_);
   render_widget_->SetIsUndead(false);
   return render_widget_.get();
@@ -1849,7 +1845,7 @@ void RenderViewImpl::CloseMainFrameRenderWidget() {
   // There is a WebFrameWidget previously attached by AttachWebFrameWidget().
   DCHECK(render_widget_->GetWebWidget());
 
-  if (destroying_) {
+  if (true || destroying_) {
     // We are inside RenderViewImpl::Destroy() and the main frame is being
     // detached as part of shutdown. So we can destroy the RenderWidget.
 
@@ -1926,6 +1922,11 @@ void RenderViewImpl::OnSetRendererPrefs(
       webview()->MainFrameWidget()->ThemeChanged();
   }
 #endif
+
+  if (features::IsFormControlsRefreshEnabled() &&
+      renderer_prefs.use_custom_colors) {
+    blink::SetFocusRingColor(renderer_prefs.focus_ring_color);
+  }
 
   if (webview() &&
       old_accept_languages != renderer_preferences_.accept_languages) {

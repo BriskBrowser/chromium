@@ -51,11 +51,9 @@
 #include "mojo/public/cpp/system/message_pipe.h"
 #include "ppapi/buildflags/buildflags.h"
 #include "third_party/blink/public/common/feature_policy/feature_policy.h"
-#include "third_party/blink/public/common/frame/blocked_navigation_types.h"
 #include "third_party/blink/public/common/frame/frame_owner_element_type.h"
 #include "third_party/blink/public/common/frame/frame_policy.h"
 #include "third_party/blink/public/common/frame/user_activation_update_type.h"
-#include "third_party/blink/public/common/input/web_scroll_types.h"
 #include "third_party/blink/public/common/media/media_player_action.h"
 #include "third_party/blink/public/common/messaging/message_port_channel.h"
 #include "third_party/blink/public/common/messaging/transferable_message.h"
@@ -64,6 +62,7 @@
 #include "third_party/blink/public/mojom/devtools/console_message.mojom.h"
 #include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom.h"
+#include "third_party/blink/public/mojom/frame/blocked_navigation_types.mojom.h"
 #include "third_party/blink/public/mojom/frame/lifecycle.mojom.h"
 #include "third_party/blink/public/mojom/web_feature/web_feature.mojom.h"
 #include "third_party/blink/public/platform/viewport_intersection_state.h"
@@ -73,7 +72,6 @@
 #include "third_party/blink/public/platform/web_scroll_into_view_params.h"
 #include "third_party/blink/public/web/web_frame_owner_properties.h"
 #include "third_party/blink/public/web/web_tree_scope_type.h"
-#include "ui/events/types/scroll_types.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/ipc/gfx_param_traits.h"
@@ -143,9 +141,6 @@ IPC_ENUM_TRAITS_MAX_VALUE(blink::UserActivationUpdateType,
                           blink::UserActivationUpdateType::kMaxValue)
 IPC_ENUM_TRAITS_MAX_VALUE(blink::MediaPlayerAction::Type,
                           blink::MediaPlayerAction::Type::kMaxValue)
-IPC_ENUM_TRAITS_MIN_MAX_VALUE(blink::WebScrollDirection,
-                              blink::kFirstScrollDirection,
-                              blink::kLastScrollDirection)
 IPC_ENUM_TRAITS_MAX_VALUE(blink::mojom::FeaturePolicyDisposition,
                           blink::mojom::FeaturePolicyDisposition::kMaxValue)
 IPC_ENUM_TRAITS_MAX_VALUE(blink::mojom::FrameVisibility,
@@ -153,8 +148,6 @@ IPC_ENUM_TRAITS_MAX_VALUE(blink::mojom::FrameVisibility,
 IPC_ENUM_TRAITS_MIN_MAX_VALUE(blink::FrameOcclusionState,
                               blink::FrameOcclusionState::kUnknown,
                               blink::FrameOcclusionState::kMaxValue)
-IPC_ENUM_TRAITS_MAX_VALUE(blink::NavigationBlockedReason,
-                          blink::NavigationBlockedReason::kMaxValue)
 IPC_ENUM_TRAITS_MAX_VALUE(blink::mojom::WebFeature,
                           blink::mojom::WebFeature::kMaxValue)
 
@@ -289,6 +282,7 @@ IPC_STRUCT_TRAITS_END()
 IPC_STRUCT_TRAITS_BEGIN(blink::ViewportIntersectionState)
   IPC_STRUCT_TRAITS_MEMBER(viewport_offset)
   IPC_STRUCT_TRAITS_MEMBER(viewport_intersection)
+  IPC_STRUCT_TRAITS_MEMBER(main_frame_document_intersection)
   IPC_STRUCT_TRAITS_MEMBER(compositor_visible_rect)
   IPC_STRUCT_TRAITS_MEMBER(occlusion_state)
 IPC_STRUCT_TRAITS_END()
@@ -877,12 +871,6 @@ IPC_MESSAGE_ROUTED2(FrameMsg_ScrollRectToVisible,
                     gfx::Rect /* rect_to_scroll */,
                     blink::WebScrollIntoViewParams /* properties */)
 
-// Sent to the parent process of a cross-process frame to continue bubbling
-// a logical scroll.
-IPC_MESSAGE_ROUTED2(FrameMsg_BubbleLogicalScroll,
-                    blink::WebScrollDirection /* direction */,
-                    ui::input_types::ScrollGranularity /* granularity */)
-
 // Tells the renderer to perform the given action on the media player location
 // at the given point in the view coordinate space.
 IPC_MESSAGE_ROUTED2(FrameMsg_MediaPlayerActionAt,
@@ -942,11 +930,6 @@ IPC_MESSAGE_ROUTED1(FrameHostMsg_DidFinishLoad,
 
 // Initiates a download based on user actions like 'ALT+click'.
 IPC_MESSAGE_ROUTED1(FrameHostMsg_DownloadUrl, FrameHostMsg_DownloadUrl_Params)
-
-// Notifies that the initial empty document of a view has been accessed.
-// After this, it is no longer safe to show a pending navigation's URL without
-// making a URL spoof possible.
-IPC_MESSAGE_ROUTED0(FrameHostMsg_DidAccessInitialDocument)
 
 // Sent when the RenderFrame or RenderFrameProxy either updates its opener to
 // another frame identified by |opener_routing_id|, or, if |opener_routing_id|
@@ -1138,8 +1121,10 @@ IPC_MESSAGE_ROUTED3(FrameHostMsg_BeforeUnload_ACK,
                     base::TimeTicks /* before_unload_start_time */,
                     base::TimeTicks /* before_unload_end_time */)
 
-// Indicates that the current frame has swapped out, after a SwapOut message.
-IPC_MESSAGE_ROUTED0(FrameHostMsg_SwapOut_ACK)
+// Indicates that the current frame has finished running its unload handler (if
+// one was registered) and has been detached, as a response to
+// UnfreezableFrameMsg_Unload message from the browser process.
+IPC_MESSAGE_ROUTED0(FrameHostMsg_Unload_ACK)
 
 // Tells the browser that a child's visual properties have changed.
 IPC_MESSAGE_ROUTED2(FrameHostMsg_SynchronizeVisualProperties,
@@ -1218,13 +1203,6 @@ IPC_MESSAGE_ROUTED4(FrameHostMsg_DidLoadResourceFromMemoryCache,
                     std::string /* mime type */,
                     content::ResourceType /* resource type */)
 
-// This frame attempted to navigate the main frame from the |initiator_url| to
-// the |blocked_url|, but the navigation was blocked because of |reason|.
-IPC_MESSAGE_ROUTED3(FrameHostMsg_DidBlockNavigation,
-                    GURL /* blocked_url */,
-                    GURL /* initiator_url */,
-                    blink::NavigationBlockedReason /* reason */)
-
 // Sent as a response to FrameMsg_VisualStateRequest.
 // The message is delivered using RenderWidget::QueueMessage.
 IPC_MESSAGE_ROUTED1(FrameHostMsg_VisualStateResponse, uint64_t /* id */)
@@ -1237,10 +1215,6 @@ IPC_MESSAGE_ROUTED1(FrameHostMsg_ForwardResourceTimingToParent,
 // Dispatch a load event for this frame in the iframe element of an
 // out-of-process parent frame.
 IPC_MESSAGE_ROUTED0(FrameHostMsg_DispatchLoad)
-
-// Sent by a frame proxy to the browser when a child frame finishes loading, so
-// that the corresponding RenderFrame can check whether its load has completed.
-IPC_MESSAGE_ROUTED0(FrameHostMsg_CheckCompleted)
 
 // Sent to the browser from a frame proxy to post a message to the frame's
 // active renderer.
@@ -1303,12 +1277,6 @@ IPC_MESSAGE_ROUTED2(FrameHostMsg_WebUISend,
 IPC_MESSAGE_ROUTED2(FrameHostMsg_ScrollRectToVisibleInParentFrame,
                     gfx::Rect /* rect_to_scroll */,
                     blink::WebScrollIntoViewParams /* properties */)
-
-// Sent by a local root to continue bubbling a logical scroll in its parent
-// process.
-IPC_MESSAGE_ROUTED2(FrameHostMsg_BubbleLogicalScrollInParentFrame,
-                    blink::WebScrollDirection /* direction */,
-                    ui::input_types::ScrollGranularity /* granularity */)
 
 // Sent to notify that a frame called |window.focus()|.
 IPC_MESSAGE_ROUTED0(FrameHostMsg_FrameDidCallFocus)

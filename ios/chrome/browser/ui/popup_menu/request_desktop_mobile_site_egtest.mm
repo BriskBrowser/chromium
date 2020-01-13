@@ -32,7 +32,7 @@ const char kDesktopSiteLabel[] = "Desktop";
 
 // Custom timeout used when waiting for a web state after requesting desktop
 // or mobile mode.
-const NSTimeInterval kWaitForUserAgentChangeTimeout = 10.0;
+const NSTimeInterval kWaitForUserAgentChangeTimeout = 15.0;
 
 // Select the button to request desktop site by scrolling the collection.
 // 200 is a reasonable scroll displacement that works for all UI elements, while

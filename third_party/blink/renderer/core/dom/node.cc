@@ -51,6 +51,7 @@
 #include "third_party/blink/renderer/core/dom/events/event_dispatch_forbidden_scope.h"
 #include "third_party/blink/renderer/core/dom/events/event_dispatcher.h"
 #include "third_party/blink/renderer/core/dom/events/event_listener.h"
+#include "third_party/blink/renderer/core/dom/events/event_path.h"
 #include "third_party/blink/renderer/core/dom/flat_tree_node_data.h"
 #include "third_party/blink/renderer/core/dom/flat_tree_traversal.h"
 #include "third_party/blink/renderer/core/dom/get_root_node_options.h"
@@ -2425,6 +2426,10 @@ static void AppendMarkedTree(const String& base_indent,
     indent.Append('\t');
 
     if (const auto* element = DynamicTo<Element>(node)) {
+      if (Element* pseudo = element->GetPseudoElement(kPseudoIdMarker)) {
+        AppendMarkedTree(indent.ToString(), pseudo, marked_node1, marked_label1,
+                         marked_node2, marked_label2, builder);
+      }
       if (Element* pseudo = element->GetPseudoElement(kPseudoIdBefore))
         AppendMarkedTree(indent.ToString(), pseudo, marked_node1, marked_label1,
                          marked_node2, marked_label2, builder);
@@ -2882,6 +2887,8 @@ DispatchEventResult Node::DispatchDOMActivateEvent(int detail,
                     GetDocument().domWindow(), detail);
   event.SetUnderlyingEvent(&underlying_event);
   event.SetComposed(underlying_event.composed());
+  if (!isConnected())
+    event.SetCopyEventPathFromUnderlyingEvent();
   DispatchScopedEvent(event);
 
   // TODO(dtapuska): Dispatching scoped events shouldn't check the return
@@ -2898,13 +2905,6 @@ void Node::DispatchSimulatedClick(Event* underlying_event,
   }
   EventDispatcher::DispatchSimulatedClick(*this, underlying_event,
                                           event_options, scope);
-}
-
-void Node::DispatchInputEvent() {
-  // Legacy 'input' event for forms set value and checked.
-  Event* event = Event::CreateBubble(event_type_names::kInput);
-  event->SetComposed(true);
-  DispatchScopedEvent(*event);
 }
 
 void Node::DefaultEventHandler(Event& event) {
@@ -3144,7 +3144,8 @@ void Node::SetCustomElementState(CustomElementState new_state) {
       break;
 
     case CustomElementState::kCustom:
-      DCHECK_EQ(CustomElementState::kUndefined, old_state);
+      DCHECK(old_state == CustomElementState::kUndefined ||
+             old_state == CustomElementState::kFailed);
       break;
 
     case CustomElementState::kFailed:

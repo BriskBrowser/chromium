@@ -25,6 +25,7 @@
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/crostini/ansible/ansible_management_service.h"
 #include "chrome/browser/chromeos/crostini/crostini_features.h"
+#include "chrome/browser/chromeos/crostini/crostini_installer_types.mojom.h"
 #include "chrome/browser/chromeos/crostini/crostini_manager_factory.h"
 #include "chrome/browser/chromeos/crostini/crostini_pref_names.h"
 #include "chrome/browser/chromeos/crostini/crostini_remover.h"
@@ -2321,7 +2322,8 @@ void CrostiniManager::OnApplyAnsiblePlaybookProgress(
 
   // TODO(okalitova): Add an observer.
   AnsibleManagementService::GetForProfile(profile_)
-      ->OnApplyAnsiblePlaybookProgress(signal.status());
+      ->OnApplyAnsiblePlaybookProgress(signal.status(),
+                                       signal.failure_details());
 }
 
 void CrostiniManager::OnUpgradeContainerProgress(
@@ -2521,6 +2523,12 @@ void CrostiniManager::OnLxdContainerCreated(
     default:
       result = CrostiniResult::UNKNOWN_ERROR;
       break;
+  }
+
+  if (result != CrostiniResult::SUCCESS) {
+    LOG(ERROR) << "Failed to create container. VM: " << signal.vm_name()
+               << " container: " << signal.container_name()
+               << " reason: " << signal.failure_reason();
   }
 
   InvokeAndErasePendingContainerCallbacks(&create_lxd_container_callbacks_,

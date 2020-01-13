@@ -22,6 +22,7 @@ class Profile;
 namespace web_app {
 
 class AppRegistrarObserver;
+class WebAppRegistrar;
 
 enum class ExternalInstallSource;
 
@@ -52,6 +53,10 @@ class AppRegistrar {
       const GURL& install_url) const;
 
   // Returns whether the AppRegistrar has an externally installed app with
+  // |app_id| from any |install_source|.
+  virtual bool HasExternalApp(const AppId& app_id) const;
+
+  // Returns whether the AppRegistrar has an externally installed app with
   // |app_id| from |install_source|.
   virtual bool HasExternalAppWithInstallSource(
       const AppId& app_id,
@@ -77,6 +82,9 @@ class AppRegistrar {
       const AppId& app_id) const = 0;
 
   virtual std::vector<AppId> GetAppIds() const = 0;
+
+  // Safe downcast.
+  virtual WebAppRegistrar* AsWebAppRegistrar() = 0;
 
   // Searches for the first app id in the registry for which the |url| is in
   // scope.

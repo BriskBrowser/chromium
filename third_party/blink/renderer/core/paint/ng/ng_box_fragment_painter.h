@@ -65,7 +65,9 @@ class NGBoxFragmentPainter : public BoxPainterBase {
   BoxPainterBase::FillLayerInfo GetFillLayerInfo(
       const Color&,
       const FillLayer&,
-      BackgroundBleedAvoidance) const override;
+      BackgroundBleedAvoidance,
+      bool is_painting_scrolling_background) const override;
+  bool IsPaintingScrollingBackground(const PaintInfo&) const override;
 
   void PaintTextClipMask(GraphicsContext&,
                          const IntRect& mask_rect,
@@ -83,7 +85,6 @@ class NGBoxFragmentPainter : public BoxPainterBase {
                        NGInlineCursor* descendants = nullptr);
 
   enum MoveTo { kDontSkipChildren, kSkipChildren };
-  bool IsPaintingScrollingBackground(const PaintInfo&);
   bool ShouldPaint(const ScopedPaintState&) const;
 
   void PaintBoxDecorationBackground(const PaintInfo&,
@@ -173,6 +174,12 @@ class NGBoxFragmentPainter : public BoxPainterBase {
           inline_root_offset(inline_root_offset),
           result(result) {}
 
+    // Add |node| to |HitTestResult|. Returns true if the hit-testing should
+    // stop.
+    bool AddNodeToResult(Node* node,
+                         const PhysicalRect& bounds_rect,
+                         const PhysicalOffset& offset) const;
+
     HitTestAction action;
     const HitTestLocation& location;
     // When traversing within an inline formatting context, this member
@@ -209,6 +216,9 @@ class NGBoxFragmentPainter : public BoxPainterBase {
                                const NGPhysicalBoxFragment& fragment,
                                const NGInlineBackwardCursor& cursor,
                                const PhysicalOffset& physical_offset);
+  bool HitTestChildBoxItem(const HitTestContext& hit_test,
+                           const NGFragmentItem& item,
+                           const NGInlineBackwardCursor& cursor);
 
   // Hit tests the given text fragment.
   // @param physical_offset Physical offset of the text fragment in paint layer.

@@ -26,6 +26,7 @@
 #import "ios/chrome/browser/ui/tab_grid/tab_grid_paging.h"
 #import "ios/chrome/browser/ui/tab_grid/tab_grid_transition_handler.h"
 #import "ios/chrome/browser/ui/tab_grid/tab_grid_view_controller.h"
+#include "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/url_loading/url_loading_params.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -68,8 +69,10 @@
 @synthesize incognitoTabModel = _incognitoTabModel;
 
 - (instancetype)initWithWindow:(nullable UIWindow*)window
-    applicationCommandEndpoint:
-        (id<ApplicationCommands>)applicationCommandEndpoint {
+     applicationCommandEndpoint:
+         (id<ApplicationCommands>)applicationCommandEndpoint
+    browsingDataCommandEndpoint:
+        (id<BrowsingDataCommands>)browsingDataCommandEndpoint {
   if ((self = [super initWithWindow:window])) {
     _dispatcher = [[CommandDispatcher alloc] init];
     [_dispatcher startDispatchingToTarget:applicationCommandEndpoint
@@ -80,7 +83,7 @@
     [_dispatcher
         startDispatchingToTarget:applicationCommandEndpoint
                      forProtocol:@protocol(ApplicationSettingsCommands)];
-    [_dispatcher startDispatchingToTarget:applicationCommandEndpoint
+    [_dispatcher startDispatchingToTarget:browsingDataCommandEndpoint
                               forProtocol:@protocol(BrowsingDataCommands)];
   }
   return self;
@@ -149,10 +152,6 @@
 
   self.adaptor = [[TabGridAdaptor alloc] init];
   self.adaptor.tabGridViewController = self.baseViewController;
-  self.adaptor.adaptedDispatcher =
-      static_cast<id<ApplicationCommands, OmniboxFocuser, ToolbarCommands>>(
-          self.dispatcher);
-  self.adaptor.tabGridPager = baseViewController;
 
   self.regularTabsMediator = [[TabGridMediator alloc]
       initWithConsumer:baseViewController.regularTabsConsumer];
@@ -245,8 +244,10 @@
 
 - (UIViewController*)activeViewController {
   if (self.bvcContainer) {
-    DCHECK_EQ(self.bvcContainer,
-              self.baseViewController.presentedViewController);
+    if (!base::FeatureList::IsEnabled(kContainedBVC)) {
+      DCHECK_EQ(self.bvcContainer,
+                self.baseViewController.presentedViewController);
+    }
     DCHECK(self.bvcContainer.currentBVC);
     return self.bvcContainer.currentBVC;
   }
@@ -276,11 +277,20 @@
   // If a BVC is currently being presented, dismiss it.  This will trigger any
   // necessary animations.
   if (self.bvcContainer) {
-    self.bvcContainer.transitioningDelegate = self.transitionHandler;
-    self.bvcContainer = nil;
-    BOOL animated = !self.animationsDisabledForTesting;
-    [self.baseViewController dismissViewControllerAnimated:animated
-                                                completion:nil];
+    if (base::FeatureList::IsEnabled(kContainedBVC)) {
+      [self.baseViewController contentWillAppearAnimated:NO];
+      [self.bvcContainer willMoveToParentViewController:nil];
+      [self.bvcContainer.view removeFromSuperview];
+      [self.bvcContainer removeFromParentViewController];
+      self.bvcContainer = nil;
+      [self.baseViewController contentDidAppear];
+    } else {
+      self.bvcContainer.transitioningDelegate = self.transitionHandler;
+      self.bvcContainer = nil;
+      BOOL animated = !self.animationsDisabledForTesting;
+      [self.baseViewController dismissViewControllerAnimated:animated
+                                                  completion:nil];
+    }
   }
   // Record when the tab switcher is presented.
   base::RecordAction(base::UserMetricsAction("MobileTabGridEntered"));
@@ -289,6 +299,7 @@
 - (void)showTabViewController:(UIViewController*)viewController
                    completion:(ProceduralBlock)completion {
   DCHECK(viewController);
+  [self.adaptor.tabGridViewController contentWillDisappearAnimated:NO];
 
   // Record when the tab switcher is dismissed.
   base::RecordAction(base::UserMetricsAction("MobileTabGridExited"));
@@ -326,9 +337,17 @@
     self.launchMaskView = nil;
   };
 
-  [self.baseViewController presentViewController:self.bvcContainer
-                                        animated:animated
-                                      completion:extendedCompletion];
+  if (base::FeatureList::IsEnabled(kContainedBVC)) {
+    [self.baseViewController addChildViewController:self.bvcContainer];
+    self.bvcContainer.view.frame = self.baseViewController.view.bounds;
+    [self.baseViewController.view addSubview:self.bvcContainer.view];
+    [self.bvcContainer didMoveToParentViewController:self.baseViewController];
+    extendedCompletion();
+  } else {
+    [self.baseViewController presentViewController:self.bvcContainer
+                                          animated:animated
+                                        completion:extendedCompletion];
+  }
 }
 
 #pragma mark - TabPresentationDelegate

@@ -458,13 +458,6 @@ void LocalFrameView::FrameRectsChanged(const IntRect& old_rect) {
     if (frame_->IsMainFrame())
       frame_->GetPage()->GetVisualViewport().MainFrameDidChangeSize();
     GetFrame().Loader().RestoreScrollPositionAndViewState();
-    if (GetScrollableArea()) {
-      if (GetScrollableArea()->ApplyPendingHistoryRestoreScrollOffset()) {
-        if (ScrollingCoordinator* scrolling_coordinator =
-                GetFrame().GetPage()->GetScrollingCoordinator())
-          scrolling_coordinator->FrameViewRootLayerDidChange(this);
-      }
-    }
   }
 }
 
@@ -1844,11 +1837,6 @@ void LocalFrameView::PerformPostLayoutTasks() {
           this->GetScrollingCoordinator()) {
     scrolling_coordinator->NotifyGeometryChanged(this);
   }
-  SnapCoordinator& snap_coordinator =
-      frame_->GetDocument()->GetSnapCoordinator();
-  snap_coordinator.UpdateAllSnapContainerData();
-  if (RuntimeEnabledFeatures::ScrollSnapAfterLayoutEnabled())
-    snap_coordinator.ReSnapAllContainers();
 
   SendResizeEventIfNeeded();
 }
@@ -2034,9 +2022,9 @@ void LocalFrameView::UpdateGeometriesIfNeeded() {
   views.clear();
 }
 
-void LocalFrameView::UpdateAllLifecyclePhases(
+bool LocalFrameView::UpdateAllLifecyclePhases(
     DocumentLifecycle::LifecycleUpdateReason reason) {
-  GetFrame().LocalFrameRoot().View()->UpdateLifecyclePhases(
+  return GetFrame().LocalFrameRoot().View()->UpdateLifecyclePhases(
       DocumentLifecycle::kPaintClean, reason);
 }
 
@@ -2384,6 +2372,8 @@ bool LocalFrameView::RunStyleAndLayoutLifecyclePhases(
   ForAllNonThrottledLocalFrameViews([](LocalFrameView& frame_view) {
     frame_view.PerformScrollAnchoringAdjustments();
   });
+
+  frame_->GetDocument()->PerformScrollSnappingTasks();
 
   EnqueueScrollEvents();
 
@@ -4326,13 +4316,16 @@ String LocalFrameView::MainThreadScrollingReasonsAsText() {
   return String(cc::MainThreadScrollingReason::AsText(reasons).c_str());
 }
 
-bool LocalFrameView::MapToVisualRectInRemoteRootFrame(PhysicalRect& rect) {
+bool LocalFrameView::MapToVisualRectInRemoteRootFrame(
+    PhysicalRect& rect,
+    bool apply_overflow_clip) {
   DCHECK(frame_->IsLocalRoot());
   // This is the top-level frame, so no mapping necessary.
   if (frame_->IsMainFrame())
     return true;
-  bool result = rect.InclusiveIntersect(
-      PhysicalRect(frame_->RemoteViewportIntersection()));
+  bool result = rect.InclusiveIntersect(PhysicalRect(
+      apply_overflow_clip ? frame_->RemoteViewportIntersection()
+                          : frame_->RemoteMainFrameDocumentIntersection()));
   if (result)
     rect.Move(PhysicalOffset(GetFrame().RemoteViewportOffset()));
   return result;
@@ -4429,18 +4422,24 @@ enum LocalFrameRootPurgeSignal {
 void LocalFrameView::OnPurgeMemory() {
   DCHECK(frame_->IsLocalRoot());
 
-  // Only record compositor memory purge signals for frames with accelerated
-  // compositing.
-  if (frame_->GetSettings()->GetAcceleratedCompositingEnabled()) {
-    auto initial_or_multiple = received_compositor_memory_pressure_purge_signal_
-                                   ? LocalFrameRootPurgeSignal::kMultiple
-                                   : LocalFrameRootPurgeSignal::kInitial;
-    UMA_HISTOGRAM_ENUMERATION(
-        "Memory.Experimental.Renderer.LocalFrameRootPurgeSignal",
-        initial_or_multiple, LocalFrameRootPurgeSignal::kSignalCount);
-    if (!received_compositor_memory_pressure_purge_signal_)
-      received_compositor_memory_pressure_purge_signal_ = true;
-  }
+  // Only record memory purge signals for frames with accelerated compositing.
+  if (!frame_->GetSettings()->GetAcceleratedCompositingEnabled())
+    return;
+
+  // Only record memory purge signals when visible (foregrounded).
+  Page* page = frame_->GetPage();
+  if (!page || !page->IsPageVisible())
+    return;
+
+  auto initial_or_multiple =
+      received_foreground_compositor_memory_pressure_purge_signal_
+          ? LocalFrameRootPurgeSignal::kMultiple
+          : LocalFrameRootPurgeSignal::kInitial;
+  UMA_HISTOGRAM_ENUMERATION(
+      "Memory.Experimental.Renderer.LocalFrameRootPurgeSignal",
+      initial_or_multiple, LocalFrameRootPurgeSignal::kSignalCount);
+  if (!received_foreground_compositor_memory_pressure_purge_signal_)
+    received_foreground_compositor_memory_pressure_purge_signal_ = true;
 }
 
 }  // namespace blink

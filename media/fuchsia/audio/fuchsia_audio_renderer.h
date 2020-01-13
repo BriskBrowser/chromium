@@ -37,11 +37,12 @@ class FuchsiaAudioRenderer : public AudioRenderer, public TimeSource {
   void Initialize(DemuxerStream* stream,
                   CdmContext* cdm_context,
                   RendererClient* client,
-                  const PipelineStatusCB& init_cb) final;
+                  PipelineStatusCallback init_cb) final;
   TimeSource* GetTimeSource() final;
   void Flush(base::OnceClosure callback) final;
   void StartPlaying() final;
   void SetVolume(float volume) final;
+  void SetLatencyHint(base::Optional<base::TimeDelta> latency_hint) final;
 
   // TimeSource implementation.
   void StartTicking() final;
@@ -120,7 +121,7 @@ class FuchsiaAudioRenderer : public AudioRenderer, public TimeSource {
   RendererClient* client_ = nullptr;
 
   // Initialize() completion callback.
-  PipelineStatusCB init_cb_;
+  PipelineStatusCallback init_cb_;
 
   std::unique_ptr<DecryptingDemuxerStream> decrypting_demuxer_stream_;
 
@@ -137,8 +138,11 @@ class FuchsiaAudioRenderer : public AudioRenderer, public TimeSource {
   base::TimeDelta min_lead_time_;
   base::TimeDelta max_lead_time_;
 
-  // TimeSource interface is not single-threaded. It's used to guard fields
-  // that area accessed in the TimeSource implementation.
+  // TimeSource interface is not single-threaded. The lock is used to guard
+  // fields that are accessed in the TimeSource implementation. Note that these
+  // fields are updated only on the main thread (which corresponds to the
+  // |thread_checker_|), so on that thread it's safe to assume that the values
+  // don't change even when not holding the lock.
   base::Lock state_lock_;
 
   PlaybackState state_ GUARDED_BY(state_lock_) = PlaybackState::kStopped;

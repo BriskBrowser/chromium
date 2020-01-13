@@ -27,8 +27,8 @@ const char kPpapiSandbox[] = "ppapi";
 const char kUtilitySandbox[] = "utility";
 const char kCdmSandbox[] = "cdm";
 const char kPdfCompositorSandbox[] = "pdf_compositor";
-const char kProfilingSandbox[] = "profiling";
 const char kAudioSandbox[] = "audio";
+const char kSodaSandbox[] = "soda";
 
 #if defined(OS_WIN)
 const char kXrCompositingSandbox[] = "xr_compositing";

@@ -419,6 +419,7 @@
 <translation id="3914732343065571127">ChromeVox пәрмендерінің анықтамасы</translation>
 <translation id="3930383913623796990">Ашық жасыл</translation>
 <translation id="3930498801443296724">Ендірілген дәйексөз</translation>
+<translation id="3935615366277838204">Бас әріп: <ph name="LETTER" /></translation>
 <translation id="3936394396199829062">Ақшыл күлгін</translation>
 <translation id="3941269780691800708">Тінтуірдің астындағы мәтінді дауыстап оқу</translation>
 <translation id="394953087167197343">Қатені көрсету:</translation>
@@ -792,7 +793,6 @@
 <translation id="6459511626086141404">Кәдімгі жайма</translation>
 <translation id="6468049171101508116">"Келесі" түймесі</translation>
 <translation id="646954774886932461">Индекс</translation>
-<translation id="6479792383819319132">Келесі параграф жоқ.</translation>
 <translation id="6493991254603208962">Жарықтық деңгейін төмендету</translation>
 <translation id="6501595918865591267">Көгілдір</translation>
 <translation id="6508059270146105198">Брайль дисплейін беттің төменгі жағына жылжыту</translation>
@@ -815,7 +815,6 @@
 <translation id="6637586476836377253">журнал</translation>
 <translation id="6657128831881431364">Орындалу жолағы</translation>
 <translation id="6659594942844771486">Қойынды</translation>
-<translation id="6675661017770918201">Алдыңғы еже жоқ.</translation>
 <translation id="667999046851023355">Құжат</translation>
 <translation id="6688209025607531203">Модальді емес терезедегі ескерту</translation>
 <translation id="6689672606256159458">Қоңырқай қызғылт</translation>
@@ -844,6 +843,7 @@
 <translation id="6865519907510167493">Орфографиялық қате</translation>
 <translation id="6871161210040114857">Регистр еленбейді.</translation>
 <translation id="6877435256196695200">Келесі график жоқ.</translation>
+<translation id="688976158310523235">Іздеу мәзірі</translation>
 <translation id="6897341342232909480">Солға жылжыту</translation>
 <translation id="6901540140423170855">күні</translation>
 <translation id="6910211073230771657">Жойылды</translation>
@@ -856,6 +856,7 @@
 <translation id="699159175332639490">Іздеу + O + W</translation>
 <translation id="6994042831499278539">Глоссарий анықтамасы</translation>
 <translation id="6996566555547746822">Келесі тізімді өріс</translation>
+<translation id="6997224546856374593">Бас әріптерді оқығанда:</translation>
 <translation id="700202842116345659">Әдебиет жазбасы</translation>
 <translation id="7005146664810010831">URL табылмады</translation>
 <translation id="7010712454773919705">ChromeVox өзгерткіш пернесі</translation>
@@ -936,6 +937,7 @@ Chrome браузерінің мәзірін ашу үшін Alt + F тірке�
 <translation id="744163271241493234">pwded</translation>
 <translation id="7491962110804786152">қойынды</translation>
 <translation id="7492049978501397201">Тілқатысу терезесіне кірдіңіз</translation>
+<translation id="7505149250476994901">Әріп енгізілер алдында, "бас әріп" деп айту</translation>
 <translation id="7518543783849163354">ChromeVox дауыстық кеңестерінің айтылуын тоқтату үшін Control пернесін басыңыз.</translation>
 <translation id="7521682724501952239">ChromeVox бетін сенсорлық экранмен пайдалана аласыз</translation>
 <translation id="7532613204005497612">Маусым</translation>
@@ -1207,6 +1209,7 @@ Chrome браузерінің мәзірін ашу үшін Alt + F тірке�
 <translation id="9065283790526219006">+popup</translation>
 <translation id="9066023754636984703">"Іздеу+A", "J" пернелерін басып, мәліметтерге өтіңіз.</translation>
 <translation id="9067522039955793016">Бетті үзу</translation>
+<translation id="9074824103975499138">ChromeVox мәзірлерінен іздеу</translation>
 <translation id="9077213568694924680">таңдаудан жойылды</translation>
 <translation id="9077305471618729969">Ашық теңіз түстес жасыл</translation>
 <translation id="9082874451376019682">Алдыңғы сырғытпа жоқ.</translation>

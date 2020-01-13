@@ -152,7 +152,7 @@ network::mojom::FetchResponseType CalculateResponseType(
     bool is_allowed_access) {
   // Though file:// is out of web standards, let's roughly follow the step 5 of
   // https://fetch.spec.whatwg.org/#main-fetch.
-  if (is_allowed_access || network::IsNavigationRequestMode(mode) ||
+  if (is_allowed_access || mode == network::mojom::RequestMode::kNavigate ||
       mode == network::mojom::RequestMode::kSameOrigin) {
     return network::mojom::FetchResponseType::kBasic;
   } else if (mode == network::mojom::RequestMode::kNoCors) {
@@ -891,7 +891,7 @@ void FileURLLoaderFactory::Clone(
   receivers_.Add(this, std::move(loader));
 }
 
-void CreateFileURLLoader(
+void CreateFileURLLoaderBypassingSecurityChecks(
     const network::ResourceRequest& request,
     mojo::PendingReceiver<network::mojom::URLLoader> loader,
     mojo::PendingRemote<network::mojom::URLLoaderClient> client,
@@ -908,8 +908,8 @@ void CreateFileURLLoader(
       FROM_HERE,
       base::BindOnce(
           &FileURLLoader::CreateAndStart, base::FilePath(), request,
-          CalculateResponseType(request.mode, /*is_allowed_access=*/false),
-          std::move(loader), std::move(client),
+          network::mojom::FetchResponseType::kBasic, std::move(loader),
+          std::move(client),
           allow_directory_listing ? DirectoryLoadingPolicy::kRespondWithListing
                                   : DirectoryLoadingPolicy::kFail,
           FileAccessPolicy::kUnrestricted, LinkFollowingPolicy::kDoNotFollow,

@@ -137,6 +137,10 @@ PasswordReuseModalWarningDialog::PasswordReuseModalWarningDialog(
       service_(service),
       url_(web_contents->GetLastCommittedURL()),
       password_type_(password_type) {
+  DialogDelegate::set_buttons(
+      password_type_.account_type() == ReusedPasswordAccountType::SAVED_PASSWORD
+          ? ui::DIALOG_BUTTON_OK
+          : ui::DIALOG_BUTTON_OK | ui::DIALOG_BUTTON_CANCEL);
   DialogDelegate::set_button_label(ui::DIALOG_BUTTON_OK,
                                    GetOkButtonLabel(password_type_));
   DialogDelegate::set_button_label(
@@ -148,12 +152,15 @@ PasswordReuseModalWarningDialog::PasswordReuseModalWarningDialog(
     service_->AddObserver(this);
 
   std::vector<size_t> placeholder_offsets;
+
   if (password_type.account_type() ==
       ReusedPasswordAccountType::SAVED_PASSWORD) {
     const base::string16 message_body =
         service_->GetWarningDetailText(password_type, &placeholder_offsets);
-    CreateSavedPasswordReuseModalWarningDialog(message_body,
-                                               placeholder_offsets);
+
+    CreateSavedPasswordReuseModalWarningDialog(
+        message_body, service_->GetPlaceholdersForSavedPasswordWarningText(),
+        placeholder_offsets);
   } else {
     views::Label* message_body_label = CreateMessageBodyLabel(
         service_
@@ -172,6 +179,7 @@ PasswordReuseModalWarningDialog::~PasswordReuseModalWarningDialog() {
 void PasswordReuseModalWarningDialog::
     CreateSavedPasswordReuseModalWarningDialog(
         const base::string16 message_body,
+        std::vector<base::string16> placeholders,
         std::vector<size_t> placeholder_offsets) {
   SetLayoutManager(std::make_unique<BoxLayout>(
       views::BoxLayout::Orientation::kVertical, gfx::Insets(),
@@ -186,17 +194,10 @@ void PasswordReuseModalWarningDialog::
       new views::StyledLabel(message_body, nullptr);
   views::StyledLabel::RangeStyleInfo bold_style;
   bold_style.text_style = STYLE_EMPHASIZED;
-  const std::vector<std::string>& domains =
-      service_->saved_passwords_matching_domains();
-  std::vector<base::string16> converted_domains;
-  for (size_t idx = 0; idx < placeholder_offsets.size() && idx < 3; idx++) {
-    converted_domains.push_back(base::UTF8ToUTF16(domains[idx]));
-  }
   for (size_t idx = 0; idx < placeholder_offsets.size(); idx++) {
     styled_message_body_label->AddStyleRange(
-        gfx::Range(
-            placeholder_offsets[idx],
-            placeholder_offsets[idx] + converted_domains.at(idx).length()),
+        gfx::Range(placeholder_offsets[idx],
+                   placeholder_offsets[idx] + placeholders.at(idx).length()),
         bold_style);
   }
   styled_message_body_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
@@ -257,13 +258,6 @@ gfx::ImageSkia PasswordReuseModalWarningDialog::GetWindowIcon() {
 
 bool PasswordReuseModalWarningDialog::ShouldShowWindowIcon() const {
   return true;
-}
-
-int PasswordReuseModalWarningDialog::GetDialogButtons() const {
-  return password_type_.account_type() ==
-                 ReusedPasswordAccountType::SAVED_PASSWORD
-             ? ui::DIALOG_BUTTON_OK
-             : ui::DIALOG_BUTTON_OK | ui::DIALOG_BUTTON_CANCEL;
 }
 
 bool PasswordReuseModalWarningDialog::Cancel() {

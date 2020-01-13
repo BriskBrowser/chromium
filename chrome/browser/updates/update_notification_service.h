@@ -21,6 +21,12 @@ class UpdateNotificationService : public KeyedService {
   // Try yo schedule an update notification.
   virtual void Schedule(UpdateNotificationInfo data) = 0;
 
+  // Validate the notification is ready to show.
+  virtual bool IsReadyToDisplay() const = 0;
+
+  // Called when the notification is dismissed by user.
+  virtual void OnUserDismiss() = 0;
+
   ~UpdateNotificationService() override = default;
 
  protected:

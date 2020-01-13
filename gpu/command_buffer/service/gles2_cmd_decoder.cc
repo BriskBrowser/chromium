@@ -95,7 +95,6 @@
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/gpu_fence.h"
 #include "ui/gfx/gpu_memory_buffer.h"
-#include "ui/gfx/ipc/color/gfx_param_traits.h"
 #include "ui/gfx/transform.h"
 #include "ui/gl/ca_renderer_layer_params.h"
 #include "ui/gl/dc_renderer_layer_params.h"
@@ -836,6 +835,25 @@ class GLES2DecoderImpl : public GLES2Decoder,
   enum class BindIndexedBufferFunctionType {
     kBindBufferBase,
     kBindBufferRange
+  };
+
+  // Helper class to ensure that GLES2DecoderImpl::Destroy() is always called
+  // unless we specifically call OnSuccess().
+  class DestroyOnFailure {
+   public:
+    DestroyOnFailure(GLES2DecoderImpl* decoder) : decoder_(decoder) {}
+    ~DestroyOnFailure() {
+      if (!success_)
+        decoder_->Destroy(has_context_);
+    }
+
+    void OnSuccess() { success_ = true; }
+    void LoseContext() { has_context_ = false; }
+
+   private:
+    GLES2DecoderImpl* decoder_ = nullptr;
+    bool success_ = false;
+    bool has_context_ = true;
   };
 
   const char* GetCommandName(unsigned int command_id) const;
@@ -3540,6 +3558,10 @@ gpu::ContextResult GLES2DecoderImpl::Initialize(
   surfaceless_ = surface->IsSurfaceless() && !offscreen;
 
   set_initialized();
+  // At this point we are partially initialized and must Destroy() in any
+  // failure case.
+  DestroyOnFailure destroy_on_failure(this);
+
   gpu_state_tracer_ = GPUStateTracer::Create(&state_);
 
   if (group_->gpu_preferences().enable_gpu_debugging)
@@ -3582,7 +3604,6 @@ gpu::ContextResult GLES2DecoderImpl::Initialize(
       feature_info_->feature_flags().is_swiftshader_for_webgl) {
     // Must not destroy ContextGroup if it is not initialized.
     group_ = nullptr;
-    Destroy(true);
     LOG(ERROR) << "ContextResult::kFatalFailure: "
                   "fail_if_major_perf_caveat + swiftshader";
     return gpu::ContextResult::kFatalFailure;
@@ -3592,7 +3613,6 @@ gpu::ContextResult GLES2DecoderImpl::Initialize(
   if (attrib_helper.context_type == CONTEXT_TYPE_WEBGL2_COMPUTE) {
     // Must not destroy ContextGroup if it is not initialized.
     group_ = nullptr;
-    Destroy(true);
     LOG(ERROR)
         << "ContextResult::kFatalFailure: "
            "webgl2-compute is not supported on validating command decoder.";
@@ -3604,7 +3624,6 @@ gpu::ContextResult GLES2DecoderImpl::Initialize(
   if (result != gpu::ContextResult::kSuccess) {
     // Must not destroy ContextGroup if it is not initialized.
     group_ = nullptr;
-    Destroy(true);
     return result;
   }
   CHECK_GL_ERROR();
@@ -3631,7 +3650,6 @@ gpu::ContextResult GLES2DecoderImpl::Initialize(
     }
 
     if (!supported) {
-      Destroy(true);
       LOG(ERROR) << "ContextResult::kFatalFailure: "
                     "native gmb format not supported";
       return gpu::ContextResult::kFatalFailure;
@@ -4008,7 +4026,6 @@ gpu::ContextResult GLES2DecoderImpl::Initialize(
     // of the frame buffers is okay.
     if (!ResizeOffscreenFramebuffer(
             gfx::Size(state_.viewport_width, state_.viewport_height))) {
-      Destroy(true);
       LOG(ERROR) << "ContextResult::kFatalFailure: "
                     "Could not allocate offscreen buffer storage.";
       return gpu::ContextResult::kFatalFailure;
@@ -4024,7 +4041,6 @@ gpu::ContextResult GLES2DecoderImpl::Initialize(
       if (offscreen_saved_frame_buffer_->CheckStatus() !=
           GL_FRAMEBUFFER_COMPLETE) {
         bool was_lost = CheckResetStatus();
-        Destroy(true);
         LOG(ERROR) << (was_lost ? "ContextResult::kTransientFailure: "
                                 : "ContextResult::kFatalFailure: ")
                    << "Offscreen saved FBO was incomplete.";
@@ -4118,9 +4134,11 @@ gpu::ContextResult GLES2DecoderImpl::Initialize(
     LOG(ERROR)
         << "  GLES2DecoderImpl: Context reset detected after initialization.";
     group_->LoseContexts(error::kUnknown);
+    destroy_on_failure.LoseContext();
     return gpu::ContextResult::kTransientFailure;
   }
 
+  destroy_on_failure.OnSuccess();
   return gpu::ContextResult::kSuccess;
 }
 
@@ -5863,8 +5881,12 @@ error::Error GLES2DecoderImpl::HandleResizeCHROMIUM(
   GLuint width = static_cast<GLuint>(c.width);
   GLuint height = static_cast<GLuint>(c.height);
   GLfloat scale_factor = c.scale_factor;
-  GLenum color_space = c.color_space;
   GLboolean has_alpha = c.alpha;
+  gfx::ColorSpace color_space;
+  if (!ReadColorSpace(c.shm_id, c.shm_offset, c.color_space_size,
+                      &color_space)) {
+    return error::kOutOfBounds;
+  }
   TRACE_EVENT2("gpu", "glResizeChromium", "width", width, "height", height);
 
   // gfx::Size uses integers, make sure width and height do not overflow
@@ -5874,29 +5896,6 @@ error::Error GLES2DecoderImpl::HandleResizeCHROMIUM(
   width = base::ClampToRange(width, 1U, kMaxDimension);
   height = base::ClampToRange(height, 1U, kMaxDimension);
 
-  gl::GLSurface::ColorSpace surface_color_space =
-      gl::GLSurface::ColorSpace::UNSPECIFIED;
-  switch (color_space) {
-    case GL_COLOR_SPACE_UNSPECIFIED_CHROMIUM:
-      surface_color_space = gl::GLSurface::ColorSpace::UNSPECIFIED;
-      break;
-    case GL_COLOR_SPACE_SCRGB_LINEAR_CHROMIUM:
-      surface_color_space = gl::GLSurface::ColorSpace::SCRGB_LINEAR;
-      break;
-    case GL_COLOR_SPACE_HDR10_CHROMIUM:
-      surface_color_space = gl::GLSurface::ColorSpace::HDR10;
-      break;
-    case GL_COLOR_SPACE_SRGB_CHROMIUM:
-      surface_color_space = gl::GLSurface::ColorSpace::SRGB;
-      break;
-    case GL_COLOR_SPACE_DISPLAY_P3_CHROMIUM:
-      surface_color_space = gl::GLSurface::ColorSpace::DISPLAY_P3;
-      break;
-    default:
-      LOG(ERROR) << "GLES2DecoderImpl: Context lost because specified color"
-                 << "space was invalid.";
-      return error::kLostContext;
-  }
   bool is_offscreen = !!offscreen_target_frame_buffer_.get();
   if (is_offscreen) {
     if (!ResizeOffscreenFramebuffer(gfx::Size(width, height))) {
@@ -5905,8 +5904,8 @@ error::Error GLES2DecoderImpl::HandleResizeCHROMIUM(
       return error::kLostContext;
     }
   } else {
-    if (!surface_->Resize(gfx::Size(width, height), scale_factor,
-                          surface_color_space, !!has_alpha)) {
+    if (!surface_->Resize(gfx::Size(width, height), scale_factor, color_space,
+                          !!has_alpha)) {
       LOG(ERROR) << "GLES2DecoderImpl: Context lost because resize failed.";
       return error::kLostContext;
     }
@@ -6521,11 +6520,7 @@ void GLES2DecoderImpl::DoBindFramebuffer(GLenum target, GLuint client_id) {
     service_id = GetBackbufferServiceId();
   }
 
-  if (workarounds().do_extra_flush_around_bindframebuffer)
-    api()->glFlushFn();
   api()->glBindFramebufferEXTFn(target, service_id);
-  if (workarounds().do_extra_flush_around_bindframebuffer)
-    api()->glFlushFn();
   OnFboChanged();
 }
 
@@ -13857,20 +13852,11 @@ error::Error GLES2DecoderImpl::HandleSetColorSpaceMetadataCHROMIUM(
           cmd_data);
 
   GLuint texture_id = c.texture_id;
-  GLsizei color_space_size = c.color_space_size;
-  const char* data = static_cast<const char*>(
-      GetAddressAndCheckSize(c.shm_id, c.shm_offset, color_space_size));
-  if (!data)
-    return error::kOutOfBounds;
-
-  // Make a copy to reduce the risk of a time of check to time of use attack.
-  std::vector<char> color_space_data(data, data + color_space_size);
-  base::Pickle color_space_pickle(color_space_data.data(), color_space_size);
-  base::PickleIterator iterator(color_space_pickle);
   gfx::ColorSpace color_space;
-  if (!IPC::ParamTraits<gfx::ColorSpace>::Read(&color_space_pickle, &iterator,
-                                               &color_space))
+  if (!ReadColorSpace(c.shm_id, c.shm_offset, c.color_space_size,
+                      &color_space)) {
     return error::kOutOfBounds;
+  }
 
   TextureRef* ref = texture_manager()->GetTexture(texture_id);
   if (!ref) {

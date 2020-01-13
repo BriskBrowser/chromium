@@ -18,6 +18,7 @@
 #include "ios/chrome/browser/browsing_data/browsing_data_remove_mask.h"
 #include "ios/chrome/browser/browsing_data/browsing_data_remover.h"
 #include "ios/chrome/browser/browsing_data/browsing_data_remover_factory.h"
+#include "ios/chrome/browser/chrome_url_constants.h"
 #include "ios/chrome/browser/main/browser.h"
 #include "ios/chrome/browser/signin/identity_manager_factory.h"
 #import "ios/chrome/browser/snapshots/snapshot_tab_helper.h"
@@ -557,21 +558,6 @@ enum class EnterTabSwitcherSnapshotResult {
   return self.mainController.currentBrowserState->IsOffTheRecord();
 }
 
-#pragma mark - BrowsingDataCommands
-
-- (void)removeBrowsingDataForBrowserState:(ios::ChromeBrowserState*)browserState
-                               timePeriod:(browsing_data::TimePeriod)timePeriod
-                               removeMask:(BrowsingDataRemoveMask)removeMask
-                          completionBlock:(ProceduralBlock)completionBlock {
-  // Forward the call. This is only here to maintain the downstream compilation
-  // intact. Once the call site in the test downstream is updated, this will be
-  // removed.
-  [self.mainController removeBrowsingDataForBrowserState:browserState
-                                              timePeriod:timePeriod
-                                              removeMask:removeMask
-                                         completionBlock:completionBlock];
-}
-
 #pragma mark - SettingsNavigationControllerDelegate
 
 - (void)closeSettings {
@@ -586,6 +572,38 @@ enum class EnterTabSwitcherSnapshotResult {
 - (id<ApplicationCommands, BrowserCommands>)dispatcherForSettings {
   // Assume that settings always wants the dispatcher from the main BVC.
   return self.mainController.mainBVC.dispatcher;
+}
+
+#pragma mark - TabSwitcherDelegate
+
+- (void)tabSwitcher:(id<TabSwitcher>)tabSwitcher
+    shouldFinishWithActiveModel:(TabModel*)tabModel
+                   focusOmnibox:(BOOL)focusOmnibox {
+  [self.mainController beginDismissingTabSwitcherWithCurrentModel:tabModel
+                                                     focusOmnibox:focusOmnibox];
+}
+
+- (void)tabSwitcherDismissTransitionDidEnd:(id<TabSwitcher>)tabSwitcher {
+  [self.mainController finishDismissingTabSwitcher];
+}
+
+#pragma mark - TabSwitching
+
+- (BOOL)openNewTabFromTabSwitcher {
+  if (!self.mainController.tabSwitcher)
+    return NO;
+
+  UrlLoadParams urlLoadParams =
+      UrlLoadParams::InNewTab(GURL(kChromeUINewTabURL));
+  urlLoadParams.web_params.transition_type = ui::PAGE_TRANSITION_TYPED;
+
+  Browser* mainBrowser = self.mainInterface.browser;
+  WebStateList* webStateList = mainBrowser->GetWebStateList();
+  [self.mainController.tabSwitcher
+      dismissWithNewTabAnimationToBrowser:mainBrowser
+                        withUrlLoadParams:urlLoadParams
+                                  atIndex:webStateList->count()];
+  return YES;
 }
 
 @end

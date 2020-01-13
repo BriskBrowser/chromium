@@ -312,13 +312,11 @@ id<GREYMatcher> ClearBrowsingDataCell() {
 
     // Set the network to use a cellular network, which should disable uploading
     // when the wifi-only flag is set.
-    chrome_test_util::SetWWANStateTo(YES);
-    chrome_test_util::WaitForBreakpadQueue();
+    [SettingsAppInterface setCellularNetworkEnabled:YES];
     [self assertMetricsServiceEnabledButNotUploading:serviceType];
 
     // Turn off cellular network usage, which should enable uploading.
-    chrome_test_util::SetWWANStateTo(NO);
-    chrome_test_util::WaitForBreakpadQueue();
+    [SettingsAppInterface setCellularNetworkEnabled:NO];
     [self assertMetricsServiceEnabled:serviceType];
 
     // kMetricsReportingEnabled ON and kMetricsReportingWifiOnly OFF
@@ -353,14 +351,10 @@ id<GREYMatcher> ClearBrowsingDataCell() {
 // Tests that clearing the cookies through the UI does clear all of them. Use a
 // local server to navigate to a page that sets then tests a cookie, and then
 // clears the cookie and tests it is not set.
-#if defined(CHROME_EARL_GREY_1)
-#define MAYBE_testClearCookies testClearCookies
-#elif defined(CHROME_EARL_GREY_2)
-#define MAYBE_testClearCookies DISABLED_testClearCookies
-#endif
 // TODO(crbug.com/1036133): [ChromeEarlGrey cookies] does not work correctly in
 // this test.
-- (void)MAYBE_testClearCookies {
+// TODO(crbug.com/1038398): This test crashes flakily.
+- (void)DISABLED_testClearCookies {
   // Creates a map of canned responses and set up the test HTML server.
   std::map<GURL, std::pair<std::string, std::string>> response;
 

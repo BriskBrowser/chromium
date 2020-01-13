@@ -241,9 +241,9 @@ IntRect RootFrameViewport::ScrollCornerRect() const {
   return LayoutViewport().ScrollCornerRect();
 }
 
-bool RootFrameViewport::ApplyPendingHistoryRestoreScrollOffset() {
+void RootFrameViewport::ApplyPendingHistoryRestoreScrollOffset() {
   if (!pending_view_state_)
-    return false;
+    return;
 
   bool should_restore_scale = pending_view_state_->page_scale_factor_;
 
@@ -288,7 +288,7 @@ bool RootFrameViewport::ApplyPendingHistoryRestoreScrollOffset() {
 
   should_restore_scroll_ = false;
 
-  return true;
+  pending_view_state_.reset();
 }
 
 void RootFrameViewport::SetScrollOffset(const ScrollOffset& offset,
@@ -670,6 +670,22 @@ void RootFrameViewport::SetSnapContainerData(
 bool RootFrameViewport::SetTargetSnapAreaElementIds(
     cc::TargetSnapAreaElementIds snap_target_ids) {
   return LayoutViewport().SetTargetSnapAreaElementIds(snap_target_ids);
+}
+
+bool RootFrameViewport::SnapContainerDataNeedsUpdate() const {
+  return LayoutViewport().SnapContainerDataNeedsUpdate();
+}
+
+void RootFrameViewport::SetSnapContainerDataNeedsUpdate(bool needs_update) {
+  LayoutViewport().SetSnapContainerDataNeedsUpdate(needs_update);
+}
+
+bool RootFrameViewport::NeedsResnap() const {
+  return LayoutViewport().NeedsResnap();
+}
+
+void RootFrameViewport::SetNeedsResnap(bool needs_resnap) {
+  LayoutViewport().SetNeedsResnap(needs_resnap);
 }
 
 base::Optional<FloatPoint> RootFrameViewport::GetSnapPositionAndSetTarget(

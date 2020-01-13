@@ -10,10 +10,6 @@
 // Feature to retain the contentView in the browser container.
 extern const base::Feature kBrowserContainerKeepsContentView;
 
-// Feature to show most visited sites and collection shortcuts in the omnibox
-// popup instead of ZeroSuggest.
-extern const base::Feature kOmniboxPopupShortcutIconsInZeroState;
-
 // Feature to take snapshots using |-drawViewHierarchy:|.
 extern const base::Feature kSnapshotDrawView;
 
@@ -39,5 +35,9 @@ extern const base::Feature kVoiceOverUnstackedTabstrip;
 
 // Feature flag to always force an unstacked tabstrip.
 extern const base::Feature kForceUnstackedTabstrip;
+
+// Feature flag to have the Browser contained by the TabGrid instead of being
+// presented.
+extern const base::Feature kContainedBVC;
 
 #endif  // IOS_CHROME_BROWSER_UI_UI_FEATURE_FLAGS_H_

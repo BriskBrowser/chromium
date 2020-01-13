@@ -51,6 +51,14 @@ const base::Feature kCameraSystemWebApp{"CameraSystemWebApp",
 const base::Feature kCrostiniBackup{"CrostiniBackup",
                                     base::FEATURE_ENABLED_BY_DEFAULT};
 
+// Enables or disables Crostini port forwarding.
+const base::Feature kCrostiniPortForwarding{"CrostiniPortForwarding",
+                                            base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Enables or disables Crostini Disk Resizing.
+const base::Feature kCrostiniDiskResizing{"CrostiniDiskResizing",
+                                          base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Enables or disables Crostini using Buster container images.
 const base::Feature kCrostiniUseBusterImage{"CrostiniUseBusterImage",
                                             base::FEATURE_ENABLED_BY_DEFAULT};
@@ -161,11 +169,6 @@ const base::Feature kImeInputLogicHmm{"ImeInputLogicHmm",
 const base::Feature kImeInputLogicFst{"ImeInputLogicFst",
                                       base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Enable or disable Unified Input Logic for FST decoder for non-English in
-// the IME extension on Chrome OS.
-const base::Feature kImeInputLogicFstNonEnglish{
-    "ImeInputLogicFstNonEnglish", base::FEATURE_DISABLED_BY_DEFAULT};
-
 // Enable or disable Unified Input Logic for Mozc decoder in the IME extension
 // on Chrome OS.
 const base::Feature kImeInputLogicMozc{"ImeInputLogicMozc",
@@ -220,7 +223,7 @@ const base::Feature kShelfScrollable{"ShelfScrollable",
 
 // Enables or disables the shelf hotseat.
 const base::Feature kShelfHotseat{"ShelfHotseat",
-                                  base::FEATURE_DISABLED_BY_DEFAULT};
+                                  base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Enables or disables a toggle to enable Bluetooth debug logs.
 const base::Feature kShowBluetoothDebugLogToggle{
@@ -239,11 +242,6 @@ const base::Feature kShowPlayInDemoMode{"ShowPlayInDemoMode",
 // (~2018-11) model.
 const base::Feature kSmartDimModelV3{"SmartDimModelV3",
                                      base::FEATURE_DISABLED_BY_DEFAULT};
-
-// Splits OS settings (display, mouse, keyboard, etc.) out from browser settings
-// into a separate window.
-const base::Feature kSplitSettings{"SplitSettings",
-                                   base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Enables separate sync controls for OS settings (display, keyboard, etc.).
 // For example, the user could choose to sync OS settings but not browser
@@ -314,10 +312,6 @@ bool IsParentalControlsSettingsEnabled() {
 
 bool IsQuickAnswersEnabled() {
   return base::FeatureList::IsEnabled(kQuickAnswers);
-}
-
-bool IsSplitSettingsEnabled() {
-  return base::FeatureList::IsEnabled(kSplitSettings);
 }
 
 bool IsSplitSettingsSyncEnabled() {

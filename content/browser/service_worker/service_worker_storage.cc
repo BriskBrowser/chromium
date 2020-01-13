@@ -446,6 +446,7 @@ void ServiceWorkerStorage::StoreRegistration(
   data.script_response_time = version->GetInfo().script_response_time;
   for (const blink::mojom::WebFeature feature : version->used_features())
     data.used_features.insert(feature);
+  data.cross_origin_embedder_policy = version->cross_origin_embedder_policy();
 
   ResourceList resources;
   version->script_cache_map()->GetResources(&resources);
@@ -476,11 +477,9 @@ void ServiceWorkerStorage::StoreRegistration(
                                     std::move(callback), data)));
 }
 
-void ServiceWorkerStorage::UpdateToActiveState(
-    ServiceWorkerRegistration* registration,
-    StatusCallback callback) {
-  DCHECK(registration);
-
+void ServiceWorkerStorage::UpdateToActiveState(int64_t registration_id,
+                                               const GURL& origin,
+                                               StatusCallback callback) {
   DCHECK(state_ == STORAGE_STATE_INITIALIZED ||
          state_ == STORAGE_STATE_DISABLED)
       << state_;
@@ -494,16 +493,17 @@ void ServiceWorkerStorage::UpdateToActiveState(
   base::PostTaskAndReplyWithResult(
       database_task_runner_.get(), FROM_HERE,
       base::BindOnce(&ServiceWorkerDatabase::UpdateVersionToActive,
-                     base::Unretained(database_.get()), registration->id(),
-                     registration->scope().GetOrigin()),
+                     base::Unretained(database_.get()), registration_id,
+                     origin),
       base::BindOnce(&ServiceWorkerStorage::DidUpdateToActiveState,
                      weak_factory_.GetWeakPtr(), std::move(callback)));
 }
 
 void ServiceWorkerStorage::UpdateLastUpdateCheckTime(
-    ServiceWorkerRegistration* registration,
+    int64_t registration_id,
+    const GURL& origin,
+    base::Time last_update_check_time,
     StatusCallback callback) {
-  DCHECK(registration);
   DCHECK(state_ == STORAGE_STATE_INITIALIZED ||
          state_ == STORAGE_STATE_DISABLED)
       << state_;
@@ -517,9 +517,8 @@ void ServiceWorkerStorage::UpdateLastUpdateCheckTime(
   base::PostTaskAndReplyWithResult(
       database_task_runner_.get(), FROM_HERE,
       base::BindOnce(&ServiceWorkerDatabase::UpdateLastCheckTime,
-                     base::Unretained(database_.get()), registration->id(),
-                     registration->scope().GetOrigin(),
-                     registration->last_update_check()),
+                     base::Unretained(database_.get()), registration_id, origin,
+                     last_update_check_time),
       base::BindOnce(
           [](StatusCallback callback, ServiceWorkerDatabase::Status status) {
             std::move(callback).Run(DatabaseStatusToStatusCode(status));
@@ -1665,6 +1664,8 @@ ServiceWorkerStorage::GetOrCreateRegistration(
       version->SetValidOriginTrialTokens(*data.origin_trial_tokens);
 
     version->set_used_features(data.used_features);
+    version->set_cross_origin_embedder_policy(
+        data.cross_origin_embedder_policy);
   }
   version->set_script_response_time_for_devtools(data.script_response_time);
 

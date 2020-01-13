@@ -61,7 +61,7 @@ Une fois le tutoriel terminé, utilisez ChromeVox pour accéder au bouton de fer
 <translation id="1339428534620983148">Colonne précédente du tableau</translation>
 <translation id="1342835525016946179">article</translation>
 <translation id="1346059596910821859">Pourboire</translation>
-<translation id="1346748346194534595">Vers la droite</translation>
+<translation id="1346748346194534595">À droite</translation>
 <translation id="135978014023467274">La version 63 de ChromeVox a été installée !</translation>
 <translation id="1360699455582016846">Cliquez sur l'élément sous la clé de routage <ph name="ROUTING_KEY_NUMBER" /></translation>
 <translation id="136718599399906424">Ligne suivante du tableau</translation>
@@ -76,7 +76,7 @@ Une fois le tutoriel terminé, utilisez ChromeVox pour accéder au bouton de fer
 <translation id="1439316808600711881">région</translation>
 <translation id="1452236308086741652"><ph name="VALUE" />, zone de texte du mot de passe</translation>
 <translation id="146450394670219700">Objet graphique</translation>
-<translation id="1467432559032391204">Vers la gauche</translation>
+<translation id="1467432559032391204">À gauche</translation>
 <translation id="1474557363159888097">Aucun ancrage précédent</translation>
 <translation id="1480046233931937785">Remerciements</translation>
 <translation id="1487494366197411587">Sur un Chromebook, la touche de recherche se trouve juste au-dessus de la touche Maj.</translation>
@@ -419,6 +419,7 @@ Une fois le tutoriel terminé, utilisez ChromeVox pour accéder au bouton de fer
 <translation id="3914732343065571127">Référence des commandes ChromeVox</translation>
 <translation id="3930383913623796990">Vert printemps</translation>
 <translation id="3930498801443296724">Témoignage</translation>
+<translation id="3935615366277838204">"<ph name="LETTER" />" majuscule</translation>
 <translation id="3936394396199829062">Rose lavande clair</translation>
 <translation id="3941269780691800708">Prononcer le texte sous la souris.</translation>
 <translation id="394953087167197343">Indiquer Erreur de frappe :</translation>
@@ -792,7 +793,6 @@ Une fois le tutoriel terminé, utilisez ChromeVox pour accéder au bouton de fer
 <translation id="6459511626086141404">Mappage plat du clavier</translation>
 <translation id="6468049171101508116">Bouton suivant</translation>
 <translation id="646954774886932461">Index</translation>
-<translation id="6479792383819319132">Aucun paragraphe suivant.</translation>
 <translation id="6493991254603208962">Baisser la luminosité</translation>
 <translation id="6501595918865591267">Turquoise</translation>
 <translation id="6508059270146105198">Déplacer l'écran de braille vers le bas de la page</translation>
@@ -815,7 +815,6 @@ Une fois le tutoriel terminé, utilisez ChromeVox pour accéder au bouton de fer
 <translation id="6637586476836377253">journal</translation>
 <translation id="6657128831881431364">Barre de progression</translation>
 <translation id="6659594942844771486">Onglet</translation>
-<translation id="6675661017770918201">Aucun paragraphe précédent.</translation>
 <translation id="667999046851023355">Document</translation>
 <translation id="6688209025607531203">Une alerte non modale</translation>
 <translation id="6689672606256159458">Saumon foncé</translation>
@@ -844,6 +843,7 @@ Une fois le tutoriel terminé, utilisez ChromeVox pour accéder au bouton de fer
 <translation id="6865519907510167493">Faute d'orthographe</translation>
 <translation id="6871161210040114857">Insensible à la casse</translation>
 <translation id="6877435256196695200">Aucune image suivante</translation>
+<translation id="688976158310523235">Menu de recherche</translation>
 <translation id="6897341342232909480">Déplacer vers la gauche</translation>
 <translation id="6901540140423170855">date</translation>
 <translation id="6910211073230771657">Supprimé</translation>
@@ -856,6 +856,7 @@ Une fois le tutoriel terminé, utilisez ChromeVox pour accéder au bouton de fer
 <translation id="699159175332639490">Recherche + O + W</translation>
 <translation id="6994042831499278539">Référence de glossaire</translation>
 <translation id="6996566555547746822">Liste déroulante suivante</translation>
+<translation id="6997224546856374593">Lors de la lecture de majuscules :</translation>
 <translation id="700202842116345659">Entrée bibliographique</translation>
 <translation id="7005146664810010831">Aucune URL trouvée</translation>
 <translation id="7010712454773919705">Touche de modification ChromeVox</translation>
@@ -936,6 +937,7 @@ Pour ouvrir le menu du navigateur Chrome, appuyez sur Alt+F.</translation>
 <translation id="744163271241493234">pwded</translation>
 <translation id="7491962110804786152">tabulation</translation>
 <translation id="7492049978501397201">Boîte de dialogue ouverte</translation>
+<translation id="7505149250476994901">Dire "maj" après la lettre</translation>
 <translation id="7518543783849163354">Pour arrêter temporairement les commentaires audio ChromeVox, appuyez sur la touche Ctrl.</translation>
 <translation id="7521682724501952239">Vous pouvez utiliser ChromeVox avec votre écran tactile.</translation>
 <translation id="7532613204005497612">Juin</translation>
@@ -1207,6 +1209,7 @@ Pour ouvrir le menu du navigateur Chrome, appuyez sur Alt+F.</translation>
 <translation id="9065283790526219006">+pop-up</translation>
 <translation id="9066023754636984703">Appuyez sur la touche de recherche+A, puis sur J pour accéder directement aux détails.</translation>
 <translation id="9067522039955793016">Saut de page</translation>
+<translation id="9074824103975499138">Rechercher dans les menus ChromeVox</translation>
 <translation id="9077213568694924680">supprimé de la sélection</translation>
 <translation id="9077305471618729969">Bleu paon</translation>
 <translation id="9082874451376019682">Aucun curseur précédent</translation>

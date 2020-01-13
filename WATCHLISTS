@@ -772,7 +772,7 @@
     'chromeos_bluetooth': {
       'filepath': 'ash/system/bluetooth/'\
                   '|chrome/browser/ui/webui/chromeos/bluetooth*'\
-                  '|chrome/browser/resources/settings/bluetooth_page/'\
+                  '|chrome/browser/resources/settings/chromeos/bluetooth_page/'\
                   '|chrome/browser/resources/chromeos/bluetooth_pairing_dialog/'\
                   '|device/bluetooth/bluez/'\
                   '|device/bluetooth/chromeos/'\
@@ -810,7 +810,7 @@
                   'chromeos/services/network_config/|'\
                   'chrome/browser/chromeos/net/|'\
                   'chrome/browser/extensions/api/networking_private/|'\
-                  'chrome/browser/resources/settings/internet_page/|'\
+                  'chrome/browser/resources/settings/chromeos/internet_page/|'\
                   'extensions/browser/api/networking_private/|'\
                   'ui/chromeos/network/|'\
                   'ui/webui/resources/cr_components/chromeos/network/'
@@ -890,7 +890,7 @@
                   '|plugin_vm',
     },
     'cups_printing' : {
-      'filepath': 'chrome/browser/resources/settings/printing_page/'\
+      'filepath': 'chrome/browser/resources/settings/chromeos/os_printing_page/'\
                   '|chrome/test/data/webui/settings/cups_printer_page_tests.js'\
                   '|chrome/browser/ui/webui/settings/chromeos/cups_printers_handler'\
                   '|chrome/browser/chromeos/printing/'\
@@ -1217,6 +1217,19 @@
     'media_gpu': {
       'filepath': 'media/gpu/',
     },
+    'media_gpu_cros': {
+      'filepath': 'media/gpu/chromeos'\
+                  '|media/gpu/vaapi'\
+                  '|media/gpu/v4l2'\
+                  '|media/gpu/.*\.(cc|h)$'\
+                  '|media/mojo/(clients|mojom|test|services)/.*accelerator.*'
+    },
+    'media_gpu_vaapi': {
+      'filepath': 'media/gpu/vaapi',
+    },
+    'media_gpu_win': {
+      'filepath': 'media/gpu/windows/'
+    },
     'media_mojo': {
       'filepath': 'media/mojo/'
     },
@@ -1245,9 +1258,6 @@
                   '|chrome/test/data/webui/media_router/' \
                   '|chrome/test/media_router/' \
                   '|chrome/utility/media_router/'
-    },
-    'media_win': {
-      'filepath': 'media/gpu/windows/'
     },
     'message_loop': {
       'filepath': 'base/message_'
@@ -1288,6 +1298,7 @@
                   '|chrome/browser/chromeos/secure_channel/'\
                   '|chrome/browser/resources/chromeos/multidevice_setup/'\
                   '|chrome/browser/resources/settings/multidevice_page/'\
+                  '|chrome/browser/resources/settings/chromeos/multidevice_page/'\
                   '|chrome/browser/ui/webui/chromeos/multidevice_setup/'\
                   '|chrome/browser/ui/webui/settings/chromeos/multidevice'\
                   '|chrome/test/data/webui/multidevice_setup/'\
@@ -1629,10 +1640,6 @@
     'settings_os_settings': {
       'filepath': 'chrome/browser/resources/settings/chromeos/',
     },
-    'settings_reset_prompt': {
-      'filepath': 'chrome/browser/safe_browsing/settings_reset_prompt/'\
-                  '|chrome/browser/ui/views/settings_reset_prompt',
-    },
     'sharing': {
       'filepath': 'chrome/browser/sharing/|'\
                   'chrome/browser/ui/views/sharing/',
@@ -1859,9 +1866,6 @@
     },
     'usb': {
       'filepath': '/usb/',
-    },
-    'vaapi': {
-      'filepath': 'media/gpu/vaapi',
     },
     'version_assembly': {
       'filepath': 'chrome/app/version_assembly',
@@ -2192,7 +2196,6 @@
     'blink_layers': ['blink-layers+watch@chromium.org'],
     'blink_layout': ['blink-reviews-layout@chromium.org',
                      'eae+blinkwatch@chromium.org',
-                     'szager+layoutwatch@chromium.org',
                      'zoltan@webkit.org'],
     'blink_layout_ng': ['cbiesinger@chromium.org',
                         'glebl+reviews@chromium.org',
@@ -2523,6 +2526,9 @@
     'media_galleries': ['thestig@chromium.org',
                         'tommycli@chromium.org'],
     'media_gpu': ['hiroh+watch@chromium.org'],
+    'media_gpu_cros': ['media-cros-reviews@chromium.org'],
+    'media_gpu_vaapi': ['vaapi-reviews@chromium.org'],
+    'media_gpu_win': ['media-win-reviews@chromium.org'],
     'media_mojo': ['alokp+watch@chromium.org',
                    'xhwang+watch@chromium.org'],
     'media_recorder': ['emircan+watch+mediarecorder@chromium.org',
@@ -2533,7 +2539,6 @@
     'media_router': ['mfoltz+watch@chromium.org',
                      'pthatcher+watch@chromium.org',
                      'takumif+watch@chromium.org'],
-    'media_win': ['media-win-reviews@chromium.org'],
     'message_loop': ['sadrul@chromium.org'],
     'metrics': ['asvitkine+watch@chromium.org'],
     'metrics_perf': ['cwp-reviews+chromium@google.com'],
@@ -2669,7 +2674,6 @@
                  'maybelle@chromium.org'],
     'settings_os_settings': [
                  'jhawkins+watch@chromium.org'],
-    'settings_reset_prompt': ['alito+watch@chromium.org'],
     'sharing': ['peter@chromium.org',
                 'unido-reviews@chromium.org'],
     'site_engagement': ['dominickn+watch-engagement@chromium.org'],
@@ -2765,7 +2769,6 @@
     'unified_consent': ['wfh+watch@chromuium.org'],
     'usb': ['mattreynolds+watch@chromium.org',
             'odejesush+watch@chromium.org'],
-    'vaapi': ['vaapi-reviews@chromium.org'],
     'version_assembly': ['caitkp+watch@chromium.org',
                          'gab+watch@chromium.org'],
     'video': ['posciak+watch@chromium.org'],

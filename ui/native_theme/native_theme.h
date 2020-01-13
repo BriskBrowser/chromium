@@ -244,6 +244,7 @@ class NATIVE_THEME_EXPORT NativeTheme {
     bool fill_content_area;
     bool draw_edges;
     int classic_state;  // Used on Windows when uxtheme is not available.
+    bool has_border;
   };
 
   struct TrackbarExtraParams {
@@ -277,6 +278,11 @@ class NATIVE_THEME_EXPORT NativeTheme {
   virtual gfx::Size GetPartSize(Part part,
                                 State state,
                                 const ExtraParams& extra) const = 0;
+
+  virtual float GetBorderRadiusForPart(Part part,
+                                       float width,
+                                       float height,
+                                       float zoom) const;
 
   // Paint the part to the canvas.
   virtual void Paint(

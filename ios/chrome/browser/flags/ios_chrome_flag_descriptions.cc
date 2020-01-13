@@ -130,6 +130,11 @@ const char kConfirmInfobarMessagesUIName[] = "Confirm Infobars Messages UI";
 const char kConfirmInfobarMessagesUIDescription[] =
     "When enabled Confirm Infobars use the new Messages UI.";
 
+const char kContainedBVCName[] = "Contained Browser ViewController";
+const char kContainedBVCDescription[] =
+    "When enabled, the BrowserViewController is contained by the TabGrid "
+    "instead of being presented";
+
 const char kCrashRestoreInfobarMessagesUIName[] =
     "Crash Restore Infobars Messages UI";
 const char kCrashRestoreInfobarMessagesUIDescription[] =
@@ -261,10 +266,6 @@ const char kMobileGoogleSRPDescription[] =
     "Request the Mobile version of Google SRP by default when the desktop mode "
     "is requested by default.";
 
-const char kNewClearBrowsingDataUIName[] = "Clear Browsing Data UI";
-const char kNewClearBrowsingDataUIDescription[] =
-    "Enable new Clear Browsing Data UI.";
-
 const char kNewOmniboxPopupLayoutName[] = "New omnibox popup";
 const char kNewOmniboxPopupLayoutDescription[] =
     "Switches the omnibox suggestions and omnibox itself to display the new "
@@ -274,12 +275,6 @@ const char kNonModalDialogsName[] = "Use non-modal JavaScript dialogs";
 const char kNonModalDialogsDescription[] =
     "Presents JavaScript dialogs non-modally so that the user can change tabs "
     "while a dialog is displayed.";
-
-const char kOmniboxPopupShortcutIconsInZeroStateName[] =
-    "Show zero-state omnibox shortcuts";
-const char kOmniboxPopupShortcutIconsInZeroStateDescription[] =
-    "Instead of ZeroSuggest, show most visited sites and collection shortcuts "
-    "in the omnibox popup.";
 
 const char kOmniboxPreserveDefaultMatchAgainstAsyncUpdateName[] =
     "Omnibox Preserve Default Match Against Async Update";
@@ -306,6 +301,10 @@ const char kOmniboxOnDeviceHeadSuggestionsName[] =
 const char kOmniboxOnDeviceHeadSuggestionsDescription[] =
     "Shows Google head non personalized search suggestions provided by a "
     "compact on device model";
+
+const char kPageInfoRefactoringName[] = "New design of the page info";
+const char kPageInfoRefactoringDescription[] =
+    "Uses the new design for the page security info.";
 
 const char kPasswordLeakDetectionName[] = "Password Leak Detection";
 const char kPasswordLeakDetectionDescription[] =
@@ -338,12 +337,6 @@ const char kSendUmaOverAnyNetwork[] =
     "Send UMA data over any network available.";
 const char kSendUmaOverAnyNetworkDescription[] =
     "When enabled, will send UMA data over either WiFi or cellular by default.";
-
-const char kSettingsAddPaymentMethodName[] =
-    "Enable the add payment method button";
-const char kSettingsAddPaymentMethodDescription[] =
-    "Allow a user to add a new credit card to payment methods from the "
-    "settings menu.";
 
 const char kSettingsRefreshName[] = "Enable the UI Refresh for Settings";
 const char kSettingsRefreshDescription[] =

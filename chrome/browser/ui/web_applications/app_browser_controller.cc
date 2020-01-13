@@ -94,7 +94,9 @@ AppBrowserController::AppBrowserController(
       // Show tabs for Terminals only.
       // TODO(crbug.com/846546): Generalise has_tab_strip_ as a SystemWebApp
       // capability.
-      has_tab_strip_(system_app_type_ == SystemAppType::TERMINAL) {
+      has_tab_strip_(
+          base::FeatureList::IsEnabled(features::kDesktopPWAsTabStrip) ||
+          system_app_type_ == SystemAppType::TERMINAL) {
   browser->tab_strip_model()->AddObserver(this);
 }
 
@@ -188,7 +190,10 @@ bool AppBrowserController::HasTitlebarToolbar() const {
   // Show titlebar toolbar for Terminal System App, but not other system apps.
   // TODO(crbug.com/846546): Generalise this as a SystemWebApp capability.
   if (is_for_system_web_app())
-    return system_app_type_ == web_app::SystemAppType::TERMINAL;
+    return system_app_type_ == web_app::SystemAppType::TERMINAL &&
+           // SWA terminal has a setting window, which has browser type "app
+           // popup". We don't want it to have the toolbar.
+           !browser_->is_type_app_popup();
 
   // Show for all other apps.
   return true;
@@ -252,8 +257,7 @@ void AppBrowserController::DidStartNavigation(
   SetInitialURL(navigation_handle->GetURL());
 }
 
-void AppBrowserController::DidChangeThemeColor(
-    base::Optional<SkColor> theme_color) {
+void AppBrowserController::DidChangeThemeColor() {
   browser_->window()->UpdateFrameColor();
 }
 
@@ -293,7 +297,7 @@ void AppBrowserController::OnTabStripModelChanged(
     const TabStripSelectionChange& selection) {
   if (selection.active_tab_changed()) {
     content::WebContentsObserver::Observe(selection.new_contents);
-    DidChangeThemeColor(GetThemeColor());
+    DidChangeThemeColor();
   }
   if (change.type() == TabStripModelChange::kInserted) {
     for (const auto& contents : change.GetInsert()->contents)

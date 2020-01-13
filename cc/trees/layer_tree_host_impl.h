@@ -266,12 +266,9 @@ class CC_EXPORT LayerTreeHostImpl : public InputHandler,
   InputHandler::ScrollStatus RootScrollBegin(
       ScrollState* scroll_state,
       InputHandler::ScrollInputType type) override;
-  ScrollStatus ScrollAnimatedBegin(ScrollState* scroll_state) override;
-  InputHandler::ScrollStatus ScrollAnimated(
-      const gfx::Point& viewport_point,
-      const gfx::Vector2dF& scroll_delta,
+  InputHandlerScrollResult ScrollUpdate(
+      ScrollState* scroll_state,
       base::TimeDelta delayed_by = base::TimeDelta()) override;
-  InputHandlerScrollResult ScrollBy(ScrollState* scroll_state) override;
   void RequestUpdateForSynchronousInputHandler() override;
   void SetSynchronousInputHandlerRootScrollOffset(
       const gfx::ScrollOffset& root_content_offset) override;
@@ -446,6 +443,10 @@ class CC_EXPORT LayerTreeHostImpl : public InputHandler,
 
   // Resets all of the trees to an empty state.
   void ResetTreesForTesting();
+
+  void set_force_smooth_wheel_scrolling_for_testing(bool enabled) {
+    force_smooth_wheel_scrolling_for_testing_ = enabled;
+  }
 
   size_t SourceAnimationFrameNumberForTesting() const;
 
@@ -741,8 +742,13 @@ class CC_EXPORT LayerTreeHostImpl : public InputHandler,
                : task_runner_provider_->MainThreadTaskRunner();
   }
 
-  InputHandler::ScrollStatus TryScroll(const gfx::PointF& screen_space_point,
-                                       const ScrollTree& scroll_tree,
+  // Determines whether the given scroll node can scroll on the compositor
+  // thread or if there are any reasons it must be scrolled on the main thread
+  // or not at all. Note: in general, this is not sufficient to determine if a
+  // scroll can occur on the compositor thread. If hit testing to a scroll
+  // node, the caller must also check whether the hit point intersects a
+  // non-fast-scrolling-region of any ancestor scrolling layers.
+  InputHandler::ScrollStatus TryScroll(const ScrollTree& scroll_tree,
                                        ScrollNode* scroll_node) const;
 
   // Return all ScrollNode indices that have an associated layer with a non-fast
@@ -772,8 +778,8 @@ class CC_EXPORT LayerTreeHostImpl : public InputHandler,
 
   void ClearCaches();
 
-  bool CanConsumeDelta(const ScrollNode& scroll_node,
-                       const ScrollState& scroll_state);
+  bool CanConsumeDelta(const ScrollState& scroll_state,
+                       const ScrollNode& scroll_node);
 
   void UpdateImageDecodingHints(
       base::flat_map<PaintImage::Id, PaintImage::DecodingMode>
@@ -864,6 +870,10 @@ class CC_EXPORT LayerTreeHostImpl : public InputHandler,
                                      const gfx::Vector2dF& delta,
                                      base::TimeDelta delayed_by,
                                      base::Optional<float> autoscroll_velocity);
+  void ScrollAnimated(const gfx::Point& viewport_point,
+                      const gfx::Vector2dF& scroll_delta,
+                      base::TimeDelta delayed_by = base::TimeDelta());
+  InputHandlerScrollResult ScrollBy(ScrollState* scroll_state);
 
   void CleanUpTileManagerResources();
   void CreateTileManagerResources();
@@ -896,18 +906,33 @@ class CC_EXPORT LayerTreeHostImpl : public InputHandler,
 
   Viewport& viewport() const { return *viewport_.get(); }
 
-  InputHandler::ScrollStatus ScrollBeginImpl(
-      ScrollState* scroll_state,
-      ScrollNode* scrolling_node,
-      InputHandler::ScrollInputType type);
   bool IsTouchDraggingScrollbar(
       LayerImpl* first_scrolling_layer_or_drawn_scrollbar,
       InputHandler::ScrollInputType type);
   bool IsInitialScrollHitTestReliable(
       LayerImpl* layer,
       LayerImpl* first_scrolling_layer_or_drawn_scrollbar);
-  void LatchToScroller(ScrollState* scroll_state, ScrollNode* starting_node);
+
+  // Given a starting node (determined by hit-test), walks up the scroll tree
+  // looking for the first node that can consume scroll from the given
+  // scroll_state and returns the first such node. If none is found, or if
+  // starting_node is nullptr, returns nullptr;
+  ScrollNode* FindNodeToLatch(ScrollState* scroll_state,
+                              ScrollNode* starting_node,
+                              InputHandler::ScrollInputType type);
+
+  // Called during ScrollBegin once a scroller was successfully latched to
+  // (i.e.  it can and will consume scroll delta on the compositor thread). The
+  // latched scroller is now available in CurrentlyScrollingNode().
+  // TODO(bokan): There's some debate about the name of this method. We should
+  // get consensus on terminology to use and apply it consistently.
+  // https://crrev.com/c/1981336/9/cc/trees/layer_tree_host_impl.cc#4520
+  void DidLatchToScroller(const ScrollState& scroll_state,
+                          InputHandler::ScrollInputType type);
+
   void ScrollLatchedScroller(ScrollState* scroll_state);
+
+  bool ShouldAnimateScroll(const ScrollState& scroll_state) const;
 
   bool AnimatePageScale(base::TimeTicks monotonic_time);
   bool AnimateScrollbars(base::TimeTicks monotonic_time);
@@ -960,8 +985,6 @@ class CC_EXPORT LayerTreeHostImpl : public InputHandler,
                                    const gfx::Vector2dF& scroll_delta,
                                    base::TimeDelta delayed_by);
 
-  void ScrollEndImpl();
-
   // Creates an animation curve and returns true if we need to update the
   // scroll position to a snap point. Otherwise returns false.
   bool SnapAtScrollEnd();
@@ -975,8 +998,8 @@ class CC_EXPORT LayerTreeHostImpl : public InputHandler,
   // thread side to keep track of the frequency of scrolling with different
   // sources per page load. TODO(crbug.com/691886): Use GRC API to plumb the
   // scroll source info for Use Counters.
-  void UpdateScrollSourceInfo(InputHandler::ScrollInputType type,
-                              ScrollState* scroll_state);
+  void UpdateScrollSourceInfo(const ScrollState& scroll_state,
+                              InputHandler::ScrollInputType type);
 
   bool IsScrolledBy(LayerImpl* child, ScrollNode* ancestor);
   void ShowScrollbarsForImplScroll(ElementId element_id);
@@ -1065,17 +1088,25 @@ class CC_EXPORT LayerTreeHostImpl : public InputHandler,
   std::unique_ptr<LayerTreeImpl> recycle_tree_;
 
   InputHandlerClient* input_handler_client_ = nullptr;
-  bool touch_scrolling_ = false;
-  bool wheel_scrolling_ = false;
-  bool middle_click_autoscrolling_ = false;
+
+  // This is used to tell the scheduler there are active scroll handlers on the
+  // page so we should prioritize latency during a scroll to try to keep
+  // scroll-linked effects up to data.
+  // TODO(bokan): This is quite old and scheduling has become much more
+  // sophisticated since so it's not clear how much value it's still providing.
   bool scroll_affects_scroll_handler_ = false;
+
   ElementId scroll_element_id_mouse_currently_over_;
   ElementId scroll_element_id_mouse_currently_captured_;
 
   // Tracks, for debugging purposes, the amount of scroll received (not
   // necessarily applied) in this compositor frame. This will be reset each
   // time a CompositorFrame is generated.
-  gfx::ScrollOffset scroll_accumulated_this_frame_;
+  gfx::Vector2dF scroll_accumulated_this_frame_;
+
+  // Tracks the last scroll state received. At the moment, this is used to infer
+  // the most recent scroll type and direction for scroll snapping purposes.
+  base::Optional<ScrollState> last_scroll_state_;
 
   std::vector<std::unique_ptr<SwapPromise>>
       swap_promises_for_main_thread_scroll_update_;
@@ -1185,26 +1216,6 @@ class CC_EXPORT LayerTreeHostImpl : public InputHandler,
   std::unique_ptr<PendingTreeRasterDurationHistogramTimer>
       pending_tree_raster_duration_timer_;
 
-  // The element id of the scroll node to which scroll animations must latch.
-  // This gets reset at ScrollAnimatedBegin, and updated the first time that a
-  // scroll animation is created in ScrollAnimated. We need to use element ids
-  // instead of node ids since they are stable across the property tree update
-  // in SetPropertyTrees.
-  ElementId scroll_animating_latched_element_id_;
-
-  // In scroll animation path CurrentlyScrollingNode does not exist when there
-  // is no ongoing scroll animation (e.g. during overscrolling). In this case we
-  // need to explicitly store the element id of the overscroll event target. The
-  // overscroll event target is either the element that scroll animation is
-  // latched to (scroll_animating_latched_element_id_) when any scrolling has
-  // happened during the current scroll sequence or the last element in the
-  // scroll chain when no scrolling has happened during the current scroll
-  // sequence. TODO(input-dev): Decouple CurrentlyScrollingNode life cycle from
-  // scroll animation life cycle to use CurrentlyScrollingNode instead of both
-  // scroll_animating_latched_element_id_ and
-  // scroll_animating_overscroll_target_element_id_. https://crbug.com/940508
-  ElementId scroll_animating_overscroll_target_element_id_;
-
   // If a scroll snap is being animated, then the value of this will be the
   // element id(s) of the target(s). Otherwise, the ids will be invalid.
   // At the end of a scroll animation, the target should be set as the scroll
@@ -1273,15 +1284,26 @@ class CC_EXPORT LayerTreeHostImpl : public InputHandler,
   // ended.
   bool scroll_gesture_did_end_;
 
-  // Set in ScrollEnd before clearing the currently scrolling node. This is
-  // used to send the scrollend DOM event when scrolling has happened on CC.
-  ElementId last_scroller_element_id_;
+  // Set in ScrollBegin and outlives the currently scrolling node so it can be
+  // used to send the scrollend and overscroll DOM events from the main thread
+  // when scrolling occurs on the compositor thread. This value is cleared at
+  // the first commit after a GSE.
+  ElementId last_latched_scroller_;
+
+  // The source device type that started the scroll gesture. Only set between a
+  // ScrollBegin and ScrollEnd.
+  base::Optional<InputHandler::ScrollInputType> latched_scroll_type_;
 
   // Scroll animation can finish either before or after GSE arrival.
   // deferred_scroll_end_ is set when the GSE has arrvied before scroll
   // animation completion. ScrollEnd will get called once the animation is
   // over.
   bool deferred_scroll_end_ = false;
+
+  // TODO(bokan): Mac doesn't yet have smooth scrolling for wheel; however, to
+  // allow consistency in tests we use this bit to override that decision.
+  // https://crbug.com/574283.
+  bool force_smooth_wheel_scrolling_for_testing_ = false;
 
   // PaintWorklet painting is controlled from the LayerTreeHostImpl, dispatched
   // to the worklet thread via |paint_worklet_painter_|.

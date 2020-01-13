@@ -98,7 +98,7 @@ FuchsiaAudioRenderer::~FuchsiaAudioRenderer() {
 void FuchsiaAudioRenderer::Initialize(DemuxerStream* stream,
                                       CdmContext* cdm_context,
                                       RendererClient* client,
-                                      const PipelineStatusCB& init_cb) {
+                                      PipelineStatusCallback init_cb) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   DCHECK(!demuxer_stream_);
 
@@ -219,6 +219,12 @@ void FuchsiaAudioRenderer::SetVolume(float volume) {
   volume_control_->SetVolume(volume);
 }
 
+void FuchsiaAudioRenderer::SetLatencyHint(
+    base::Optional<base::TimeDelta> latency_hint) {
+  // TODO(chcunningham): Implement at some later date after we've vetted the API
+  // shape and usefulness outside of fuchsia.
+}
+
 void FuchsiaAudioRenderer::StartTicking() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
@@ -227,15 +233,20 @@ void FuchsiaAudioRenderer::StartTicking() {
     flags = fuchsia::media::AudioConsumerStartFlags::LOW_LATENCY;
   }
 
+  bool send_stop = false;
   base::TimeDelta media_pos;
   {
     base::AutoLock lock(state_lock_);
     media_pos = media_pos_;
+    send_stop = state_ != PlaybackState::kStopped;
     state_ = PlaybackState::kStarting;
   }
 
-  audio_consumer_->Start(flags, media_pos.ToZxDuration(),
-                         fuchsia::media::NO_TIMESTAMP);
+  if (send_stop)
+    audio_consumer_->Stop();
+
+  audio_consumer_->Start(flags, fuchsia::media::NO_TIMESTAMP,
+                         media_pos.ToZxDuration());
 }
 
 void FuchsiaAudioRenderer::StopTicking() {

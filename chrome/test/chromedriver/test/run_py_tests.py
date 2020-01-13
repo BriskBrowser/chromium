@@ -78,22 +78,37 @@ _NEGATIVE_FILTER = [
     'ChromeDriverTest.testAlertOnNewWindow',
     # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2532
     'ChromeDriverPageLoadTimeoutTest.testRefreshWithPageLoadTimeout',
+    # testFocus is failing
+    'JavaScriptTests.testFocus',
 ]
 
 
 _OS_SPECIFIC_FILTER = {}
 _OS_SPECIFIC_FILTER['win'] = [
+    # https://crbug.com/1036055
+    'MobileEmulationCapabilityTest.testClickElement',
+    # https://crbug.com/1036636
+    'MobileEmulationCapabilityTest.testTapElement',
     # https://bugs.chromium.org/p/chromedriver/issues/detail?id=299
     'ChromeLogPathCapabilityTest.testChromeLogPath',
     # https://bugs.chromium.org/p/chromium/issues/detail?id=1011095
     'ChromeDownloadDirTest.testFileDownloadAfterTabHeadless',
     'ChromeDownloadDirTest.testFileDownloadWithClickHeadless',
     'ChromeDownloadDirTest.testFileDownloadWithGetHeadless',
+    # https://bugs.chromium.org/p/chromium/issues/detail?id=946023
+    'ChromeDriverTest.testWindowFullScreen',
 ]
 _OS_SPECIFIC_FILTER['linux'] = [
+    # https://crbug.com/1036055
+    'MobileEmulationCapabilityTest.testClickElement',
+    # https://crbug.com/1036636
+    'MobileEmulationCapabilityTest.testTapElement',
 ]
 _OS_SPECIFIC_FILTER['mac'] = [
+    # https://crbug.com/1036055
+    'MobileEmulationCapabilityTest.testClickElement',
     # https://bugs.chromium.org/p/chromedriver/issues/detail?id=1927
+    # https://crbug.com/1036636
     'MobileEmulationCapabilityTest.testTapElement',
     # https://bugs.chromium.org/p/chromium/issues/detail?id=946023
     'ChromeDriverTest.testWindowFullScreen',
@@ -222,6 +237,8 @@ _ANDROID_NEGATIVE_FILTER['chrome'] = (
         'ChromeDriverTest.testPushAndNotificationsPermissions',
         'ChromeDriverTest.testSensorPermissions',
         'ChromeDriverTest.testSettingPermissionDoesNotAffectOthers',
+        # Android does not allow changing window size
+        'JavaScriptTests.*',
     ]
 )
 _ANDROID_NEGATIVE_FILTER['chrome_stable'] = (
@@ -4190,6 +4207,47 @@ class SupportIPv4AndIPv6(ChromeDriverBaseTest):
       self.CreateDriver('http://[::1]:' +
                                  str(chromedriver_server.GetPort()))
 
+class JavaScriptTests(ChromeDriverBaseTestWithWebServer):
+  def GetFileUrl(self, filename):
+    return 'file://' + self.js_root + filename
+
+  def setUp(self):
+    self._driver = self.CreateDriver()
+    self.js_root = os.path.dirname(os.path.realpath(__file__)) + '/../js/'
+    self._driver.SetWindowRect(1000, 1000, 0, 0)
+
+  def checkTestResult(self):
+    def getStatus():
+      return self._driver.ExecuteScript('return window.CDCJStestRunStatus')
+
+    self.WaitForCondition(getStatus)
+    self.assertEquals('PASS', getStatus())
+
+  def testAllJS(self):
+    self._driver.Load(self.GetFileUrl('call_function_test.html'))
+    self.checkTestResult()
+
+    self._driver.Load(self.GetFileUrl('dispatch_touch_event_test.html'))
+    self.checkTestResult()
+
+    self._driver.Load(self.GetFileUrl('execute_async_script_test.html'))
+    self.checkTestResult()
+
+    self._driver.Load(self.GetFileUrl('execute_script_test.html'))
+    self.checkTestResult()
+
+    self._driver.Load(self.GetFileUrl('get_element_location_test.html'))
+    self.checkTestResult()
+
+    self._driver.Load(self.GetFileUrl('get_element_region_test.html'))
+    self.checkTestResult()
+
+    self._driver.Load(self.GetFileUrl('is_option_element_toggleable_test.html'))
+    self.checkTestResult()
+
+  def testFocus(self):
+    self._driver.Load(self.GetFileUrl('focus_test.html'))
+    self.checkTestResult()
 
 # 'Z' in the beginning is to make test executed in the end of suite.
 class ZChromeStartRetryCountTest(unittest.TestCase):

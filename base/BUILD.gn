@@ -2156,7 +2156,10 @@ buildflag_header("clang_coverage_buildflags") {
   header = "clang_coverage_buildflags.h"
   header_dir = "base"
 
-  flags = [ "CLANG_COVERAGE=$use_clang_coverage" ]
+  flags = [
+    "CLANG_COVERAGE=$use_clang_coverage",
+    "CLANG_COVERAGE_INSIDE_SANDBOX=$use_clang_coverage_inside_sandbox"
+  ]
 }
 
 buildflag_header("sanitizer_buildflags") {
@@ -3224,9 +3227,13 @@ if (is_android) {
   java_library("jni_java") {
     supports_android = true
     sources = [
+      "android/java/src/org/chromium/base/JniException.java",
       "android/java/src/org/chromium/base/JniStaticTestMocker.java",
+      "android/java/src/org/chromium/base/NativeLibraryLoadedStatus.java",
       "android/java/src/org/chromium/base/annotations/NativeMethods.java",
     ]
+    srcjar_deps = [ ":base_build_config_gen" ]
+    jar_excluded_patterns = [ "*/BuildConfig.class" ]
   }
 
   android_library("base_java") {
@@ -3280,8 +3287,6 @@ if (is_android) {
       "android/java/src/org/chromium/base/MathUtils.java",
       "android/java/src/org/chromium/base/MemoryPressureListener.java",
       "android/java/src/org/chromium/base/NonThreadSafe.java",
-      "android/java/src/org/chromium/base/ObservableSupplier.java",
-      "android/java/src/org/chromium/base/ObservableSupplierImpl.java",
       "android/java/src/org/chromium/base/ObserverList.java",
       "android/java/src/org/chromium/base/PackageManagerUtils.java",
       "android/java/src/org/chromium/base/PackageUtils.java",
@@ -3293,7 +3298,6 @@ if (is_android) {
       "android/java/src/org/chromium/base/SecureRandomInitializer.java",
       "android/java/src/org/chromium/base/StreamUtil.java",
       "android/java/src/org/chromium/base/StrictModeContext.java",
-      "android/java/src/org/chromium/base/Supplier.java",
       "android/java/src/org/chromium/base/SysUtils.java",
       "android/java/src/org/chromium/base/ThreadUtils.java",
       "android/java/src/org/chromium/base/TimeUtils.java",
@@ -3304,6 +3308,7 @@ if (is_android) {
       "android/java/src/org/chromium/base/UserDataHost.java",
       "android/java/src/org/chromium/base/annotations/AccessedByNative.java",
       "android/java/src/org/chromium/base/annotations/CalledByNative.java",
+      "android/java/src/org/chromium/base/annotations/CalledByNativeJavaTest.java",
       "android/java/src/org/chromium/base/annotations/CalledByNativeUnchecked.java",
       "android/java/src/org/chromium/base/annotations/CheckDiscard.java",
       "android/java/src/org/chromium/base/annotations/DoNotInline.java",
@@ -3359,6 +3364,10 @@ if (is_android) {
       "android/java/src/org/chromium/base/process_launcher/ChildProcessService.java",
       "android/java/src/org/chromium/base/process_launcher/ChildProcessServiceDelegate.java",
       "android/java/src/org/chromium/base/process_launcher/FileDescriptorInfo.java",
+      "android/java/src/org/chromium/base/supplier/DestroyableObservableSupplier.java",
+      "android/java/src/org/chromium/base/supplier/ObservableSupplier.java",
+      "android/java/src/org/chromium/base/supplier/ObservableSupplierImpl.java",
+      "android/java/src/org/chromium/base/supplier/Supplier.java",
       "android/java/src/org/chromium/base/task/AsyncTask.java",
       "android/java/src/org/chromium/base/task/BackgroundOnlyAsyncTask.java",
       "android/java/src/org/chromium/base/task/ChoreographerTaskRunner.java",
@@ -3585,12 +3594,12 @@ if (is_android) {
       "android/junit/src/org/chromium/base/LifetimeAssertTest.java",
       "android/junit/src/org/chromium/base/LogTest.java",
       "android/junit/src/org/chromium/base/NonThreadSafeTest.java",
-      "android/junit/src/org/chromium/base/ObservableSupplierImplTest.java",
       "android/junit/src/org/chromium/base/PiiEliderTest.java",
       "android/junit/src/org/chromium/base/PromiseTest.java",
       "android/junit/src/org/chromium/base/memory/MemoryPressureMonitorTest.java",
       "android/junit/src/org/chromium/base/process_launcher/ChildConnectionAllocatorTest.java",
       "android/junit/src/org/chromium/base/process_launcher/ChildProcessConnectionTest.java",
+      "android/junit/src/org/chromium/base/supplier/ObservableSupplierImplTest.java",
       "android/junit/src/org/chromium/base/task/AsyncTaskThreadTest.java",
       "android/junit/src/org/chromium/base/task/TaskTraitsTest.java",
       "android/junit/src/org/chromium/base/util/GarbageCollectionTestUtilsUnitTest.java",
@@ -3712,7 +3721,7 @@ if (is_mac) {
     args = [
       "--encode=mach_fuzzer.MachMessage",
       "-I",
-      rebase_path("//testing/libfuzzer/fuzzers/mach"),
+      rebase_path("//"),
       rebase_path(inputs[0]),
     ]
   }

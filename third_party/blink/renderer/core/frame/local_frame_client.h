@@ -181,11 +181,6 @@ class CORE_EXPORT LocalFrameClient : public FrameClient {
 
   virtual bool NavigateBackForward(int offset) const = 0;
 
-  // Another page has accessed the initial empty document of this frame. It is
-  // no longer safe to display a provisional URL, since a URL spoof is now
-  // possible.
-  virtual void DidAccessInitialDocument() {}
-
   // The indicated security origin has run active content (such as a script)
   // from an insecure source.  Note that the insecure content can spread to
   // other frames in the same origin.
@@ -380,19 +375,11 @@ class CORE_EXPORT LocalFrameClient : public FrameClient {
 
   virtual void AnnotatedRegionsChanged() = 0;
 
-  virtual void DidBlockNavigation(const KURL& blocked_url,
-                                  const KURL& initiator_urk,
-                                  blink::NavigationBlockedReason reason) {}
-
   // Called when the corresponding frame should be scrolled in a remote parent
   // frame.
   virtual void ScrollRectToVisibleInParentFrame(
       const WebRect&,
       const WebScrollIntoViewParams&) {}
-
-  virtual void BubbleLogicalScrollInParentFrame(
-      ScrollDirection direction,
-      ScrollGranularity granularity) = 0;
 
   virtual void SetVirtualTimePauser(
       WebScopedVirtualTimePauser virtual_time_pauser) {}

@@ -65,6 +65,9 @@
 
 namespace ash {
 
+using chromeos::assistant::mojom::AssistantEntryPoint;
+using chromeos::assistant::mojom::AssistantExitPoint;
+
 namespace {
 
 bool IsTabletMode() {
@@ -491,17 +494,35 @@ void AppListControllerImpl::OnActiveUserPrefServiceChanged(
     return;
   }
 
-  // Show the app list after signing in in tablet mode. For metrics, the app
-  // list is not considered shown since the browser window is shown over app
-  // list upon login.
-  Show(GetDisplayIdToShowAppListOn(), base::nullopt /* no AppListShowSource */,
-       base::TimeTicks());
-
   // The app list is not dismissed before switching user, suggestion chips will
   // not be shown. So reset app list state and trigger an initial search here to
   // update the suggestion results.
-  presenter_.GetView()->CloseOpenedPage();
-  presenter_.GetView()->search_box_view()->ClearSearch();
+  if (presenter_.GetView()) {
+    presenter_.GetView()->CloseOpenedPage();
+    presenter_.GetView()->search_box_view()->ClearSearch();
+  }
+}
+
+void AppListControllerImpl::OnSessionStateChanged(
+    session_manager::SessionState state) {
+  if (!IsTabletMode())
+    return;
+
+  if (state != session_manager::SessionState::ACTIVE)
+    return;
+
+  // Show the app list after signing in in tablet mode. For metrics, the app
+  // list is not considered shown since the browser window is shown over app
+  // list upon login.
+  if (!presenter_.GetTargetVisibility())
+    Shell::Get()->home_screen_controller()->Show();
+
+  // Hide app list UI initially to prevent app list from flashing in background
+  // while the initial app window is being shown.
+  if (!last_target_visible_)
+    presenter_.SetViewVisibility(false);
+  else
+    OnVisibilityChanged(true, last_visible_display_id_);
 }
 
 void AppListControllerImpl::OnAppListItemWillBeDeleted(AppListItem* item) {
@@ -525,23 +546,7 @@ void AppListControllerImpl::OnAppListStateChanged(AppListState new_state,
   if (!app_list_features::IsAssistantLauncherUIEnabled())
     return;
 
-  ash::ShelfConfig::Get()->SetAssistantVisible(
-      new_state == AppListState::kStateEmbeddedAssistant);
-
   UpdateLauncherContainer();
-
-  // Band-aid for https://b/144056527 to update visibility after AppListState
-  // change. Otherwise, previously calculated visibility in OnVisibilityChanged
-  // and OnVisibilityWillChange is not correct and makes focus change handler
-  // code in AppListPresenterImpl::OnWindowFocused close the app list window
-  // when focus moves into Assistant web contents.
-  aura::Window* app_list_window = GetWindow();
-  if (app_list_window) {
-    const bool app_list_visible = app_list_window->TargetVisibility();
-    if (app_list_visible != IsVisible()) {
-      OnVisibilityChanged(app_list_visible, last_visible_display_id_);
-    }
-  }
 
   if (new_state == AppListState::kStateEmbeddedAssistant) {
     // ShowUi will be no-op if the AssistantUiModel is already visible.
@@ -619,7 +624,9 @@ bool AppListControllerImpl::ShouldHomeLauncherBeVisible() const {
   return IsTabletMode() && !HasVisibleWindows();
 }
 
-void AppListControllerImpl::OnShelfAlignmentChanged(aura::Window* root_window) {
+void AppListControllerImpl::OnShelfAlignmentChanged(
+    aura::Window* root_window,
+    ShelfAlignment old_alignment) {
   if (!IsTabletMode())
     DismissAppList();
 }
@@ -688,7 +695,10 @@ void AppListControllerImpl::OnTabletModeStarted() {
   presenter_.OnTabletModeChanged(true);
 
   // Show the app list if the tablet mode starts.
-  Shell::Get()->home_screen_controller()->Show();
+  if (Shell::Get()->session_controller()->GetSessionState() ==
+      session_manager::SessionState::ACTIVE) {
+    Shell::Get()->home_screen_controller()->Show();
+  }
   UpdateLauncherContainer();
 }
 
@@ -743,12 +753,14 @@ void AppListControllerImpl::OnDisplayConfigurationChanged() {
   // To avoid crashes, we must ensure that the Home Launcher shown status is as
   // expected if it's enabled and we're still in tablet mode.
   // https://crbug.com/900956.
-  const bool should_be_shown = IsTabletMode();
-  if (should_be_shown == presenter_.GetTargetVisibility())
+  const bool should_be_shown =
+      IsTabletMode() && Shell::Get()->session_controller()->GetSessionState() ==
+                            session_manager::SessionState::ACTIVE;
+
+  if (!should_be_shown || should_be_shown == presenter_.GetTargetVisibility())
     return;
 
-  if (should_be_shown)
-    Shell::Get()->home_screen_controller()->Show();
+  Shell::Get()->home_screen_controller()->Show();
 }
 
 void AppListControllerImpl::OnWindowUntracked(aura::Window* untracked_window) {
@@ -773,6 +785,11 @@ void AppListControllerImpl::OnUiVisibilityChanged(
 
       if (!IsShowingEmbeddedAssistantUI())
         presenter_.ShowEmbeddedAssistantUI(true);
+
+      // Make sure that app list views are visible - they might get hidden
+      // during session startup, and the app list visibility might not have yet
+      // changed to visible by this point.
+      presenter_.SetViewVisibility(true);
       break;
     case AssistantVisibility::kHidden:
       NOTREACHED();
@@ -1412,7 +1429,7 @@ void AppListControllerImpl::OnVisibilityChanged(bool visible,
   // HomeLauncher is only visible when no other app windows are visible,
   // unless we are in the process of animating to (or dragging) the home
   // launcher.
-  if (IsTabletMode() && ShouldLauncherShowBehindApps())
+  if (IsTabletMode())
     real_visibility &= !HasVisibleWindows();
 
   aura::Window* app_list_window = GetWindow();
@@ -1454,9 +1471,8 @@ void AppListControllerImpl::OnVisibilityWillChange(bool visible,
   // HomeLauncher is only visible when no other app windows are visible,
   // unless we are in the process of animating to (or dragging) the home
   // launcher.
-  if (IsTabletMode() && ShouldLauncherShowBehindApps() &&
-      home_launcher_transition_state_ ==
-          HomeLauncherTransitionState::kFinished) {
+  if (IsTabletMode() && home_launcher_transition_state_ ==
+                            HomeLauncherTransitionState::kFinished) {
     real_target_visibility &= !HasVisibleWindows();
   }
 
@@ -1483,6 +1499,9 @@ void AppListControllerImpl::OnVisibilityWillChange(bool visible,
       if (presenter_.GetView())
         presenter_.GetView()->SelectInitialAppsPage();
     }
+
+    if (real_target_visibility && presenter_.GetView())
+      presenter_.SetViewVisibility(true);
 
     if (client_)
       client_->OnAppListVisibilityWillChange(real_target_visibility);

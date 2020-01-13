@@ -21,7 +21,6 @@ Bəzi funksiyalar əlçatmaz ola bilər ki, nəticədə tərcihlərə edilən d�
 <translation id="1929939181775079593">Chromium cavab vermir. İndi yenidən başladılsın?</translation>
 <translation id="1966382378801805537">Chromium defolt brauzeri müəyyən edə və ya ayarlaya bilmir</translation>
 <translation id="2008474315282236005">1 element cihazdan silinəcək. Sonradan datanızı bərpa etmək üçün <ph name="USER_EMAIL" /> kimi Chromiuma daxil olun.</translation>
-<translation id="2119636228670142020">Chromium OS haqqında</translation>
 <translation id="2147976119693222405">Chromium OS datanızı sinxronizasiya edə bilmədi. İndi düzəliş edin.</translation>
 <translation id="2241627712206172106">Paylaşılan kompüteriniz varsa, kompüterin paylaşıldığı şəxslər ayrı-ayrılıqda istifadə edə və Chromium'u istədikləri kimi quraşdıra bilər.</translation>
 <translation id="2347108572062610441">Bu artırma Chromium'u başlatdığınız zaman hansı səhifənin göstərildiyini dəyişdi.</translation>
@@ -39,7 +38,6 @@ Bəzi funksiyalar əlçatmaz ola bilər ki, nəticədə tərcihlərə edilən d�
 <translation id="2770231113462710648">Defolt brauzeri dəyişin:</translation>
 <translation id="2799223571221894425">Yenidən başladın</translation>
 <translation id="2805036593126168338">Chromium OS parollarınızı sinxronizasiya edə bilmədi. İndi düzəliş edin.</translation>
-<translation id="2838154144102149890">Güncəlləmək üçün bu kompüterdə Chromium dayandırılmalıdır. Bu, həmin kompüterə daxil olmuş digər istifadəçilərin yadda saxlanılmayan dəyişikliklərinin silinməsinə səbəb ola bilər.</translation>
 <translation id="2847479871509788944">Chromium'dan silin...</translation>
 <translation id="2886012850691518054">Seçimə görə: İstifadə statistikası və xəta hesabatlarını avtomatik Google'a göndərməklə Chromium tətbiqini təkmilləşdirin.</translation>
 <translation id="2910007522516064972">Chromium haqqında</translation>
@@ -147,7 +145,6 @@ Bəzi funksiyalar əlçatmaz ola bilər. Xüsusi profil direktoriyası göstəri
 <translation id="6847869444787758381">Chromium parollarınızın oğurlanıb-oğurlanmadığı haqqında Sizə məlumat verir</translation>
 <translation id="6857782730669500492">Chromium - <ph name="PAGE_TITLE" /></translation>
 <translation id="6863361426438995919">Google Pay (Chromium'a kopyalandı)</translation>
-<translation id="6868056391275687737">Chromium'un digər nüsxələri işləyir. Güncəlləmək üçün onları bağlayın.</translation>
 <translation id="6893813176749746474">Xrom yeniləndi, lakin ən azı 30 gün üçün istifadə etməmişlər.</translation>
 <translation id="6964305034639999644">Linki gizli Chromium pəncərəsində açın</translation>
 <translation id="6990124437352146030">Chromium bu sayt üçün mikrofona giriş tələb edir</translation>
@@ -205,7 +202,6 @@ Bəzi funksiyalar əlçatmaz ola bilər. Xüsusi profil direktoriyası göstəri
 <translation id="8697124171261953979">O, həmçinin Chromium'u başlatdığınız zaman və ya Omnibox'dan axtarış etdiyiniz zaman göstərilən səhifəyə nəzarət edir.</translation>
 <translation id="8704119203788522458">Bu, Sizin Chromium'dur</translation>
 <translation id="8739167630197873875">Chromium'dan çıxdıqda kukiləri sildiniz. Sinxronizasiyanı davam etdirmək üçün bu <ph name="COOKIE_SETTINGS_LINK" /> ayarını dəyişin.</translation>
-<translation id="8748383401829947534">Bütün Chromium nüsxələrindən çıxın.</translation>
 <translation id="8796602469536043152">Chromium bu sayt üçün kamera və mikrofona giriş icazəsi tələb edir</translation>
 <translation id="8803635938069941624">Chromium OS şərtləri</translation>
 <translation id="8821041990367117597">Chromium datanızı sinxronizasiya edə bilmir, çünki hesaba giriş məlumatlarınız köhnədir.</translation>

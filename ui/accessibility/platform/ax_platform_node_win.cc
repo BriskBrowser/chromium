@@ -6723,7 +6723,7 @@ bool AXPlatformNodeWin::IsInaccessibleDueToAncestor() const {
   AXPlatformNodeWin* parent = static_cast<AXPlatformNodeWin*>(
       AXPlatformNode::FromNativeViewAccessible(GetParent()));
   while (parent) {
-    if (parent->ShouldHideChildren())
+    if (parent->ShouldHideChildrenForUIA())
       return true;
     parent = static_cast<AXPlatformNodeWin*>(
         FromNativeViewAccessible(parent->GetParent()));
@@ -6731,7 +6731,7 @@ bool AXPlatformNodeWin::IsInaccessibleDueToAncestor() const {
   return false;
 }
 
-bool AXPlatformNodeWin::ShouldHideChildren() const {
+bool AXPlatformNodeWin::ShouldHideChildrenForUIA() const {
   switch (GetData().role) {
     case ax::mojom::Role::kButton:
     case ax::mojom::Role::kImage:
@@ -6741,6 +6741,7 @@ bool AXPlatformNodeWin::ShouldHideChildren() const {
     case ax::mojom::Role::kProgressIndicator:
     case ax::mojom::Role::kScrollBar:
     case ax::mojom::Role::kSlider:
+    case ax::mojom::Role::kTextField:
       return true;
     default:
       return false;
@@ -7396,14 +7397,31 @@ AXPlatformNodeWin::GetPatternProviderFactoryMethod(PATTERNID pattern_id) {
       break;
 
     case UIA_TablePatternId:
+      // https://docs.microsoft.com/en-us/windows/win32/api/uiautomationcore/nn-uiautomationcore-itableprovider
+      // This control pattern is analogous to IGridProvider with the distinction
+      // that any control implementing ITableProvider must also expose a column
+      // and/or row header relationship for each child element.
       if (IsTableLike(data.role)) {
-        return &PatternProvider<ITableProvider>;
+        base::Optional<bool> table_has_headers =
+            GetDelegate()->GetTableHasColumnOrRowHeaderNode();
+        if (table_has_headers.has_value() && table_has_headers.value()) {
+          return &PatternProvider<ITableProvider>;
+        }
       }
       break;
 
     case UIA_TableItemPatternId:
+      // https://docs.microsoft.com/en-us/windows/win32/api/uiautomationcore/nn-uiautomationcore-itableitemprovider
+      // This control pattern is analogous to IGridItemProvider with the
+      // distinction that any control implementing ITableItemProvider must
+      // expose the relationship between the individual cell and its row and
+      // column information.
       if (IsCellOrTableHeader(data.role)) {
-        return &PatternProvider<ITableItemProvider>;
+        base::Optional<bool> table_has_headers =
+            GetDelegate()->GetTableHasColumnOrRowHeaderNode();
+        if (table_has_headers.has_value() && table_has_headers.value()) {
+          return &PatternProvider<ITableItemProvider>;
+        }
       }
       break;
 
@@ -7493,7 +7511,7 @@ AXPlatformNodeWin* AXPlatformNodeWin::GetLowestAccessibleElement() {
   AXPlatformNodeWin* parent = static_cast<AXPlatformNodeWin*>(
       AXPlatformNode::FromNativeViewAccessible(GetParent()));
   while (parent) {
-    if (parent->ShouldHideChildren())
+    if (parent->ShouldHideChildrenForUIA())
       return parent;
     parent = static_cast<AXPlatformNodeWin*>(
         AXPlatformNode::FromNativeViewAccessible(parent->GetParent()));

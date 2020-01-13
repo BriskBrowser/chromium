@@ -76,8 +76,7 @@ float GetDragWindowOpacity(aura::Window* root_window,
 // bounds and opacity based on the current bounds.
 class DragWindowController::DragWindowDetails : public aura::WindowDelegate {
  public:
-  DragWindowDetails(const display::Display& display,
-                    aura::Window* original_window)
+  explicit DragWindowDetails(const display::Display& display)
       : root_window_(Shell::GetRootWindowForDisplayId(display.id())) {}
 
   ~DragWindowDetails() override {
@@ -112,7 +111,6 @@ class DragWindowController::DragWindowDetails : public aura::WindowDelegate {
 
   void CreateDragWindow(aura::Window* original_window) {
     DCHECK(!drag_window_);
-    original_window_ = original_window;
     drag_window_ = window_factory::NewWindow(this).release();
     int parent_id = original_window->parent()->id();
     aura::Window* container = root_window_->GetChildById(parent_id);
@@ -130,7 +128,6 @@ class DragWindowController::DragWindowDetails : public aura::WindowDelegate {
     ::wm::SetShadowElevation(drag_window_, ::wm::kShadowElevationActiveWindow);
 
     RecreateWindowLayers(original_window);
-    layer_owner_->root()->SetVisible(true);
     drag_window_->layer()->Add(layer_owner_->root());
     drag_window_->layer()->StackAtTop(layer_owner_->root());
 
@@ -152,7 +149,6 @@ class DragWindowController::DragWindowDetails : public aura::WindowDelegate {
     layer_bounds.set_origin(gfx::Point(0, 0));
     layer_owner_->root()->SetBounds(layer_bounds);
     layer_owner_->root()->SetTransform(gfx::Transform());
-    layer_owner_->root()->SetVisible(false);
   }
 
   void SetOpacity(float opacity) {
@@ -196,8 +192,6 @@ class DragWindowController::DragWindowDetails : public aura::WindowDelegate {
 
   aura::Window* drag_window_ = nullptr;  // Owned by the container.
 
-  aura::Window* original_window_ = nullptr;
-
   // The copy of window_->layer() and its descendants.
   std::unique_ptr<ui::LayerTreeOwner> layer_owner_;
 
@@ -218,8 +212,7 @@ DragWindowController::DragWindowController(aura::Window* window,
   for (const display::Display& display : screen->GetAllDisplays()) {
     if (current.id() == display.id())
       continue;
-    drag_windows_.push_back(
-        std::make_unique<DragWindowDetails>(display, window_));
+    drag_windows_.push_back(std::make_unique<DragWindowDetails>(display));
   }
 }
 

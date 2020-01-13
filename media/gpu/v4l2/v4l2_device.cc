@@ -29,7 +29,6 @@
 #include "media/gpu/chromeos/fourcc.h"
 #include "media/gpu/macros.h"
 #include "media/gpu/v4l2/generic_v4l2_device.h"
-#include "media/gpu/v4l2/v4l2_decode_surface.h"
 #include "ui/gfx/native_pixmap_handle.h"
 
 #if defined(ARCH_CPU_ARMEL)
@@ -42,6 +41,13 @@
 #define REQUEST_DEVICE "/dev/media-dec0"
 
 namespace media {
+
+namespace {
+
+// Maximum number of requests that can be created.
+constexpr size_t kMaxNumRequests = 32;
+
+}  // namespace
 
 // Class used to store the state of a buffer that should persist between
 // reference creations. This includes:
@@ -60,7 +66,7 @@ class V4L2Buffer {
 
   void* GetPlaneMapping(const size_t plane);
   size_t GetMemoryUsage() const;
-  const struct v4l2_buffer* v4l2_buffer() const { return &v4l2_buffer_; }
+  const struct v4l2_buffer& v4l2_buffer() const { return v4l2_buffer_; }
   scoped_refptr<VideoFrame> GetVideoFrame();
 
  private:
@@ -290,7 +296,7 @@ size_t V4L2BuffersList::size() const {
 // It also makes some private V4L2Queue methods available to this module only.
 class V4L2BufferRefBase {
  public:
-  V4L2BufferRefBase(const struct v4l2_buffer* v4l2_buffer,
+  V4L2BufferRefBase(const struct v4l2_buffer& v4l2_buffer,
                     base::WeakPtr<V4L2Queue> queue);
   ~V4L2BufferRefBase();
 
@@ -312,6 +318,7 @@ class V4L2BufferRefBase {
  private:
   size_t BufferId() const { return v4l2_buffer_.index; }
 
+  friend class V4L2WritableBufferRef;
   // A weak pointer to the queue this buffer belongs to. Will remain valid as
   // long as the underlying V4L2 buffer is valid too.
   // This can only be accessed from the sequence protected by sequence_checker_.
@@ -325,17 +332,17 @@ class V4L2BufferRefBase {
   DISALLOW_COPY_AND_ASSIGN(V4L2BufferRefBase);
 };
 
-V4L2BufferRefBase::V4L2BufferRefBase(const struct v4l2_buffer* v4l2_buffer,
+V4L2BufferRefBase::V4L2BufferRefBase(const struct v4l2_buffer& v4l2_buffer,
                                      base::WeakPtr<V4L2Queue> queue)
     : queue_(std::move(queue)), return_to_(queue_->free_buffers_) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(V4L2_TYPE_IS_MULTIPLANAR(v4l2_buffer->type));
-  DCHECK_LE(v4l2_buffer->length, base::size(v4l2_planes_));
+  DCHECK(V4L2_TYPE_IS_MULTIPLANAR(v4l2_buffer.type));
+  DCHECK_LE(v4l2_buffer.length, base::size(v4l2_planes_));
   DCHECK(return_to_);
 
-  memcpy(&v4l2_buffer_, v4l2_buffer, sizeof(v4l2_buffer_));
-  memcpy(v4l2_planes_, v4l2_buffer->m.planes,
-         sizeof(struct v4l2_plane) * v4l2_buffer->length);
+  memcpy(&v4l2_buffer_, &v4l2_buffer, sizeof(v4l2_buffer_));
+  memcpy(v4l2_planes_, v4l2_buffer.m.planes,
+         sizeof(struct v4l2_plane) * v4l2_buffer.length);
   v4l2_buffer_.m.planes = v4l2_planes_;
 }
 
@@ -416,13 +423,8 @@ bool V4L2BufferRefBase::CheckNumFDsForFormat(const size_t num_fds) const {
   return true;
 }
 
-V4L2WritableBufferRef::V4L2WritableBufferRef() {
-  // Invalid buffers can be created from any thread.
-  DETACH_FROM_SEQUENCE(sequence_checker_);
-}
-
 V4L2WritableBufferRef::V4L2WritableBufferRef(
-    const struct v4l2_buffer* v4l2_buffer,
+    const struct v4l2_buffer& v4l2_buffer,
     base::WeakPtr<V4L2Queue> queue)
     : buffer_data_(
           std::make_unique<V4L2BufferRefBase>(v4l2_buffer, std::move(queue))) {
@@ -457,26 +459,24 @@ V4L2WritableBufferRef& V4L2WritableBufferRef::operator=(
 
 scoped_refptr<VideoFrame> V4L2WritableBufferRef::GetVideoFrame() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(buffer_data_);
 
   return buffer_data_->GetVideoFrame();
 }
 
-bool V4L2WritableBufferRef::IsValid() const {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  return buffer_data_ != nullptr;
-}
-
 enum v4l2_memory V4L2WritableBufferRef::Memory() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(IsValid());
+  DCHECK(buffer_data_);
 
   return static_cast<enum v4l2_memory>(buffer_data_->v4l2_buffer_.memory);
 }
 
-bool V4L2WritableBufferRef::DoQueue() && {
+bool V4L2WritableBufferRef::DoQueue(V4L2RequestRef* request_ref) && {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(IsValid());
+  DCHECK(buffer_data_);
+
+  if (request_ref && buffer_data_->queue_->SupportsRequests())
+    request_ref->ApplyQueueBuffer(&(buffer_data_->v4l2_buffer_));
 
   bool queued = buffer_data_->QueueBuffer();
 
@@ -486,9 +486,10 @@ bool V4L2WritableBufferRef::DoQueue() && {
   return queued;
 }
 
-bool V4L2WritableBufferRef::QueueMMap() && {
+bool V4L2WritableBufferRef::QueueMMap(
+    V4L2RequestRef* request_ref) && {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(IsValid());
+  DCHECK(buffer_data_);
 
   // Move ourselves so our data gets freed no matter when we return
   V4L2WritableBufferRef self(std::move(*this));
@@ -498,12 +499,14 @@ bool V4L2WritableBufferRef::QueueMMap() && {
     return false;
   }
 
-  return std::move(self).DoQueue();
+  return std::move(self).DoQueue(request_ref);
 }
 
-bool V4L2WritableBufferRef::QueueUserPtr(const std::vector<void*>& ptrs) && {
+bool V4L2WritableBufferRef::QueueUserPtr(
+    const std::vector<void*>& ptrs,
+    V4L2RequestRef* request_ref) && {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(IsValid());
+  DCHECK(buffer_data_);
 
   // Move ourselves so our data gets freed no matter when we return
   V4L2WritableBufferRef self(std::move(*this));
@@ -523,13 +526,14 @@ bool V4L2WritableBufferRef::QueueUserPtr(const std::vector<void*>& ptrs) && {
     self.buffer_data_->v4l2_buffer_.m.planes[i].m.userptr =
         reinterpret_cast<unsigned long>(ptrs[i]);
 
-  return std::move(self).DoQueue();
+  return std::move(self).DoQueue(request_ref);
 }
 
 bool V4L2WritableBufferRef::QueueDMABuf(
-    const std::vector<base::ScopedFD>& fds) && {
+    const std::vector<base::ScopedFD>& fds,
+    V4L2RequestRef* request_ref) && {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(IsValid());
+  DCHECK(buffer_data_);
 
   // Move ourselves so our data gets freed no matter when we return
   V4L2WritableBufferRef self(std::move(*this));
@@ -546,13 +550,14 @@ bool V4L2WritableBufferRef::QueueDMABuf(
   for (size_t i = 0; i < num_planes; i++)
     self.buffer_data_->v4l2_buffer_.m.planes[i].m.fd = fds[i].get();
 
-  return std::move(self).DoQueue();
+  return std::move(self).DoQueue(request_ref);
 }
 
 bool V4L2WritableBufferRef::QueueDMABuf(
-    const std::vector<gfx::NativePixmapPlane>& planes) && {
+    const std::vector<gfx::NativePixmapPlane>& planes,
+    V4L2RequestRef* request_ref) && {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(IsValid());
+  DCHECK(buffer_data_);
 
   // Move ourselves so our data gets freed no matter when we return
   V4L2WritableBufferRef self(std::move(*this));
@@ -569,19 +574,19 @@ bool V4L2WritableBufferRef::QueueDMABuf(
   for (size_t i = 0; i < num_planes; i++)
     self.buffer_data_->v4l2_buffer_.m.planes[i].m.fd = planes[i].fd.get();
 
-  return std::move(self).DoQueue();
+  return std::move(self).DoQueue(request_ref);
 }
 
 size_t V4L2WritableBufferRef::PlanesCount() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(IsValid());
+  DCHECK(buffer_data_);
 
   return buffer_data_->v4l2_buffer_.length;
 }
 
 size_t V4L2WritableBufferRef::GetPlaneSize(const size_t plane) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(IsValid());
+  DCHECK(buffer_data_);
 
   if (plane >= PlanesCount()) {
     VLOGF(1) << "Invalid plane " << plane << " requested.";
@@ -594,7 +599,7 @@ size_t V4L2WritableBufferRef::GetPlaneSize(const size_t plane) const {
 void V4L2WritableBufferRef::SetPlaneSize(const size_t plane,
                                          const size_t size) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(IsValid());
+  DCHECK(buffer_data_);
 
   enum v4l2_memory memory = Memory();
   if (memory == V4L2_MEMORY_MMAP) {
@@ -613,21 +618,21 @@ void V4L2WritableBufferRef::SetPlaneSize(const size_t plane,
 
 void* V4L2WritableBufferRef::GetPlaneMapping(const size_t plane) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(IsValid());
+  DCHECK(buffer_data_);
 
   return buffer_data_->GetPlaneMapping(plane);
 }
 
 void V4L2WritableBufferRef::SetTimeStamp(const struct timeval& timestamp) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(IsValid());
+  DCHECK(buffer_data_);
 
   buffer_data_->v4l2_buffer_.timestamp = timestamp;
 }
 
 const struct timeval& V4L2WritableBufferRef::GetTimeStamp() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(IsValid());
+  DCHECK(buffer_data_);
 
   return buffer_data_->v4l2_buffer_.timestamp;
 }
@@ -635,7 +640,7 @@ const struct timeval& V4L2WritableBufferRef::GetTimeStamp() const {
 void V4L2WritableBufferRef::SetPlaneBytesUsed(const size_t plane,
                                               const size_t bytes_used) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(IsValid());
+  DCHECK(buffer_data_);
 
   if (plane >= PlanesCount()) {
     VLOGF(1) << "Invalid plane " << plane << " requested.";
@@ -653,7 +658,7 @@ void V4L2WritableBufferRef::SetPlaneBytesUsed(const size_t plane,
 
 size_t V4L2WritableBufferRef::GetPlaneBytesUsed(const size_t plane) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(IsValid());
+  DCHECK(buffer_data_);
 
   if (plane >= PlanesCount()) {
     VLOGF(1) << "Invalid plane " << plane << " requested.";
@@ -666,7 +671,7 @@ size_t V4L2WritableBufferRef::GetPlaneBytesUsed(const size_t plane) const {
 void V4L2WritableBufferRef::SetPlaneDataOffset(const size_t plane,
                                                const size_t data_offset) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(IsValid());
+  DCHECK(buffer_data_);
 
   if (plane >= PlanesCount()) {
     VLOGF(1) << "Invalid plane " << plane << " requested.";
@@ -676,19 +681,21 @@ void V4L2WritableBufferRef::SetPlaneDataOffset(const size_t plane,
   buffer_data_->v4l2_buffer_.m.planes[plane].data_offset = data_offset;
 }
 
-void V4L2WritableBufferRef::PrepareQueueBuffer(
-    const V4L2DecodeSurface& surface) {
-  surface.PrepareQueueBuffer(&(buffer_data_->v4l2_buffer_));
-}
-
 size_t V4L2WritableBufferRef::BufferId() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(IsValid());
+  DCHECK(buffer_data_);
 
   return buffer_data_->v4l2_buffer_.index;
 }
 
-V4L2ReadableBuffer::V4L2ReadableBuffer(const struct v4l2_buffer* v4l2_buffer,
+void V4L2WritableBufferRef::SetConfigStore(uint32_t config_store) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(buffer_data_);
+
+  buffer_data_->v4l2_buffer_.config_store = config_store;
+}
+
+V4L2ReadableBuffer::V4L2ReadableBuffer(const struct v4l2_buffer& v4l2_buffer,
                                        base::WeakPtr<V4L2Queue> queue)
     : buffer_data_(
           std::make_unique<V4L2BufferRefBase>(v4l2_buffer, std::move(queue))) {
@@ -779,13 +786,13 @@ size_t V4L2ReadableBuffer::BufferId() const {
 class V4L2BufferRefFactory {
  public:
   static V4L2WritableBufferRef CreateWritableRef(
-      const struct v4l2_buffer* v4l2_buffer,
+      const struct v4l2_buffer& v4l2_buffer,
       base::WeakPtr<V4L2Queue> queue) {
     return V4L2WritableBufferRef(v4l2_buffer, std::move(queue));
   }
 
   static V4L2ReadableBufferRef CreateReadableRef(
-      const struct v4l2_buffer* v4l2_buffer,
+      const struct v4l2_buffer& v4l2_buffer,
       base::WeakPtr<V4L2Queue> queue) {
     return new V4L2ReadableBuffer(v4l2_buffer, std::move(queue));
   }
@@ -807,6 +814,22 @@ V4L2Queue::V4L2Queue(scoped_refptr<V4L2Device> dev,
       destroy_cb_(std::move(destroy_cb)),
       weak_this_factory_(this) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  // Check if this queue support requests.
+  struct v4l2_requestbuffers reqbufs;
+  memset(&reqbufs, 0, sizeof(reqbufs));
+  reqbufs.count = 0;
+  reqbufs.type = type;
+  reqbufs.memory = V4L2_MEMORY_MMAP;
+  if (device_->Ioctl(VIDIOC_REQBUFS, &reqbufs) != 0) {
+    VPLOGF(1) << "Request support checks's VIDIOC_REQBUFS ioctl failed.";
+    return;
+  }
+
+  if (reqbufs.capabilities & V4L2_BUF_CAP_SUPPORTS_REQUESTS) {
+    supports_requests_ = true;
+    DVLOGF(4) << "Queue supports request API.";
+  }
 }
 
 V4L2Queue::~V4L2Queue() {
@@ -967,17 +990,16 @@ v4l2_memory V4L2Queue::GetMemoryType() const {
   return memory_;
 }
 
-V4L2WritableBufferRef V4L2Queue::GetFreeBuffer() {
+base::Optional<V4L2WritableBufferRef> V4L2Queue::GetFreeBuffer() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   // No buffers allocated at the moment?
   if (!free_buffers_)
-    return V4L2WritableBufferRef();
+    return base::nullopt;
 
   auto buffer_id = free_buffers_->GetFreeBuffer();
-
   if (!buffer_id.has_value())
-    return V4L2WritableBufferRef();
+    return base::nullopt;
 
   return V4L2BufferRefFactory::CreateWritableRef(
       buffers_[buffer_id.value()]->v4l2_buffer(),
@@ -1047,7 +1069,7 @@ std::pair<bool, V4L2ReadableBufferRef> V4L2Queue::DequeueBuffer() {
   DCHECK(free_buffers_);
   return std::make_pair(true,
                         V4L2BufferRefFactory::CreateReadableRef(
-                            &v4l2_buffer, weak_this_factory_.GetWeakPtr()));
+                            v4l2_buffer, weak_this_factory_.GetWeakPtr()));
 }
 
 bool V4L2Queue::IsStreaming() const {
@@ -1121,6 +1143,12 @@ size_t V4L2Queue::QueuedBuffersCount() const {
 #undef VDQLOGF
 #undef VPQLOGF
 #undef VQLOGF
+
+bool V4L2Queue::SupportsRequests() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  return supports_requests_;
+}
 
 // This class is used to expose V4L2Queue's constructor to this module. This is
 // to ensure that nobody else can create instances of it.
@@ -1917,10 +1945,10 @@ V4L2RequestsQueue* V4L2Device::GetRequestsQueue() {
 
 class V4L2Request {
  public:
-  // Sets the passed controls to the request.
-  bool SetCtrls(struct v4l2_ext_controls* ctrls);
-  // Sets the passed buffer to the request.
-  bool SetQueueBuffer(struct v4l2_buffer* buffer);
+  // Apply the passed controls to the request.
+  bool ApplyCtrls(struct v4l2_ext_controls* ctrls);
+  // Apply the passed buffer to the request..
+  bool ApplyQueueBuffer(struct v4l2_buffer* buffer);
   // Submits the request to the driver.
   bool Submit();
   // Indicates if the request has completed.
@@ -1968,7 +1996,7 @@ int V4L2Request::DecRefCounter() {
   return ref_counter_;
 }
 
-bool V4L2Request::SetCtrls(struct v4l2_ext_controls* ctrls) {
+bool V4L2Request::ApplyCtrls(struct v4l2_ext_controls* ctrls) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_NE(ctrls, nullptr);
 
@@ -1983,7 +2011,7 @@ bool V4L2Request::SetCtrls(struct v4l2_ext_controls* ctrls) {
   return true;
 }
 
-bool V4L2Request::SetQueueBuffer(struct v4l2_buffer* buffer) {
+bool V4L2Request::ApplyQueueBuffer(struct v4l2_buffer* buffer) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_NE(buffer, nullptr);
 
@@ -2017,7 +2045,6 @@ bool V4L2Request::IsCompleted() {
 
 bool V4L2Request::WaitForCompletion(int poll_timeout_ms) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
   if (!request_fd_.is_valid()) {
     VPLOGF(1) << "Invalid request";
     return false;
@@ -2026,12 +2053,20 @@ bool V4L2Request::WaitForCompletion(int poll_timeout_ms) {
   struct pollfd poll_fd = {request_fd_.get(), POLLPRI, 0};
 
   // Poll the request to ensure its previous task is done
-  if (poll(&poll_fd, 1, poll_timeout_ms) != 1) {
-    VPLOGF(1) << "Failed to poll request.";
-    return false;
+  switch (poll(&poll_fd, 1, poll_timeout_ms)) {
+    case 1:
+      return true;
+    case 0:
+      // Not an error - we just timed out.
+      DVLOGF(4) << "Request poll(" << poll_timeout_ms << ") timed out";
+      return false;
+    case -1:
+      VPLOGF(1) << "Failed to poll request";
+      return false;
+    default:
+      NOTREACHED();
+      return false;
   }
-
-  return true;
 }
 
 bool V4L2Request::Reset() {
@@ -2070,30 +2105,32 @@ V4L2RequestRefBase::V4L2RequestRefBase(V4L2Request* request) {
 V4L2RequestRefBase::~V4L2RequestRefBase() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  if (IsValid())
+  if (request_)
     request_->DecRefCounter();
 }
 
-bool V4L2RequestRef::SetCtrls(struct v4l2_ext_controls* ctrls) const {
+bool V4L2RequestRef::ApplyCtrls(struct v4l2_ext_controls* ctrls) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_NE(request_, nullptr);
 
-  return request_->SetCtrls(ctrls);
+  return request_->ApplyCtrls(ctrls);
 }
 
-bool V4L2RequestRef::SetQueueBuffer(struct v4l2_buffer* buffer) const {
+bool V4L2RequestRef::ApplyQueueBuffer(struct v4l2_buffer* buffer) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_NE(request_, nullptr);
 
-  return request_->SetQueueBuffer(buffer);
+  return request_->ApplyQueueBuffer(buffer);
 }
 
-V4L2SubmittedRequestRef V4L2RequestRef::Submit() && {
+base::Optional<V4L2SubmittedRequestRef> V4L2RequestRef::Submit() && {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_NE(request_, nullptr);
 
   V4L2RequestRef self(std::move(*this));
 
   if (!self.request_->Submit())
-    return V4L2SubmittedRequestRef(nullptr);
+    return base::nullopt;
 
   return V4L2SubmittedRequestRef(self.request_);
 }
@@ -2125,60 +2162,50 @@ base::Optional<base::ScopedFD> V4L2RequestsQueue::CreateRequestFD() {
   int ret = HANDLE_EINTR(
         ioctl(media_fd_.get(), MEDIA_IOC_REQUEST_ALLOC, &request_fd));
   if (ret < 0) {
-    VPLOGF(1) << "Failed to create request.";
+    VPLOGF(1) << "Failed to create request";
     return base::nullopt;
   }
 
   return base::ScopedFD(request_fd);
 }
 
-bool V4L2RequestsQueue::AllocateRequests(size_t nb_requests) {
+base::Optional<V4L2RequestRef> V4L2RequestsQueue::GetFreeRequest() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  // Only positive number of requests are valid.
-  if (nb_requests < 1) {
-    VLOGF(1) << "Failed to create requests. Request number must be 1 or more";
-    return false;
-  }
-
-  // Returns if requests have been already allocated.
-  if (!free_requests_.empty()) {
-    VLOGF(1) << "Requests already allocated";
-    return false;
-  }
-
-  // Creates the number of requested requests.
-  for (size_t i = 0; i < nb_requests; i++) {
+  V4L2Request* request_ptr =
+      free_requests_.empty() ? nullptr : free_requests_.front();
+  if (request_ptr && request_ptr->IsCompleted()) {
+    // Previous request is already completed, just recycle it.
+    free_requests_.pop();
+  } else if (requests_.size() < kMaxNumRequests) {
+    // No request yet, or not completed, but we can allocate a new one.
     auto request_fd = CreateRequestFD();
-    if (request_fd.has_value()) {
-      // Not using std::make_unique because constructor is private.
-      std::unique_ptr<V4L2Request> request(
-          new V4L2Request(std::move(request_fd.value()), this));
-      free_requests_.push(request.get());
-      requests_.push_back(std::move(request));
-    } else {
-      requests_.clear();
-      VPLOGF(1) << "Failed to created number of requested requests.";
-      return false;
+    if (!request_fd.has_value()) {
+      VLOGF(1) << "Error while creating a new request FD!";
+      return base::nullopt;
     }
+    // Not using std::make_unique because constructor is private.
+    std::unique_ptr<V4L2Request> request(
+        new V4L2Request(std::move(*request_fd), this));
+    request_ptr = request.get();
+    requests_.push_back(std::move(request));
+    VLOGF(4) << "Allocated new request, total number: " << requests_.size();
+  } else {
+    // Request is not completed and we have reached the maximum number.
+    // Wait for it to complete.
+    VLOGF(1) << "Waiting for request completion. This probably means a "
+             << "request is blocking.";
+    if (!request_ptr->WaitForCompletion()) {
+      VLOG(1) << "Timeout while waiting for request to complete.";
+      return base::nullopt;
+    }
+    free_requests_.pop();
   }
 
-  return true;
-}
-
-V4L2RequestRef V4L2RequestsQueue::GetFreeRequest() {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  // Gets a request in the front of the queue and checked is free to be used.
-  // If no request is available, still returns a request reference but the
-  // request will null which will make it marked invalid.
-  V4L2Request* request_ptr = nullptr;
-  if (!free_requests_.empty()) {
-    request_ptr = free_requests_.front();
-    if (request_ptr->WaitForCompletion() && request_ptr->Reset())
-      free_requests_.pop();
-    else
-      request_ptr = nullptr;
+  DCHECK(request_ptr);
+  if (!request_ptr->Reset()) {
+    VPLOGF(1) << "Failed to reset request";
+    return base::nullopt;
   }
 
   return V4L2RequestRef(request_ptr);

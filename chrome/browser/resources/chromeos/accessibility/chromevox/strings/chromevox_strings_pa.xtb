@@ -418,6 +418,7 @@
 <translation id="3914732343065571127">ChromeVox ਆਦੇਸ਼ ਹਵਾਲਾ</translation>
 <translation id="3930383913623796990">ਗੂੜ੍ਹਾ ਤੋਤੇਰੰਗਾ</translation>
 <translation id="3930498801443296724">ਪੁਲਕੋਟ</translation>
+<translation id="3935615366277838204">ਵੱਡਾ ਅੱਖਰ <ph name="LETTER" /></translation>
 <translation id="3936394396199829062">ਫਿੱਕਾ ਗੁਲਾਬੀ</translation>
 <translation id="3941269780691800708">ਮਾਊਸ ਦੇ ਕਰਸਰ ਹੇਠਲੀ ਲਿਖਤ ਬੋਲੋ।</translation>
 <translation id="394953087167197343">ਗਲਤ ਸ਼ਬਦ-ਜੋੜ ਪ੍ਰਦਰਸ਼ਕ-ਸੰਕੇਤ:</translation>
@@ -791,7 +792,6 @@
 <translation id="6459511626086141404">ਫਲੈਟ ਕੀਮੈਪ</translation>
 <translation id="6468049171101508116">ਅਗਲਾ ਬਟਨ</translation>
 <translation id="646954774886932461">ਕ੍ਰਮ-ਸੂਚੀ</translation>
-<translation id="6479792383819319132">ਕੋਈ ਅਗਲਾ ਪੈਰਾ ਨਹੀਂ ਹੈ।</translation>
 <translation id="6493991254603208962">ਚਮਕ ਘਟਾਓ</translation>
 <translation id="6501595918865591267">ਫਿਰੋਜ਼ੀ</translation>
 <translation id="6508059270146105198">ਬ੍ਰੇਲ ਡਿਸਪਲੇ ਨੂੰ ਸਫ਼ੇ ਦੇ ਹੇਠਾਂ ਵੱਲ ਮੂਵ ਕਰੋ</translation>
@@ -814,7 +814,6 @@
 <translation id="6637586476836377253">ਲੌਗ</translation>
 <translation id="6657128831881431364">ਪ੍ਰਗਤੀ ਬਾਰ</translation>
 <translation id="6659594942844771486">ਟੈਬ</translation>
-<translation id="6675661017770918201">ਕੋਈ ਪਿਛਲਾ ਪੈਰਾ ਨਹੀਂ ਹੈ।</translation>
 <translation id="667999046851023355">ਦਸਤਾਵੇਜ਼</translation>
 <translation id="6688209025607531203">ਇੱਕ ਗੈਰ ਵਿਧੀਗਤ  ਚਿਤਾਵਨੀ </translation>
 <translation id="6689672606256159458">ਗੂੜ੍ਹਾ ਨਾਰੰਗੀ</translation>
@@ -843,6 +842,7 @@
 <translation id="6865519907510167493">ਗਲਤ ਸ਼ਬਦ-ਜੋੜ</translation>
 <translation id="6871161210040114857">ਮਾਮਲਾ ਅਣਡਿੱਠ ਕਰ ਰਿਹਾ ਹੈ।</translation>
 <translation id="6877435256196695200">ਕੋਈ ਅਗਲਾ ਗ੍ਰਾਫਿਕ ਨਹੀਂ।</translation>
+<translation id="688976158310523235">ਖੋਜ ਮੀਨੂ</translation>
 <translation id="6897341342232909480">ਖੱਬੇ ਪਾਸੇ ਮੂਵ ਕਰੋ</translation>
 <translation id="6901540140423170855">ਤਾਰੀਖ</translation>
 <translation id="6910211073230771657">ਮਿਟਾਇਆ ਗਿਆ</translation>
@@ -855,6 +855,7 @@
 <translation id="699159175332639490">Search + O + W</translation>
 <translation id="6994042831499278539">ਸ਼ਬਦਾਵਲੀ ਦਾ ਹਵਾਲਾ</translation>
 <translation id="6996566555547746822">ਅਗਲਾ ਕੌਂਬੋ ਬਾਕਸ</translation>
+<translation id="6997224546856374593">ਵੱਡੇ ਅੱਖਰ ਪੜ੍ਹਨ ਵੇਲੇ:</translation>
 <translation id="700202842116345659">ਪੁਸਤਕ ਮਾਲਾ ਦਾ ਇੰਦਰਾਜ਼</translation>
 <translation id="7005146664810010831">ਕੋਈ URL ਨਹੀਂ ਮਿਲਿਆ</translation>
 <translation id="7010712454773919705">ChromeVox ਸੰਸ਼ੋਧਕ ਕੁੰਜੀ</translation>
@@ -935,6 +936,7 @@ Chrome ਬ੍ਰਾਊਜ਼ਰ ਮੀਨੂ ਖੋਲ੍ਹਣ ਲਈ, Alt+F �
 <translation id="744163271241493234">pwded</translation>
 <translation id="7491962110804786152">ਟੈਬ</translation>
 <translation id="7492049978501397201">ਦਰਜ ਕੀਤਾ ਡਾਇਲੌਗ</translation>
+<translation id="7505149250476994901">ਅੱਖਰ ਤੋਂ ਪਹਿਲਾਂ "ਵੱਡਾ" ਬੋਲੋ</translation>
 <translation id="7518543783849163354">ਅਸਥਾਈ ਤੌਰ 'ਤੇ ChromeVox ਦਾ ਬੋਲਣਾ ਬੰਦ ਕਰਨ ਲਈ, ਕੰਟਰੋਲ ਕੁੰਜੀ ਦਬਾਓ।</translation>
 <translation id="7521682724501952239">ਤੁਸੀਂ ਟੱਚਸਕ੍ਰੀਨ ਨਾਲ ChromeVox ਦੀ ਵਰਤੋਂ ਕਰ ਸਕਦੇ ਹੋ।</translation>
 <translation id="7532613204005497612">ਜੂਨ</translation>
@@ -1206,6 +1208,7 @@ Chrome ਬ੍ਰਾਊਜ਼ਰ ਮੀਨੂ ਖੋਲ੍ਹਣ ਲਈ, Alt+F �
 <translation id="9065283790526219006">+ਪੌਪਅਪ</translation>
 <translation id="9066023754636984703">ਸਿੱਧਾ ਵੇਰਵਿਆਂ 'ਤੇ ਜਾਣ ਲਈ Search+A, J ਦਬਾਓ।</translation>
 <translation id="9067522039955793016">ਪੰਨਾ ਬ੍ਰੇਕ</translation>
+<translation id="9074824103975499138">ChromeVox ਮੀਨੂ ਖੋਜੋ</translation>
 <translation id="9077213568694924680">ਚੋਣ ਵਿੱਚੋਂ ਹਟਾਇਆ</translation>
 <translation id="9077305471618729969">ਹਲਕਾ ਸਮੁੰਦਰੀ ਹਰਾ</translation>
 <translation id="9082874451376019682">ਕੋਈ ਪਿਛਲਾ ਸਲਾਈਡਰ ਨਹੀਂ।</translation>

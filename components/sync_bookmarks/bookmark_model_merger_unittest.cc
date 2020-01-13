@@ -50,7 +50,7 @@ MATCHER_P2(ElementRawPointersAre, expected_raw_ptr0, expected_raw_ptr1, "") {
   return arg[0].get() == expected_raw_ptr0 && arg[1].get() == expected_raw_ptr1;
 }
 
-std::unique_ptr<syncer::UpdateResponseData> CreateUpdateResponseData(
+syncer::UpdateResponseData CreateUpdateResponseData(
     const std::string& server_id,
     const std::string& parent_id,
     const std::string& title,
@@ -63,39 +63,39 @@ std::unique_ptr<syncer::UpdateResponseData> CreateUpdateResponseData(
   if (!guid)
     guid = base::GenerateGUID();
 
-  auto data = std::make_unique<syncer::EntityData>();
-  data->id = server_id;
-  data->originator_client_item_id = *guid;
-  data->parent_id = parent_id;
-  data->unique_position = unique_position.ToProto();
+  syncer::EntityData data;
+  data.id = server_id;
+  data.originator_client_item_id = *guid;
+  data.parent_id = parent_id;
+  data.unique_position = unique_position.ToProto();
 
   sync_pb::BookmarkSpecifics* bookmark_specifics =
-      data->specifics.mutable_bookmark();
+      data.specifics.mutable_bookmark();
   bookmark_specifics->set_guid(*guid);
   bookmark_specifics->set_title(title);
   bookmark_specifics->set_url(url);
   bookmark_specifics->set_icon_url(icon_url);
   bookmark_specifics->set_favicon(icon_data);
 
-  data->is_folder = is_folder;
-  auto response_data = std::make_unique<syncer::UpdateResponseData>();
-  response_data->entity = std::move(data);
+  data.is_folder = is_folder;
+  syncer::UpdateResponseData response_data;
+  response_data.entity = std::move(data);
   // Similar to what's done in the loopback_server.
-  response_data->response_version = 0;
+  response_data.response_version = 0;
   return response_data;
 }
 
-std::unique_ptr<syncer::UpdateResponseData> CreateBookmarkBarNodeUpdateData() {
-  auto data = std::make_unique<syncer::EntityData>();
-  data->id = kBookmarkBarId;
-  data->server_defined_unique_tag = kBookmarkBarTag;
+syncer::UpdateResponseData CreateBookmarkBarNodeUpdateData() {
+  syncer::EntityData data;
+  data.id = kBookmarkBarId;
+  data.server_defined_unique_tag = kBookmarkBarTag;
 
-  data->specifics.mutable_bookmark();
+  data.specifics.mutable_bookmark();
 
-  auto response_data = std::make_unique<syncer::UpdateResponseData>();
-  response_data->entity = std::move(data);
+  syncer::UpdateResponseData response_data;
+  response_data.entity = std::move(data);
   // Similar to what's done in the loopback_server.
-  response_data->response_version = 0;
+  response_data.response_version = 0;
   return response_data;
 }
 
@@ -1146,6 +1146,69 @@ TEST(BookmarkModelMergerTest, ShouldReplaceBookmarkGUIDWithConflictingTypes) {
   EXPECT_FALSE(bookmark_bar_node->children()[1]->is_folder());
 }
 
+TEST(BookmarkModelMergerTest,
+     ShouldReplaceBookmarkGUIDWithConflictingTypesAndLocalChildren) {
+  base::test::ScopedFeatureList override_features;
+  override_features.InitAndEnableFeature(switches::kMergeBookmarksUsingGUIDs);
+
+  const std::string kGuid = base::GenerateGUID();
+  const std::string kGuid2 = base::GenerateGUID();
+
+  std::unique_ptr<bookmarks::BookmarkModel> bookmark_model =
+      bookmarks::TestBookmarkClient::CreateModel();
+
+  // -------- The local model --------
+  // bookmark_bar
+  //  | - folder (kGuid)
+  //    | - bookmark (kGuid2)
+
+  const bookmarks::BookmarkNode* bookmark_bar_node =
+      bookmark_model->bookmark_bar_node();
+  const bookmarks::BookmarkNode* folder = bookmark_model->AddFolder(
+      /*parent=*/bookmark_bar_node, /*index=*/0,
+      base::UTF8ToUTF16("Folder Title"), nullptr, kGuid);
+  const bookmarks::BookmarkNode* bookmark = bookmark_model->AddURL(
+      /*parent=*/folder, /*index=*/0, base::UTF8ToUTF16("Foo's title"),
+      GURL("http://foo.com"), nullptr, base::Time::Now(), kGuid2);
+  ASSERT_TRUE(folder);
+  ASSERT_TRUE(bookmark);
+  ASSERT_THAT(bookmark_bar_node->children(), ElementRawPointersAre(folder));
+  ASSERT_THAT(folder->children(), ElementRawPointersAre(bookmark));
+
+  // -------- The remote model --------
+  // bookmark_bar
+  //  | - bookmark (kGuid)
+
+  syncer::UpdateResponseDataList updates;
+  updates.push_back(CreateBookmarkBarNodeUpdateData());
+
+  updates.push_back(CreateUpdateResponseData(
+      /*server_id=*/"Id", /*parent_id=*/kBookmarkBarId, "Bar's title",
+      "http://bar.com/",
+      /*is_folder=*/false,
+      /*unique_position=*/MakeRandomPosition(),
+      /*guid=*/kGuid));
+
+  Merge(std::move(updates), bookmark_model.get());
+
+  // -------- The merged model --------
+  // bookmark_bar
+  //  | - bookmark (kGuid)
+  //  | - folder ([new GUID])
+  //    | - bookmark (kGuid2)
+
+  // Conflicting node GUID should have been replaced.
+  ASSERT_EQ(bookmark_bar_node->children().size(), 2u);
+  EXPECT_EQ(bookmark_bar_node->children()[0]->guid(), kGuid);
+  EXPECT_NE(bookmark_bar_node->children()[1]->guid(), kGuid);
+  EXPECT_NE(bookmark_bar_node->children()[1]->guid(), kGuid2);
+  EXPECT_FALSE(bookmark_bar_node->children()[0]->is_folder());
+  EXPECT_TRUE(bookmark_bar_node->children()[1]->is_folder());
+  EXPECT_EQ(bookmark_bar_node->children()[1]->children().size(), 1u);
+  EXPECT_FALSE(bookmark_bar_node->children()[1]->children()[0]->is_folder());
+  EXPECT_EQ(bookmark_bar_node->children()[1]->children()[0]->guid(), kGuid2);
+}
+
 // Tests that the GUID-based matching algorithm handles well the case where a
 // local bookmark matches a remote bookmark that is orphan. In this case the
 // remote node should be ignored and the local bookmark included in the merged
@@ -1309,7 +1372,7 @@ TEST(BookmarkModelMergerTest, ShouldIgnoreRemoteDuplicateGUID) {
 
   // |originator_client_item_id| cannot itself be duplicated because
   // ModelTypeWorker guarantees otherwise.
-  updates.back()->entity->originator_client_item_id = base::GenerateGUID();
+  updates.back().entity.originator_client_item_id = base::GenerateGUID();
 
   std::unique_ptr<SyncedBookmarkTracker> tracker =
       Merge(std::move(updates), bookmark_model.get());
@@ -1380,7 +1443,7 @@ TEST(BookmarkModelMergerTest, ShouldIgnoreRemoteDuplicateGUIDAndSemanticMatch) {
 
   // |originator_client_item_id| cannot itself be duplicated because
   // ModelTypeWorker guarantees otherwise.
-  updates.back()->entity->originator_client_item_id = base::GenerateGUID();
+  updates.back().entity.originator_client_item_id = base::GenerateGUID();
 
   std::unique_ptr<SyncedBookmarkTracker> tracker =
       Merge(std::move(updates), bookmark_model.get());

@@ -278,12 +278,11 @@ class AutofillWalletSyncBridgeTest : public testing::Test {
     EXPECT_EQ(addresses_count, addresses_metadata.size());
   }
 
-  std::unique_ptr<EntityData> SpecificsToEntity(
-      const AutofillWalletSpecifics& specifics) {
-    auto data = std::make_unique<EntityData>();
-    *data->specifics.mutable_autofill_wallet() = specifics;
-    data->client_tag_hash = syncer::ClientTagHash::FromUnhashed(
-        syncer::AUTOFILL_WALLET_DATA, bridge()->GetClientTag(*data));
+  EntityData SpecificsToEntity(const AutofillWalletSpecifics& specifics) {
+    EntityData data;
+    *data.specifics.mutable_autofill_wallet() = specifics;
+    data.client_tag_hash = syncer::ClientTagHash::FromUnhashed(
+        syncer::AUTOFILL_WALLET_DATA, bridge()->GetClientTag(data));
     return data;
   }
 
@@ -300,10 +299,10 @@ class AutofillWalletSyncBridgeTest : public testing::Test {
     return data;
   }
 
-  std::unique_ptr<syncer::UpdateResponseData> SpecificsToUpdateResponse(
+  syncer::UpdateResponseData SpecificsToUpdateResponse(
       const AutofillWalletSpecifics& specifics) {
-    auto data = std::make_unique<syncer::UpdateResponseData>();
-    data->entity = SpecificsToEntity(specifics);
+    syncer::UpdateResponseData data;
+    data.entity = SpecificsToEntity(specifics);
     return data;
   }
 
@@ -335,14 +334,14 @@ class AutofillWalletSyncBridgeTest : public testing::Test {
 TEST_F(AutofillWalletSyncBridgeTest, GetClientTagForAddress) {
   AutofillWalletSpecifics specifics =
       CreateAutofillWalletSpecificsForAddress(kAddr1ClientTag);
-  EXPECT_EQ(bridge()->GetClientTag(*SpecificsToEntity(specifics)),
+  EXPECT_EQ(bridge()->GetClientTag(SpecificsToEntity(specifics)),
             kAddr1ClientTag);
 }
 
 TEST_F(AutofillWalletSyncBridgeTest, GetClientTagForCard) {
   AutofillWalletSpecifics specifics =
       CreateAutofillWalletSpecificsForCard(kCard1ClientTag);
-  EXPECT_EQ(bridge()->GetClientTag(*SpecificsToEntity(specifics)),
+  EXPECT_EQ(bridge()->GetClientTag(SpecificsToEntity(specifics)),
             kCard1ClientTag);
 }
 
@@ -350,7 +349,7 @@ TEST_F(AutofillWalletSyncBridgeTest, GetClientTagForCustomerData) {
   AutofillWalletSpecifics specifics =
       CreateAutofillWalletSpecificsForPaymentsCustomerData(
           kCustomerDataClientTag);
-  EXPECT_EQ(bridge()->GetClientTag(*SpecificsToEntity(specifics)),
+  EXPECT_EQ(bridge()->GetClientTag(SpecificsToEntity(specifics)),
             kCustomerDataClientTag);
 }
 
@@ -358,7 +357,7 @@ TEST_F(AutofillWalletSyncBridgeTest, GetClientTagForCreditCardCloudTokenData) {
   AutofillWalletSpecifics specifics =
       CreateAutofillWalletSpecificsForCreditCardCloudTokenData(
           kCloudTokenDataClientTag);
-  EXPECT_EQ(bridge()->GetClientTag(*SpecificsToEntity(specifics)),
+  EXPECT_EQ(bridge()->GetClientTag(SpecificsToEntity(specifics)),
             kCloudTokenDataClientTag);
 }
 
@@ -366,14 +365,14 @@ TEST_F(AutofillWalletSyncBridgeTest, GetClientTagForCreditCardCloudTokenData) {
 TEST_F(AutofillWalletSyncBridgeTest, GetStorageKeyForAddress) {
   AutofillWalletSpecifics specifics1 =
       CreateAutofillWalletSpecificsForAddress(kAddr1ClientTag);
-  EXPECT_EQ(bridge()->GetStorageKey(*SpecificsToEntity(specifics1)),
+  EXPECT_EQ(bridge()->GetStorageKey(SpecificsToEntity(specifics1)),
             kAddr1ClientTag);
 }
 
 TEST_F(AutofillWalletSyncBridgeTest, GetStorageKeyForCard) {
   AutofillWalletSpecifics specifics2 =
       CreateAutofillWalletSpecificsForCard(kCard1ClientTag);
-  EXPECT_EQ(bridge()->GetStorageKey(*SpecificsToEntity(specifics2)),
+  EXPECT_EQ(bridge()->GetStorageKey(SpecificsToEntity(specifics2)),
             kCard1ClientTag);
 }
 
@@ -381,7 +380,7 @@ TEST_F(AutofillWalletSyncBridgeTest, GetStorageKeyForCustomerData) {
   AutofillWalletSpecifics specifics3 =
       CreateAutofillWalletSpecificsForPaymentsCustomerData(
           kCustomerDataClientTag);
-  EXPECT_EQ(bridge()->GetStorageKey(*SpecificsToEntity(specifics3)),
+  EXPECT_EQ(bridge()->GetStorageKey(SpecificsToEntity(specifics3)),
             kCustomerDataClientTag);
 }
 
@@ -389,7 +388,7 @@ TEST_F(AutofillWalletSyncBridgeTest, GetStorageKeyForCreditCardCloudTokenData) {
   AutofillWalletSpecifics specifics4 =
       CreateAutofillWalletSpecificsForCreditCardCloudTokenData(
           kCloudTokenDataClientTag);
-  EXPECT_EQ(bridge()->GetStorageKey(*SpecificsToEntity(specifics4)),
+  EXPECT_EQ(bridge()->GetStorageKey(SpecificsToEntity(specifics4)),
             kCloudTokenDataClientTag);
 }
 
@@ -831,8 +830,6 @@ TEST_F(AutofillWalletSyncBridgeTest, MergeSyncData_SetsAllWalletAddressData) {
 TEST_F(AutofillWalletSyncBridgeTest, MergeSyncData_SetsAllWalletCardData) {
   // Create a card to be synced from the server.
   CreditCard card = test::GetMaskedServerCard();
-  // Add this value type as it is not added by default but should be synced.
-  card.set_bank_name("The Bank");
   AutofillWalletSpecifics card_specifics;
   SetAutofillWalletSpecificsFromServerCard(card, &card_specifics);
 
@@ -857,7 +854,6 @@ TEST_F(AutofillWalletSyncBridgeTest, MergeSyncData_SetsAllWalletCardData) {
   EXPECT_EQ(card.expiration_year(), cards[0]->expiration_year());
   EXPECT_EQ(card.billing_address_id(), cards[0]->billing_address_id());
   EXPECT_EQ(card.card_type(), cards[0]->card_type());
-  EXPECT_EQ(card.bank_name(), cards[0]->bank_name());
 
   // Also make sure that those types are not empty, to exercice all the code
   // paths.
@@ -866,7 +862,6 @@ TEST_F(AutofillWalletSyncBridgeTest, MergeSyncData_SetsAllWalletCardData) {
   EXPECT_NE(0, card.expiration_month());
   EXPECT_NE(0, card.expiration_year());
   EXPECT_NE(CreditCard::CARD_TYPE_UNKNOWN, card.card_type());
-  EXPECT_FALSE(card.bank_name().empty());
 }
 
 // Test that all field values for a cloud token data sent from the server are

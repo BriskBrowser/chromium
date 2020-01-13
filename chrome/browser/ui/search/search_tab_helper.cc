@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "base/base64.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
@@ -14,6 +15,8 @@
 #include "build/build_config.h"
 #include "chrome/browser/autocomplete/chrome_autocomplete_provider_client.h"
 #include "chrome/browser/autocomplete/chrome_autocomplete_scheme_classifier.h"
+#include "chrome/browser/bitmap_fetcher/bitmap_fetcher_service.h"
+#include "chrome/browser/bitmap_fetcher/bitmap_fetcher_service_factory.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/predictors/autocomplete_action_predictor.h"
 #include "chrome/browser/predictors/autocomplete_action_predictor_factory.h"
@@ -103,6 +106,8 @@ std::vector<chrome::mojom::AutocompleteMatchPtr> CreateAutocompleteMatches(
                                                     description_class.style));
     }
     mojom_match->destination_url = match.destination_url.spec();
+    mojom_match->image_dominant_color = match.image_dominant_color;
+    mojom_match->image_url = match.image_url;
     mojom_match->fill_into_edit = match.fill_into_edit;
     mojom_match->inline_autocompletion = match.inline_autocompletion;
     mojom_match->is_search_type = AutocompleteMatch::IsSearchType(match.type);
@@ -512,6 +517,35 @@ void SearchTabHelper::OnResultChanged(bool default_result_changed) {
   ipc_router_.AutocompleteResultChanged(chrome::mojom::AutocompleteResult::New(
       autocomplete_controller_->input().text(),
       CreateAutocompleteMatches(autocomplete_controller_->result())));
+
+  // Create new bitmap requests.
+  BitmapFetcherService* bitmap_fetcher_service =
+      BitmapFetcherServiceFactory::GetForBrowserContext(profile());
+
+  int match_index = -1;
+  for (const auto& match : autocomplete_controller_->result()) {
+    match_index++;
+    if (match.ImageUrl().is_empty()) {
+      continue;
+    }
+    bitmap_fetcher_service->RequestImage(
+        match.ImageUrl(), base::BindOnce(&SearchTabHelper::OnBitmapFetched,
+                                         weak_factory_.GetWeakPtr(),
+                                         match_index, match.ImageUrl().spec()));
+  }
+}
+
+void SearchTabHelper::OnBitmapFetched(int match_index,
+                                      const std::string& image_url,
+                                      const SkBitmap& bitmap) {
+  auto data = gfx::Image::CreateFrom1xBitmap(bitmap).As1xPNGBytes();
+  std::string base_64;
+  base::Base64Encode(base::StringPiece(data->front_as<char>(), data->size()),
+                     &base_64);
+  const char kDataUrlPrefix[] = "data:image/png;base64,";
+  std::string data_url = GURL(kDataUrlPrefix + base_64).spec();
+
+  ipc_router_.AutocompleteMatchImageAvailable(match_index, image_url, data_url);
 }
 
 void SearchTabHelper::OnSelectLocalBackgroundImage() {
@@ -760,11 +794,10 @@ void SearchTabHelper::OpenExtensionsPage(double button,
                                          bool shift_key) {
   if (!search::DefaultSearchProviderIsGoogle(profile()))
     return;
-  bool middle_button = (button == 1.0);
-  WindowOpenDisposition disposition = ui::DispositionFromClick(
-      middle_button, alt_key, ctrl_key, meta_key, shift_key);
-  if (button > 1)
-    disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
+  WindowOpenDisposition disposition =
+      (button > 1) ? WindowOpenDisposition::NEW_FOREGROUND_TAB
+                   : ui::DispositionFromClick((button == 1.0), alt_key,
+                                              ctrl_key, meta_key, shift_key);
   web_contents_->OpenURL(content::OpenURLParams(
       GURL(chrome::kChromeUIExtensionsURL), content::Referrer(), disposition,
       ui::PAGE_TRANSITION_LINK, false));

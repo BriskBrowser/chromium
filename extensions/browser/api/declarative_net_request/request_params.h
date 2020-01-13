@@ -34,7 +34,7 @@ struct RequestParams {
   bool is_third_party = false;
 
   // A map from RulesetMatchers to whether it has a matching allow rule. Used as
-  // a cache to prevent additional calls to GetAllowAction.
+  // a cache to prevent additional calls to GetBeforeRequestAction.
   mutable base::flat_map<const RulesetMatcher*, bool> allow_rule_cache;
 
   // Lower cased url, used for regex matching. Cached for performance.
@@ -44,10 +44,6 @@ struct RequestParams {
   // request. Cached for performance.
   mutable base::flat_map<const RegexRulesMatcher*, std::vector<RegexRuleInfo>>
       potential_regex_matches;
-
-  // Pointer to the corresponding WebRequestInfo object. Outlives this struct.
-  // Can be null for some unit tests.
-  const WebRequestInfo* request_info = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(RequestParams);
 };

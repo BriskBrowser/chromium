@@ -66,17 +66,11 @@ ScriptPromise NDEFWriter::push(ScriptState* script_state,
     return ScriptPromise();
   }
 
-  // Step 10.10.1: Run "create NDEF message", if this throws an exception,
+  // Step 11.2: Run "create NDEF message", if this throws an exception,
   // reject p with that exception and abort these steps.
   NDEFMessage* ndef_message =
       NDEFMessage::Create(execution_context, push_message, exception_state);
   if (exception_state.HadException()) {
-    return ScriptPromise();
-  }
-
-  // If NDEFMessage.records is empty, reject promise with TypeError
-  if (ndef_message->records().size() == 0) {
-    exception_state.ThrowTypeError("Empty NDEFMessage was provided.");
     return ScriptPromise();
   }
 
@@ -132,9 +126,8 @@ void NDEFWriter::OnRequestPermission(
 
   // If signal is not null, then add the abort steps to signal.
   if (options->hasSignal() && !options->signal()->aborted()) {
-    options->signal()->AddAlgorithm(
-        WTF::Bind(&NDEFWriter::Abort, WrapPersistent(this), options->target(),
-                  WrapPersistent(resolver)));
+    options->signal()->AddAlgorithm(WTF::Bind(
+        &NDEFWriter::Abort, WrapPersistent(this), WrapPersistent(resolver)));
   }
 
   UseCounter::Count(GetExecutionContext(), WebFeature::kWebNfcNdefWriterPush);
@@ -149,11 +142,12 @@ void NDEFWriter::OnRequestPermission(
 void NDEFWriter::OnMojoConnectionError() {
   nfc_proxy_.Clear();
 
-  // If the mojo connection breaks, all push requests will be reject with a
+  // If the mojo connection breaks, all push requests will be rejected with a
   // default error.
   for (ScriptPromiseResolver* resolver : requests_) {
     resolver->Reject(NDEFErrorTypeToDOMException(
-        device::mojom::blink::NDEFErrorType::NOT_SUPPORTED));
+        device::mojom::blink::NDEFErrorType::NOT_SUPPORTED,
+        "WebNFC feature is unavailable."));
   }
   requests_.clear();
 }
@@ -171,7 +165,7 @@ void NDEFWriter::InitNfcProxyIfNeeded() {
   nfc_proxy_->AddWriter(this);
 }
 
-void NDEFWriter::Abort(const String& target, ScriptPromiseResolver* resolver) {
+void NDEFWriter::Abort(ScriptPromiseResolver* resolver) {
   // |nfc_proxy_| could be null on Mojo connection failure, simply ignore the
   // abort request in this case.
   if (!nfc_proxy_)
@@ -179,8 +173,7 @@ void NDEFWriter::Abort(const String& target, ScriptPromiseResolver* resolver) {
 
   // OnRequestCompleted() should always be called whether the push operation is
   // cancelled successfully or not. So do nothing for the cancelled callback.
-  nfc_proxy_->CancelPush(target,
-                         device::mojom::blink::NFC::CancelPushCallback());
+  nfc_proxy_->CancelPush(device::mojom::blink::NFC::CancelPushCallback());
 }
 
 void NDEFWriter::OnRequestCompleted(ScriptPromiseResolver* resolver,
@@ -189,10 +182,12 @@ void NDEFWriter::OnRequestCompleted(ScriptPromiseResolver* resolver,
 
   requests_.erase(resolver);
 
-  if (error.is_null())
+  if (error.is_null()) {
     resolver->Resolve();
-  else
-    resolver->Reject(NDEFErrorTypeToDOMException(error->error_type));
+  } else {
+    resolver->Reject(
+        NDEFErrorTypeToDOMException(error->error_type, error->error_message));
+  }
 }
 
 }  // namespace blink

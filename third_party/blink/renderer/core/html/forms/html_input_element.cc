@@ -980,6 +980,7 @@ void HTMLInputElement::setChecked(bool now_checked,
   if (checked() == now_checked)
     return;
 
+  input_type_->WillUpdateCheckedness(now_checked);
   is_checked_ = now_checked;
 
   if (RadioButtonGroupScope* scope = GetRadioButtonGroupScope())
@@ -1778,22 +1779,6 @@ String HTMLInputElement::DefaultToolTip() const {
 
 bool HTMLInputElement::ShouldAppearIndeterminate() const {
   return input_type_->ShouldAppearIndeterminate();
-}
-
-bool HTMLInputElement::IsInRequiredRadioButtonGroup() {
-  // TODO(tkent): Remove type check.
-  DCHECK_EQ(type(), input_type_names::kRadio);
-  if (RadioButtonGroupScope* scope = GetRadioButtonGroupScope())
-    return scope->IsInRequiredGroup(this);
-  return false;
-}
-
-HTMLInputElement* HTMLInputElement::CheckedRadioButtonForGroup() {
-  if (checked())
-    return this;
-  if (RadioButtonGroupScope* scope = GetRadioButtonGroupScope())
-    return scope->CheckedButtonForGroup(GetName());
-  return nullptr;
 }
 
 RadioButtonGroupScope* HTMLInputElement::GetRadioButtonGroupScope() const {

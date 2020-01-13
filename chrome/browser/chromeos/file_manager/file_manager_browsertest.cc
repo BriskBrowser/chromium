@@ -444,9 +444,11 @@ WRAPPED_INSTANTIATE_TEST_SUITE_P(
         TestCase("openQuickView").InGuestMode(),
         TestCase("openQuickView").TabletMode(),
         TestCase("openQuickViewAudio"),
+        TestCase("openQuickViewAudioWithImageMetadata"),
         TestCase("openQuickViewImage"),
         TestCase("openQuickViewImageExif"),
         TestCase("openQuickViewImageRaw"),
+        TestCase("openQuickViewBrokenImage"),
         TestCase("openQuickViewVideo"),
         TestCase("openQuickViewPdf"),
         TestCase("openQuickViewPdfPreviewsDisabled"),
@@ -463,6 +465,7 @@ WRAPPED_INSTANTIATE_TEST_SUITE_P(
         TestCase("openQuickViewUsb"),
         TestCase("openQuickViewRemovablePartitions"),
         TestCase("openQuickViewMtp"),
+        TestCase("openQuickViewTabIndexImage"),
         TestCase("pressEnterOnInfoBoxToOpenClose"),
         TestCase("closeQuickView"),
         TestCase("cantOpenQuickViewWithMultipleFiles"),
@@ -706,14 +709,8 @@ WRAPPED_INSTANTIATE_TEST_SUITE_P(
         TestCase("openFileDialogSelectAllDisabled").WithBrowser(),
         TestCase("openMultiFileDialogSelectAllEnabled").WithBrowser()));
 
-#if defined(NDEBUG)
-#define MAYBE_CopyBetweenWindows CopyBetweenWindows
-#else
-// Flaky on Chrome OS Debug. TODO(crbug.com/1008909).
-#define MAYBE_CopyBetweenWindows DISABLED_CopyBetweenWindows
-#endif
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
-    MAYBE_CopyBetweenWindows, /* copy_between_windows.js */
+    CopyBetweenWindows, /* copy_between_windows.js */
     FilesAppBrowserTest,
     ::testing::Values(TestCase("copyBetweenWindowsLocalToDrive"),
                       TestCase("copyBetweenWindowsLocalToUsb"),

@@ -54,7 +54,6 @@
         'test': 'chrome_public_test_vr_apk',
       },
     },
-
     'android_incremental_tests': {
       'base_unittests': {
         'args': [
@@ -123,11 +122,6 @@
       },
       'android_webview_unittests': {},
       'breakpad_unittests': {},
-      'content_shell_test_apk': {
-        'swarming': {
-          'shards': 3,
-        },
-      },
       'chrome_public_test_apk': {
         'swarming': {
           'shards': 20,
@@ -140,6 +134,11 @@
         ],
         'swarming': {
           'shards': 2,
+        },
+      },
+      'content_shell_test_apk': {
+        'swarming': {
+          'shards': 3,
         },
       },
       'gl_tests': {
@@ -216,16 +215,6 @@
         ],
         'test': 'android_browsertests',
       },
-      'bf_cache_content_shell_test_apk': {
-        'args': [
-          '--enable-features=BackForwardCache,BackForwardCacheNoTimeEviction,ServiceWorkerOnUI',
-          '--test-launcher-filter-file=../../testing/buildbot/filters/bfcache.content_shell_test_apk.filter'
-        ],
-        'swarming': {
-          'shards': 5,
-        },
-        'test': 'content_shell_test_apk',
-      },
       'bf_cache_chrome_public_test_apk': {
         'args': [
           '--enable-features=BackForwardCache,BackForwardCacheNoTimeEviction,ServiceWorkerOnUI',
@@ -236,9 +225,29 @@
         },
         'test': 'chrome_public_test_apk',
       },
+      'bf_cache_content_shell_test_apk': {
+        'args': [
+          '--enable-features=BackForwardCache,BackForwardCacheNoTimeEviction,ServiceWorkerOnUI',
+          '--test-launcher-filter-file=../../testing/buildbot/filters/bfcache.content_shell_test_apk.filter'
+        ],
+        'swarming': {
+          'shards': 5,
+        },
+        'test': 'content_shell_test_apk',
+      },
     },
 
     'bfcache_generic_gtests': {
+      'bf_cache_content_browsertests': {
+        'args': [
+          '--enable-features=BackForwardCache,BackForwardCacheNoTimeEviction,ServiceWorkerOnUI',
+          '--test-launcher-filter-file=../../testing/buildbot/filters/bfcache.content_browsertests.filter'
+        ],
+        'swarming': {
+          'shards': 20,
+        },
+        'test': 'content_browsertests',
+      },
       'bf_cache_content_unittests': {
         'args': [
           '--enable-features=BackForwardCache,BackForwardCacheNoTimeEviction,ServiceWorkerOnUI',
@@ -259,16 +268,6 @@
         },
         'test': 'unit_tests',
       },
-      'bf_cache_content_browsertests': {
-        'args': [
-          '--enable-features=BackForwardCache,BackForwardCacheNoTimeEviction,ServiceWorkerOnUI',
-          '--test-launcher-filter-file=../../testing/buildbot/filters/bfcache.content_browsertests.filter'
-        ],
-        'swarming': {
-          'shards': 20,
-        },
-        'test': 'content_browsertests',
-      },
     },
 
     'bfcache_linux_specific_gtests': {
@@ -284,12 +283,70 @@
       },
     },
 
+    'blink_cors_gtests': {
+      'blink_cors_blink_platform_unittests': {
+        'args': [
+          '--disable-features=OutOfBlinkCors'
+        ],
+        'test': 'blink_platform_unittests'
+      },
+      'blink_cors_browser_tests': {
+        'args': [
+          '--disable-features=OutOfBlinkCors'
+        ],
+        'swarming': {
+          'shards': 10,
+        },
+        'test': 'browser_tests'
+      },
+      'blink_cors_content_browsertests': {
+        'args': [
+          '--disable-features=OutOfBlinkCors'
+        ],
+        'test': 'content_browsertests'
+      },
+      'blink_cors_content_unittests' : {
+        'args': [
+          '--disable-features=OutOfBlinkCors'
+        ],
+        'test': 'content_unittests'
+      },
+      'blink_cors_extensions_browsertests': {
+        'args': [
+          '--disable-features=OutOfBlinkCors'
+        ],
+        'test': 'extensions_browsertests'
+      },
+      'blink_cors_extensions_unittests': {
+        'args': [
+          '--disable-features=OutOfBlinkCors'
+        ],
+        'test': 'extensions_unittests'
+      },
+      'blink_cors_services_unittests': {
+        'args': [
+          '--disable-features=OutOfBlinkCors'
+        ],
+        'test': 'services_unittests'
+      }
+    },
+
     'cast_audio_specific_chromium_gtests': {
       'cast_audio_backend_unittests': {},
       'cast_base_unittests': {},
       'cast_crash_unittests': {},
       'cast_media_unittests': {},
-      'cast_shell_browsertests': {},
+      'cast_shell_browsertests': {
+        'args': [
+          '--enable-local-file-accesses',
+          '--ozone-platform=headless',
+          '--no-sandbox',
+          '--test-launcher-jobs=1',
+        ],
+        'swarming': {
+          'can_use_on_swarming_builders': False,  # https://crbug.com/861753
+        },
+      },
       'cast_shell_unittests': {},
     },
 
@@ -622,9 +679,9 @@
       'gpu_unittests': {},
       'gwp_asan_unittests': {},
       'ipc_tests': {},
-      'libjingle_xmpp_unittests': {},
       'jingle_unittests': {},
       'latency_unittests': {},
+      'libjingle_xmpp_unittests': {},
       'media_blink_unittests': {},
       'media_service_unittests': {},
       'media_unittests': {},
@@ -705,14 +762,14 @@
     },
 
     'chromium_linux_scripts': {
+      'check_static_initializers': {
+        'script': 'check_static_initializers.py',
+      },
       'checkdeps': {
         'script': 'checkdeps.py',
       },
       'checkperms': {
         'script': 'checkperms.py',
-      },
-      'check_static_initializers': {
-        'script': 'check_static_initializers.py',
       },
       'headless_python_unittests': {
         'script': 'headless_python_unittests.py',
@@ -749,15 +806,15 @@
           'shards': 10,
         },
       },
-      'content_unittests': {
-        'swarming': {
-          'shards': 3,
-        },
-      },
       'content_shell_test_apk': {
         'swarming': {
           'shards': 3,
          },
+      },
+      'content_unittests': {
+        'swarming': {
+          'shards': 3,
+        },
       },
       'net_unittests': {
         'swarming': {
@@ -778,11 +835,6 @@
 
     'chromium_swarm_desktop_gtests': {
       'base_unittests': {},
-      'browser_tests': {
-        'swarming': {
-          'shards': 2,
-        },
-      },
       'content_browsertests': {},
       'content_unittests': {},
       'interactive_ui_tests': {},
@@ -865,26 +917,6 @@
     },
 
     'chromium_web_tests_and_wpt_webdriver_isolated_scripts': {
-      'webkit_layout_tests': {
-        # layout test failures are retried 3 times when '--test-list' is not
-        # passed, but 0 times when '--test-list' is passed. We want to always
-        # retry 3 times, so we explicitly specify it.
-        'args': [
-          '--num-retries=3',
-        ],
-        'linux_args': [ '--fuzzy-diff', ],
-        'isolate_name': 'blink_web_tests',
-        'merge': {
-          'args': [
-            '--verbose',
-          ],
-          'script': '//third_party/blink/tools/merge_web_test_results.py',
-        },
-        'results_handler': 'layout tests',
-        'swarming': {
-          'shards': 12,
-        }
-      },
       'webdriver_tests_suite': {
         'isolate_name': 'webdriver_wpt_tests',
          'merge': {
@@ -897,6 +929,25 @@
           'shards': 4,
         },
       },
+      'webkit_layout_tests': {
+        # layout test failures are retried 3 times when '--test-list' is not
+        # passed, but 0 times when '--test-list' is passed. We want to always
+        # retry 3 times, so we explicitly specify it.
+        'args': [
+          '--num-retries=3',
+        ],
+        'isolate_name': 'blink_web_tests',
+        'merge': {
+          'args': [
+            '--verbose',
+          ],
+          'script': '//third_party/blink/tools/merge_web_test_results.py',
+        },
+        'results_handler': 'layout tests',
+        'swarming': {
+          'shards': 12,
+        }
+      },
     },
 
     'chromium_webkit_isolated_scripts': {
@@ -907,7 +958,6 @@
         'args': [
           '--num-retries=3',
         ],
-        'linux_args': [ '--fuzzy-diff', ],
         'isolate_name': 'blink_web_tests',
         'merge': {
           'args': [
@@ -960,8 +1010,8 @@
 
     'client_v8_chromium_isolated_scripts': {
       'content_shell_crash_test': {},
-      'devtools_type_check': {},
       'devtools_lint_check': {},
+      'devtools_type_check': {},
       'telemetry_gpu_unittests': {
         'swarming': {
           'idempotent': False,  # https://crbug.com/549140
@@ -1055,6 +1105,7 @@
     },
 
     'desktop_chromium_isolated_scripts': {
+      'blink_python_tests': {},
       'content_shell_crash_test': {},
       'flatbuffers_unittests': {},
       'grit_python_unittests': {},
@@ -1094,7 +1145,6 @@
         'args': [
           '--num-retries=3',
         ],
-        'linux_args': [ '--fuzzy-diff', ],
         'isolate_name': 'blink_web_tests',
         'merge': {
           'args': [
@@ -1107,29 +1157,9 @@
           'shards': 12,
         }
       },
-      'blink_python_tests': {},
     },
 
     'devtools_webkit_isolated_scripts': {
-      'webkit_layout_tests': {
-        # layout test failures are retried 3 times when '--test-list' is not
-        # passed, but 0 times when '--test-list' is passed. We want to always
-        # retry 3 times, so we explicitly specify it.
-        'args': [
-          '--num-retries=3',
-        ],
-        'isolate_name': 'blink_web_tests',
-        'merge': {
-          'args': [
-            '--verbose',
-          ],
-          'script': '//third_party/blink/tools/merge_web_test_results.py',
-        },
-        'results_handler': 'layout tests',
-        'swarming': {
-          'shards': 12,
-        }
-      },
       'webkit_layout_from_devtools': {
         # layout test failures are retried 3 times when '--test-list' is not
         # passed, but 0 times when '--test-list' is passed. We want to always
@@ -1151,6 +1181,25 @@
           'shards': 4,
         }
       },
+      'webkit_layout_tests': {
+        # layout test failures are retried 3 times when '--test-list' is not
+        # passed, but 0 times when '--test-list' is passed. We want to always
+        # retry 3 times, so we explicitly specify it.
+        'args': [
+          '--num-retries=3',
+        ],
+        'isolate_name': 'blink_web_tests',
+        'merge': {
+          'args': [
+            '--verbose',
+          ],
+          'script': '//third_party/blink/tools/merge_web_test_results.py',
+        },
+        'results_handler': 'layout tests',
+        'swarming': {
+          'shards': 12,
+        }
+      },
     },
 
     'fieldtrial_browser_tests': {
@@ -1163,6 +1212,9 @@
         },
         'test': 'browser_tests',
       },
+      # TODO(crbug.com/1025244): Move Open Screen unit tests from fieldtrial
+      # to linux, mac bots once we have ensured the tests are stable.
+      'openscreen_unittests': {}
     },
 
     'fuchsia_gtests': {
@@ -1777,12 +1829,30 @@
 
     # GPU gtests that test only Dawn
     'gpu_dawn_gtests': {
+      'dawn_end2end_skip_validation_tests': {
+        'desktop_args': [
+          '--use-gpu-in-tests',
+          # Dawn test retries deliberately disabled to prevent flakiness.
+          '--test-launcher-retry-limit=0',
+          '--skip-validation',
+        ],
+        'test': 'dawn_end2end_tests',
+      },
       'dawn_end2end_tests': {
         'desktop_args': [
           '--use-gpu-in-tests',
           # Dawn test retries deliberately disabled to prevent flakiness.
           '--test-launcher-retry-limit=0'
         ],
+      },
+      'dawn_end2end_use_spvc_tests': {
+        'desktop_args': [
+          '--use-gpu-in-tests',
+          # Dawn test retries deliberately disabled to prevent flakiness.
+          '--test-launcher-retry-limit=0',
+          '--use-spvc',
+        ],
+        'test': 'dawn_end2end_tests',
       },
       'dawn_end2end_validation_layers_tests': {
         'desktop_args': [
@@ -1799,24 +1869,6 @@
           # Dawn test retries deliberately disabled to prevent flakiness.
           '--test-launcher-retry-limit=0',
           '--use-wire',
-        ],
-        'test': 'dawn_end2end_tests',
-      },
-      'dawn_end2end_skip_validation_tests': {
-        'desktop_args': [
-          '--use-gpu-in-tests',
-          # Dawn test retries deliberately disabled to prevent flakiness.
-          '--test-launcher-retry-limit=0',
-          '--skip-validation',
-        ],
-        'test': 'dawn_end2end_tests',
-      },
-      'dawn_end2end_use_spvc_tests': {
-        'desktop_args': [
-          '--use-gpu-in-tests',
-          # Dawn test retries deliberately disabled to prevent flakiness.
-          '--test-launcher-retry-limit=0',
-          '--use-spvc',
         ],
         'test': 'dawn_end2end_tests',
       },
@@ -1825,12 +1877,30 @@
     # GPU gtests that test Dawn and integration with Chromium
     # These tests are run both on the CI and trybots which test DEPS Dawn.
     'gpu_dawn_integration_gtests': {
+      'dawn_end2end_skip_validation_tests': {
+        'desktop_args': [
+          '--use-gpu-in-tests',
+          # Dawn test retries deliberately disabled to prevent flakiness.
+          '--test-launcher-retry-limit=0',
+          '--skip-validation',
+        ],
+        'test': 'dawn_end2end_tests',
+      },
       'dawn_end2end_tests': {
         'desktop_args': [
           '--use-gpu-in-tests',
           # Dawn test retries deliberately disabled to prevent flakiness.
           '--test-launcher-retry-limit=0'
         ],
+      },
+      'dawn_end2end_use_spvc_tests': {
+        'desktop_args': [
+          '--use-gpu-in-tests',
+          # Dawn test retries deliberately disabled to prevent flakiness.
+          '--test-launcher-retry-limit=0',
+          '--use-spvc',
+        ],
+        'test': 'dawn_end2end_tests',
       },
       'dawn_end2end_validation_layers_tests': {
         'desktop_args': [
@@ -1847,24 +1917,6 @@
           # Dawn test retries deliberately disabled to prevent flakiness.
           '--test-launcher-retry-limit=0',
           '--use-wire',
-        ],
-        'test': 'dawn_end2end_tests',
-      },
-      'dawn_end2end_skip_validation_tests': {
-        'desktop_args': [
-          '--use-gpu-in-tests',
-          # Dawn test retries deliberately disabled to prevent flakiness.
-          '--test-launcher-retry-limit=0',
-          '--skip-validation',
-        ],
-        'test': 'dawn_end2end_tests',
-      },
-      'dawn_end2end_use_spvc_tests': {
-        'desktop_args': [
-          '--use-gpu-in-tests',
-          # Dawn test retries deliberately disabled to prevent flakiness.
-          '--test-launcher-retry-limit=0',
-          '--use-spvc',
         ],
         'test': 'dawn_end2end_tests',
       },
@@ -2058,7 +2110,7 @@
           '${got_revision}',
           '--test-machine-name',
           '${buildername}',
-          '--extra-browser-args=--enable-features=VizDisplayCompositor,UseSkiaRenderer --use-gl=egl --enable-gpu-rasterization --force-gpu-rasterization --enable-oop-rasterization --disable-software-compositing-fallback --disable-headless-mode',
+          '--extra-browser-args=--enable-features=UseSkiaRenderer --use-gl=egl --enable-gpu-rasterization --force-gpu-rasterization --enable-oop-rasterization --disable-software-compositing-fallback --disable-headless-mode',
         ],
         'precommit_args': [
           # Gerrit issue ID
@@ -2079,32 +2131,6 @@
     },
 
     'gpu_skia_renderer_non_vulkan_telemetry_tests': {
-      'skia_renderer_pixel_skia_gold_test': {
-        'name': 'skia_renderer_pixel_skia_gold_test',
-        'args': [
-          '--dont-restore-color-profile-after-test',
-          '--build-revision',
-          '${got_revision}',
-          '--test-machine-name',
-          '${buildername}',
-          '--extra-browser-args=--enable-features=UseSkiaRenderer',
-        ],
-        'precommit_args': [
-          # Gerrit issue ID
-          '--review-patch-issue',
-          '${patch_issue}',
-          # Patch set number
-          '--review-patch-set',
-          '${patch_set}',
-          # Buildbucket ID
-          '--buildbucket-build-id',
-          '${buildbucket_build_id}',
-        ],
-        'swarming': {
-          'service_account': 'chrome-gpu-gold@chops-service-accounts.iam.gserviceaccount.com'
-        },
-        'telemetry_test_name': 'pixel',
-      },
       'context_lost': {
         'args': [
           '--extra-browser-args=--enable-features=UseSkiaRenderer',
@@ -2156,6 +2182,32 @@
           '--dont-restore-color-profile-after-test',
           '--extra-browser-args=--enable-features=UseSkiaRenderer',
         ],
+      },
+      'skia_renderer_pixel_skia_gold_test': {
+        'name': 'skia_renderer_pixel_skia_gold_test',
+        'args': [
+          '--dont-restore-color-profile-after-test',
+          '--build-revision',
+          '${got_revision}',
+          '--test-machine-name',
+          '${buildername}',
+          '--extra-browser-args=--enable-features=UseSkiaRenderer',
+        ],
+        'precommit_args': [
+          # Gerrit issue ID
+          '--review-patch-issue',
+          '${patch_issue}',
+          # Patch set number
+          '--review-patch-set',
+          '${patch_set}',
+          # Buildbucket ID
+          '--buildbucket-build-id',
+          '${buildbucket_build_id}',
+        ],
+        'swarming': {
+          'service_account': 'chrome-gpu-gold@chops-service-accounts.iam.gserviceaccount.com'
+        },
+        'telemetry_test_name': 'pixel',
       },
     },
 
@@ -2488,7 +2540,6 @@
         'linux_args': [
           '--no-xvfb',
           '--additional-driver-flag=--disable-gpu-sandbox',
-          '--fuzzy-diff',
         ],
         'merge': {
           'args': [
@@ -2515,12 +2566,12 @@
         'app': 'ios_chrome_integration_eg2tests_module',
         'host': 'ios_chrome_eg2tests',
       },
-      'ios_chrome_smoke_eg2tests_module': {
-        'app': 'ios_chrome_smoke_eg2tests_module',
-        'host': 'ios_chrome_eg2tests',
-      },
       'ios_chrome_settings_eg2tests_module': {
         'app': 'ios_chrome_settings_eg2tests_module',
+        'host': 'ios_chrome_eg2tests',
+      },
+      'ios_chrome_smoke_eg2tests_module': {
+        'app': 'ios_chrome_smoke_eg2tests_module',
         'host': 'ios_chrome_eg2tests',
       },
       'ios_chrome_ui_eg2tests_module': {
@@ -2532,13 +2583,13 @@
         'app': 'ios_chrome_web_eg2tests_module',
         'host': 'ios_chrome_eg2tests',
       },
-      'ios_web_shell_eg2tests_module': {
-        'app': 'ios_web_shell_eg2tests_module',
-        'host': 'ios_web_shell_eg2tests',
-      },
       'ios_showcase_eg2tests_module': {
         'app': 'ios_showcase_eg2tests_module',
         'host': 'ios_showcase_eg2tests',
+      },
+      'ios_web_shell_eg2tests_module': {
+        'app': 'ios_web_shell_eg2tests_module',
+        'host': 'ios_web_shell_eg2tests',
       },
     },
 
@@ -2613,8 +2664,8 @@
     },
 
     'linux_specific_chromium_isolated_scripts': {
-      'devtools_type_check': {},
       'devtools_lint_check': {},
+      'devtools_type_check': {},
       'not_site_per_process_webkit_layout_tests': {
         # not_site_per_process_webkit_layout_tests provides coverage for
         # running Layout Tests without site-per-process.  This is the mode used
@@ -2631,7 +2682,6 @@
           # passed, but 0 times when '--test-list' is passed. We want to always
           # retry 3 times, so we explicitly specify it.
           '--num-retries=3',
-          '--fuzzy-diff',
         ],
         'isolate_name': 'blink_web_tests',
         'merge': {
@@ -2700,14 +2750,11 @@
         ],
         'test': 'chrome_public_test_apk',
       },
-      'network_service_out_of_process_content_shell_test_apk': {
-        'swarming': {
-          'shards': 5,
-        },
+      'network_service_out_of_process_components_browsertests': {
         'args': [
           '--disable-features=NetworkServiceInProcess',
         ],
-        'test': 'content_shell_test_apk',
+        'test': 'components_browsertests',
       },
       'network_service_out_of_process_content_browsertests': {
         'args': [
@@ -2718,11 +2765,14 @@
         },
         'test': 'content_browsertests',
       },
-      'network_service_out_of_process_components_browsertests': {
+      'network_service_out_of_process_content_shell_test_apk': {
+        'swarming': {
+          'shards': 5,
+        },
         'args': [
           '--disable-features=NetworkServiceInProcess',
         ],
-        'test': 'components_browsertests',
+        'test': 'content_shell_test_apk',
       },
       'network_service_webview_instrumentation_test_apk': {
         'swarming': {
@@ -2857,54 +2907,6 @@
       'views_unittests': {},
     },
 
-    'oor_cors_gtests': {
-      'oor_cors_blink_platform_unittests': {
-        'args': [
-          '--enable-features=OutOfBlinkCors'
-        ],
-        'test': 'blink_platform_unittests'
-      },
-      'oor_cors_browser_tests': {
-        'args': [
-          '--enable-features=OutOfBlinkCors'
-        ],
-        'swarming': {
-          'shards': 10,
-        },
-        'test': 'browser_tests'
-      },
-      'oor_cors_content_browsertests': {
-        'args': [
-          '--enable-features=OutOfBlinkCors'
-        ],
-        'test': 'content_browsertests'
-      },
-      'oor_cors_content_unittests' : {
-        'args': [
-          '--enable-features=OutOfBlinkCors'
-        ],
-        'test': 'content_unittests'
-      },
-      'oor_cors_extensions_browsertests': {
-        'args': [
-          '--enable-features=OutOfBlinkCors'
-        ],
-        'test': 'extensions_browsertests'
-      },
-      'oor_cors_extensions_unittests': {
-        'args': [
-          '--enable-features=OutOfBlinkCors'
-        ],
-        'test': 'extensions_unittests'
-      },
-      'oor_cors_services_unittests': {
-        'args': [
-          '--enable-features=OutOfBlinkCors'
-        ],
-        'test': 'services_unittests'
-      }
-    },
-
     'opus_tests': {
       'opus_tests': {
         'args': [
@@ -2915,18 +2917,18 @@
     },
 
     'ozone_linux_gtests': {
-      'services_unittests': {},
-      'ozone_unittests': {},
       'events_unittests': {
 	'experiment_percentage': 100,
       },
-      'ozone_x11_unittests': {},
       'headless_content_unittests': {
         'args': [
           '--ozone-platform=headless',
         ],
         'test': 'content_unittests',
       },
+      'ozone_unittests': {},
+      'ozone_x11_unittests': {},
+      'services_unittests': {},
       'x11_content_unittests': {
         'args': [
           '--ozone-platform=x11',
@@ -3129,13 +3131,14 @@
     },
 
     'skia_renderer_isolated_scripts': {
-      'non_skia_renderer_swiftshader_blink_web_tests': {
+      'skia_renderer_swiftshader_blink_web_tests': {
         # layout test failures are retried 3 times when '--test-list' is not
         # passed, but 0 times when '--test-list' is passed. We want to always
         # retry 3 times, so we explicitly specify it.
         'args': [
           '--num-retries=3',
-          '--additional-driver-flag=--disable-features=UseSkiaRenderer',
+          '--additional-driver-flag=--enable-features=UseSkiaRenderer',
+          '--fuzzy-diff',
           '--skipped=always',
           '--test-list=../../testing/buildbot/filters/gpu.skiarenderer_vulkan_blink_web_tests.filter',
         ],
@@ -3247,6 +3250,23 @@
       },
     },
 
+    'weblayer_shell_wpt': {
+      'weblayer_shell_wpt': {
+        'swarming': {
+          'shards': 15,
+          'expiration': 18000,
+          'hard_timeout': 14400,
+          'cipd_packages': [
+            {
+              "cipd_package": 'chromium/chrome/test/chromedriver/cipd',
+              'location': 'chrome/test/chromedriver/cipd',
+              'revision': 'tLMjWvOcbQX4nMo5WnMsKWn0aaVludzuSX9yiVFUCoUC',
+            }
+          ]
+        },
+      },
+    },
+
     # TODO(crbug.com/888429): Port remaining WebRTC tests to swarming.
     'webrtc_chromium_baremetal_gtests': {
       # Run capture unittests as well since our bots have real webcams.
@@ -3262,6 +3282,16 @@
     },
 
     'webrtc_chromium_gtests': {
+      'browser_tests_apprtc': {
+        'args': ['--gtest_filter=WebRtcApprtcBrowserTest.*',
+                 '--run-manual', '--test-launcher-jobs=1'],
+      },
+      'browser_tests_functional': {
+        'args': [
+          '--test-launcher-filter-file=../../testing/buildbot/filters/webrtc_functional.browser_tests.filter',
+          '--run-manual', '--test-launcher-jobs=1'],
+        'test': 'browser_tests',
+      },
       'content_browsertests': {
         # Run all normal WebRTC content_browsertests. This is mostly so
         # the FYI bots can detect breakages.
@@ -3272,22 +3302,6 @@
                  '--run-manual', '--ui-test-action-max-timeout=110000',
                  '--test-launcher-timeout=120000'],
         'test': 'content_browsertests',
-      },
-      'content_browsertests_stress': {
-        'args': ['--gtest_filter=WebRtc*MANUAL*:-UsingRealWebcam*',
-                 '--run-manual', '--ui-test-action-max-timeout=110000',
-                 '--test-launcher-timeout=120000'],
-        'test': 'content_browsertests',
-      },
-      'browser_tests_functional': {
-        'args': [
-          '--test-launcher-filter-file=../../testing/buildbot/filters/webrtc_functional.browser_tests.filter',
-          '--run-manual', '--test-launcher-jobs=1'],
-        'test': 'browser_tests',
-      },
-      'browser_tests_apprtc': {
-        'args': ['--gtest_filter=WebRtcApprtcBrowserTest.*',
-                 '--run-manual', '--test-launcher-jobs=1'],
       },
       'content_unittests': {
         'args': [
@@ -3513,8 +3527,8 @@
       'chromium_gtests',
       'chromium_gtests_for_devices_with_graphical_output',
       'linux_flavor_specific_chromium_gtests',
-      'vr_platform_specific_chromium_gtests',
       'network_service_android_gtests',
+      'vr_platform_specific_chromium_gtests',
       'weblayer_android_gtests',
       'weblayer_gtests',
     ],
@@ -3550,28 +3564,30 @@
       'android_monochrome_smoke_tests',
       'android_pagecontroller_self_tests',
       'android_smoke_tests',
-      'system_webview_shell_instrumentation_tests',
-      'webview_cts_tests_gtest',
-      'webview_ui_instrumentation_tests',
       # TODO: Following tests are experimental (crbug/1010211).
       'android_specific_chromium_gtests',  # Already includes gl_gtests.
       'chromium_gtests',
       'chromium_gtests_for_devices_with_graphical_output',
       'linux_flavor_specific_chromium_gtests',
-      'vr_platform_specific_chromium_gtests',
       'network_service_android_gtests',
+      'system_webview_shell_instrumentation_tests', # Not an experimental test
+      'vr_platform_specific_chromium_gtests',
       'weblayer_android_gtests',
       'weblayer_gtests',
+      # Experimental tests end here.
+      'webview_cts_tests_gtest',
+      'webview_ui_instrumentation_tests',
     ],
 
     'android_wpt_scripts': [
       'chrome_public_wpt',
       'system_webview_wpt',
+      'weblayer_shell_wpt',
     ],
 
     'bfcache_android_gtests': [
-      'bfcache_generic_gtests',
       'bfcache_android_specific_gtests',
+      'bfcache_generic_gtests',
     ],
 
     'bfcache_linux_gtests': [
@@ -3595,14 +3611,14 @@
       'chromium_gtests',
       'chromium_gtests_for_devices_with_graphical_output',
       'linux_flavor_specific_chromium_gtests',
-      'vr_platform_specific_chromium_gtests',
       'network_service_android_gtests',
+      'vr_platform_specific_chromium_gtests',
     ],
 
     'chromium_dbg_isolated_scripts': [
       'desktop_chromium_isolated_scripts',
-      'telemetry_perf_unittests_isolated_scripts',
       'performance_smoke_test_isolated_scripts',
+      'telemetry_perf_unittests_isolated_scripts',
     ],
 
     # This is meant to be a superset of 'chromium_linux_and_gl_gtests'. Any
@@ -3613,12 +3629,12 @@
       'chromium_gtests_for_devices_with_graphical_output',
       'chromium_gtests_for_linux_and_chromeos_only',
       'chromium_gtests_for_win_and_linux_only',
-      'linux_flavor_specific_chromium_gtests',
-      'non_android_chromium_gtests',
-      'non_android_and_cast_and_chromeos_chromium_gtests',
-      'vr_platform_specific_chromium_gtests',
       'gl_gtests',
       'gpu_fyi_vulkan_swiftshader_gtests',
+      'linux_flavor_specific_chromium_gtests',
+      'non_android_and_cast_and_chromeos_chromium_gtests',
+      'non_android_chromium_gtests',
+      'vr_platform_specific_chromium_gtests',
     ],
 
     # gl_tests requires dedicated slaves with GPUs on linux, so have a separate
@@ -3629,11 +3645,11 @@
       'chromium_gtests_for_devices_with_graphical_output',
       'chromium_gtests_for_linux_and_chromeos_only',
       'chromium_gtests_for_win_and_linux_only',
-      'linux_flavor_specific_chromium_gtests',
-      'non_android_chromium_gtests',
-      'non_android_and_cast_and_chromeos_chromium_gtests',
-      'vr_platform_specific_chromium_gtests',
       'gl_gtests',
+      'linux_flavor_specific_chromium_gtests',
+      'non_android_and_cast_and_chromeos_chromium_gtests',
+      'non_android_chromium_gtests',
+      'vr_platform_specific_chromium_gtests',
     ],
 
     'chromium_linux_cast_audio_gtests': [
@@ -3663,8 +3679,8 @@
       'chromium_gtests_for_win_and_linux_only',
       'linux_flavor_specific_chromium_gtests',
       'linux_specific_xr_gtests',
-      'non_android_chromium_gtests',
       'non_android_and_cast_and_chromeos_chromium_gtests',
+      'non_android_chromium_gtests',
       'skia_renderer_gtests',
       'vr_platform_specific_chromium_gtests',
       'weblayer_gtests',
@@ -3683,8 +3699,8 @@
       'chromium_gtests_for_devices_with_graphical_output',
       'mac_specific_chromium_gtests',
       'nocompile_tests',
-      'non_android_chromium_gtests',
       'non_android_and_cast_and_chromeos_chromium_gtests',
+      'non_android_chromium_gtests',
     ],
 
     'chromium_mac_rel_isolated_scripts': [
@@ -3708,8 +3724,8 @@
       'chromium_gtests',
       'chromium_gtests_for_devices_with_graphical_output',
       'chromium_gtests_for_win_and_linux_only',
-      'non_android_chromium_gtests',
       'non_android_and_cast_and_chromeos_chromium_gtests',
+      'non_android_chromium_gtests',
       'vr_platform_specific_chromium_gtests',
       'weblayer_gtests',
       'win_specific_chromium_gtests',
@@ -3728,8 +3744,8 @@
     ],
 
     'cronet_rel_isolated_scripts': [
-      'cronet_sizes',
       'cronet_resource_sizes',
+      'cronet_sizes',
     ],
 
     # BEGIN composition test suites used by the GPU bots
@@ -3752,11 +3768,11 @@
     'gpu_angle_deqp_android_vulkan_gtests': [
       'gpu_angle_deqp_egl_vulkan_gtests',
       'gpu_angle_deqp_gles2_vulkan_gtests',
-      'gpu_angle_deqp_gles3_vulkan_gtests',
       'gpu_angle_deqp_gles31_vulkan_gtests',
+      'gpu_angle_deqp_gles3_vulkan_gtests',
       'gpu_angle_deqp_khr_gles2_vulkan_gtests',
-      'gpu_angle_deqp_khr_gles3_vulkan_gtests',
       'gpu_angle_deqp_khr_gles31_vulkan_gtests',
+      'gpu_angle_deqp_khr_gles3_vulkan_gtests',
     ],
 
     'gpu_angle_deqp_linux_nvidia_gtests': [
@@ -3764,13 +3780,13 @@
       'gpu_angle_deqp_egl_vulkan_gtests',
       'gpu_angle_deqp_gles2_gl_gtests',
       'gpu_angle_deqp_gles2_vulkan_gtests',
-      'gpu_angle_deqp_gles3_gl_gtests',
-      'gpu_angle_deqp_gles3_vulkan_gtests',
       'gpu_angle_deqp_gles31_gl_gtests',
       'gpu_angle_deqp_gles31_vulkan_gtests',
+      'gpu_angle_deqp_gles3_gl_gtests',
+      'gpu_angle_deqp_gles3_vulkan_gtests',
       'gpu_angle_deqp_khr_gles2_vulkan_gtests',
-      'gpu_angle_deqp_khr_gles3_vulkan_gtests',
       'gpu_angle_deqp_khr_gles31_vulkan_gtests',
+      'gpu_angle_deqp_khr_gles3_vulkan_gtests',
     ],
 
     'gpu_angle_deqp_mac_gtests': [
@@ -3791,15 +3807,15 @@
       'gpu_angle_deqp_gles2_d3d11_gtests',
       'gpu_angle_deqp_gles2_gl_gtests',
       'gpu_angle_deqp_gles2_vulkan_gtests',
-      'gpu_angle_deqp_gles3_d3d11_gtests',
-      'gpu_angle_deqp_gles3_gl_gtests',
-      'gpu_angle_deqp_gles3_vulkan_gtests',
       'gpu_angle_deqp_gles31_d3d11_gtests',
       'gpu_angle_deqp_gles31_gl_gtests',
       'gpu_angle_deqp_gles31_vulkan_gtests',
+      'gpu_angle_deqp_gles3_d3d11_gtests',
+      'gpu_angle_deqp_gles3_gl_gtests',
+      'gpu_angle_deqp_gles3_vulkan_gtests',
       'gpu_angle_deqp_khr_gles2_vulkan_gtests',
-      'gpu_angle_deqp_khr_gles3_vulkan_gtests',
       'gpu_angle_deqp_khr_gles31_vulkan_gtests',
+      'gpu_angle_deqp_khr_gles3_vulkan_gtests',
     ],
 
     'gpu_angle_fyi_win_optional_and_representative_perf_isolated_scripts': [
@@ -3917,8 +3933,8 @@
 
     'gpu_fyi_android_webgl2_and_gold_telemetry_tests': [
       'gpu_telemetry_tests',
-      'gpu_webgl2_conformance_validating_telemetry_tests',
       'gpu_webgl2_conformance_gles_passthrough_telemetry_tests',
+      'gpu_webgl2_conformance_validating_telemetry_tests',
     ],
 
     'gpu_fyi_linux_debug_gtests': [
@@ -4229,8 +4245,8 @@
     'webrtc_chromium_tests_with_baremetal_tests': [
       'webrtc_chromium_baremetal_gtests',
       'webrtc_chromium_gtests',
-      'webrtc_chromium_simple_gtests',
       'webrtc_chromium_simple_baremetal_gtests',
+      'webrtc_chromium_simple_gtests',
     ],
 
     'webview_bot_all_gtests': [
@@ -4245,11 +4261,12 @@
       'webview_ui_instrumentation_tests_no_field_trial',
     ],
 
-    'webview_bot_oor_cors_gtests': [
+    'webview_bot_blink_cors_gtests': [
       'system_webview_shell_instrumentation_tests',
       'webview_bot_instrumentation_test_apk_gtest',
       'webview_bot_unittests_gtest',
       'webview_cts_tests_gtest',
+      'webview_cts_tests_gtest_no_field_trial',
       'webview_ui_instrumentation_tests',
     ],
 

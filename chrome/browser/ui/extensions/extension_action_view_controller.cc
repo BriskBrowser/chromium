@@ -331,7 +331,7 @@ bool ExtensionActionViewController::ExtensionIsValid() const {
 }
 
 bool ExtensionActionViewController::GetExtensionCommand(
-    extensions::Command* command) {
+    extensions::Command* command) const {
   DCHECK(command);
   if (!ExtensionIsValid())
     return false;
@@ -343,6 +343,29 @@ bool ExtensionActionViewController::GetExtensionCommand(
   }
   return command_service->GetBrowserActionCommand(
       extension_->id(), CommandService::ACTIVE, command, NULL);
+}
+
+bool ExtensionActionViewController::CanHandleAccelerators() const {
+  if (!ExtensionIsValid())
+    return false;
+
+#if DCHECK_IS_ON()
+  {
+    extensions::Command command;
+    DCHECK(GetExtensionCommand(&command));
+  }
+#endif
+
+  // Page action accelerators are enabled if and only if the page action is
+  // enabled ("visible" in legacy terms) on the given tab. Other actions can
+  // always accept accelerators.
+  // TODO(devlin): Have all actions behave similarly; this should likely mean
+  // always checking IsEnabled(). It's weird to use a keyboard shortcut on a
+  // disabled action (in most cases, this will result in opening the context
+  // menu).
+  if (extension_action_->action_type() == extensions::ActionInfo::TYPE_PAGE)
+    return IsEnabled(view_delegate_->GetCurrentWebContents());
+  return true;
 }
 
 std::unique_ptr<IconWithBadgeImageSource>
@@ -381,7 +404,8 @@ bool ExtensionActionViewController::TriggerPopupWithUrl(
   popup_host_observer_.Add(popup_host_);
   extensions_container_->SetPopupOwner(this);
 
-  if (!extensions_container_->IsActionVisibleOnToolbar(this)) {
+  if (!extensions_container_->IsActionVisibleOnToolbar(this) ||
+      base::FeatureList::IsEnabled(features::kExtensionsToolbarMenu)) {
     extensions_container_->CloseOverflowMenuIfOpen();
     extensions_container_->PopOutAction(
         this, show_action == SHOW_POPUP_AND_INSPECT,

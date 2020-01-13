@@ -251,7 +251,7 @@ void BluetoothAdapterBlueZ::Shutdown() {
   bluez::BluezDBusManager::Get()
       ->GetBluetoothAgentManagerClient()
       ->UnregisterAgent(dbus::ObjectPath(kAgentPath), base::DoNothing(),
-                        base::Bind(&OnUnregisterAgentError));
+                        base::BindOnce(&OnUnregisterAgentError));
 
   agent_.reset();
 
@@ -775,12 +775,13 @@ void BluetoothAdapterBlueZ::AgentManagerAdded(
   BLUETOOTH_LOG(DEBUG) << "Registering pairing agent";
   bluez::BluezDBusManager::Get()
       ->GetBluetoothAgentManagerClient()
-      ->RegisterAgent(dbus::ObjectPath(kAgentPath),
-                      bluetooth_agent_manager::kKeyboardDisplayCapability,
-                      base::Bind(&BluetoothAdapterBlueZ::OnRegisterAgent,
-                                 weak_ptr_factory_.GetWeakPtr()),
-                      base::Bind(&BluetoothAdapterBlueZ::OnRegisterAgentError,
-                                 weak_ptr_factory_.GetWeakPtr()));
+      ->RegisterAgent(
+          dbus::ObjectPath(kAgentPath),
+          bluetooth_agent_manager::kKeyboardDisplayCapability,
+          base::BindOnce(&BluetoothAdapterBlueZ::OnRegisterAgent,
+                         weak_ptr_factory_.GetWeakPtr()),
+          base::BindOnce(&BluetoothAdapterBlueZ::OnRegisterAgentError,
+                         weak_ptr_factory_.GetWeakPtr()));
 }
 
 void BluetoothAdapterBlueZ::AgentManagerRemoved(
@@ -936,10 +937,10 @@ void BluetoothAdapterBlueZ::OnRegisterAgent() {
       ->GetBluetoothAgentManagerClient()
       ->RequestDefaultAgent(
           dbus::ObjectPath(kAgentPath),
-          base::Bind(&BluetoothAdapterBlueZ::OnRequestDefaultAgent,
-                     weak_ptr_factory_.GetWeakPtr()),
-          base::Bind(&BluetoothAdapterBlueZ::OnRequestDefaultAgentError,
-                     weak_ptr_factory_.GetWeakPtr()));
+          base::BindOnce(&BluetoothAdapterBlueZ::OnRequestDefaultAgent,
+                         weak_ptr_factory_.GetWeakPtr()),
+          base::BindOnce(&BluetoothAdapterBlueZ::OnRequestDefaultAgentError,
+                         weak_ptr_factory_.GetWeakPtr()));
 }
 
 void BluetoothAdapterBlueZ::OnRegisterAgentError(
@@ -1139,7 +1140,7 @@ void BluetoothAdapterBlueZ::DiscoveringChanged(bool discovering) {
   // If the adapter stopped discovery due to a reason other than a request by
   // us, reset the count to 0.
   BLUETOOTH_LOG(EVENT) << "Discovering changed: " << discovering;
-  if (!discovering && NumDiscoverySessions() > 0) {
+  if (!discovering && NumScanningDiscoverySessions() > 0) {
     BLUETOOTH_LOG(DEBUG) << "Marking sessions as inactive.";
     MarkDiscoverySessionsAsInactive();
   }

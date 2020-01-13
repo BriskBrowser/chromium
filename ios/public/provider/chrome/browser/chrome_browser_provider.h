@@ -40,6 +40,7 @@ class GURL;
 @protocol LogoVendor;
 @class UITextField;
 @class UIView;
+class Browser;
 
 namespace ios {
 
@@ -120,16 +121,18 @@ class ChromeBrowserProvider {
   // Attaches any embedder-specific tab helpers to the given |web_state|.
   virtual void AttachTabHelpers(web::WebState* web_state) const;
 
+  // Attaches any embedder-specific browser agents to the given |browser|.
+  virtual void AttachBrowserAgents(Browser* browser) const;
+
+  // Schedule any embedder-specific startup tasks.
+  virtual void ScheduleDeferredStartupTasks(
+      ios::ChromeBrowserState* browser_state) const;
+
   // Returns an instance of the voice search provider, if one exists.
   virtual VoiceSearchProvider* GetVoiceSearchProvider() const;
 
   // Returns an instance of the app distribution provider.
   virtual AppDistributionProvider* GetAppDistributionProvider() const;
-
-  // Creates and returns an object that can fetch and vend search engine logos.
-  // The caller assumes ownership of the returned object.
-  virtual id<LogoVendor> CreateLogoVendor(
-      ios::ChromeBrowserState* browser_state) const NS_RETURNS_RETAINED;
 
   virtual id<LogoVendor> CreateLogoVendor(
       ios::ChromeBrowserState* browser_state,

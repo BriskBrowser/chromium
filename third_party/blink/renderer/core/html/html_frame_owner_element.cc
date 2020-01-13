@@ -312,16 +312,10 @@ void HTMLFrameOwnerElement::UpdateRequiredPolicy() {
       ConstructRequiredPolicy();
   const auto* frame = GetDocument().GetFrame();
   DCHECK(frame);
-  // TODO(chenleihu): unify the logic of getting parent required policy after
-  // frame policy gets moved from FrameOwner to Frame.
-  frame_policy_.required_document_policy =
-      frame->IsMainFrame()
-          ? self_required_policy
-          : DocumentPolicy::MergeFeatureState(
-                self_required_policy,
-                frame->Owner()
-                    ->GetFramePolicy()
-                    .required_document_policy /* parent required policy */);
+  frame_policy_.required_document_policy = DocumentPolicy::MergeFeatureState(
+      self_required_policy,
+      frame->GetFramePolicy()
+          .required_document_policy /* parent required policy */);
   if (ContentFrame()) {
     frame->Client()->DidChangeFramePolicy(ContentFrame(), frame_policy_);
   }
@@ -379,7 +373,7 @@ void HTMLFrameOwnerElement::SetEmbeddedContentView(
     if (old_view->IsAttached()) {
       old_view->DetachFromLayout();
       if (old_view->IsPluginView())
-        DisposePluginSoon(ToWebPluginContainerImpl(old_view));
+        DisposePluginSoon(To<WebPluginContainerImpl>(old_view));
       else
         old_view->Dispose();
     }
@@ -520,8 +514,8 @@ bool HTMLFrameOwnerElement::LoadOrRedirectSubframe(
     }
   }
 
-  child_frame->Loader().StartNavigation(
-      FrameLoadRequest(&GetDocument(), request), child_load_type);
+  FrameLoadRequest frame_load_request(&GetDocument(), request);
+  child_frame->Loader().StartNavigation(frame_load_request, child_load_type);
 
   return true;
 }

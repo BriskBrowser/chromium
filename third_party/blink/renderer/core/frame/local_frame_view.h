@@ -329,7 +329,8 @@ class CORE_EXPORT LocalFrameView final
   // lifecycle update (e.g., based on visibility) and will not end up being
   // PaintClean. Set |reason| to indicate the reason for this update,
   // for metrics purposes.
-  void UpdateAllLifecyclePhases(
+  // Returns whether the lifecycle was successfully updated to PaintClean.
+  bool UpdateAllLifecyclePhases(
       DocumentLifecycle::LifecycleUpdateReason reason);
 
   // Computes the style, layout, compositing and pre-paint lifecycle stages
@@ -615,7 +616,8 @@ class CORE_EXPORT LocalFrameView final
 
   bool HasVisibleSlowRepaintViewportConstrainedObjects() const;
 
-  bool MapToVisualRectInRemoteRootFrame(PhysicalRect&);
+  bool MapToVisualRectInRemoteRootFrame(PhysicalRect& rect,
+                                        bool apply_overflow_clip = true);
 
   void MapLocalToRemoteRootFrame(TransformState&);
 
@@ -957,8 +959,9 @@ class CORE_EXPORT LocalFrameView final
   // For testing.
   bool is_tracking_raster_invalidations_ = false;
 
-  // True if a memory pressure signal for compositing has been received.
-  bool received_compositor_memory_pressure_purge_signal_ = false;
+  // True if a memory pressure signal has been received on a foregrounded page
+  // that has accelerated compositing enabled.
+  bool received_foreground_compositor_memory_pressure_purge_signal_ = false;
 
   // Currently used in PushPaintArtifactToCompositor() to collect composited
   // layers as foreign layers. It's transient, but may live across frame updates

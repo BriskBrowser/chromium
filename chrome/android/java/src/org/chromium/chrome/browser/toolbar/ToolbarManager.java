@@ -28,11 +28,12 @@ import androidx.annotation.VisibleForTesting;
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.Callback;
 import org.chromium.base.MathUtils;
-import org.chromium.base.ObservableSupplier;
-import org.chromium.base.ObservableSupplierImpl;
 import org.chromium.base.metrics.CachedMetrics.ActionEvent;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
+import org.chromium.base.supplier.ObservableSupplier;
+import org.chromium.base.supplier.ObservableSupplierImpl;
+import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.ChromeFeatureList;
@@ -248,6 +249,11 @@ public class ToolbarManager implements ScrimObserver, ToolbarTabController, UrlF
     private AppMenuHandler mAppMenuHandler;
 
     private int mCurrentOrientation;
+
+    /**
+     * Runnable for the home and search accelerator button when Start Surface home page is enabled.
+     */
+    private Supplier<Boolean> mShowStartSurfaceSupplier;
 
     /**
      * Creates a ToolbarManager object.
@@ -797,6 +803,11 @@ public class ToolbarManager implements ScrimObserver, ToolbarTabController, UrlF
         final OnClickListener searchAcceleratorListener = v -> {
             recordBottomToolbarUseForIPH();
             ACCELERATOR_BUTTON_TAP_ACTION.record();
+
+            // Only switch to HomePage when overview is showing.
+            if (mOverviewModeBehavior.overviewVisible()) {
+                mShowStartSurfaceSupplier.get();
+            }
             setUrlBarFocus(true, LocationBar.OmniboxFocusReason.ACCELERATOR_TAP);
         };
 
@@ -980,10 +991,13 @@ public class ToolbarManager implements ScrimObserver, ToolbarTabController, UrlF
             BrowserStateBrowserControlsVisibilityDelegate controlsVisibilityDelegate,
             OverviewModeBehavior overviewModeBehavior, LayoutManager layoutManager,
             OnClickListener tabSwitcherClickHandler, OnClickListener newTabClickHandler,
-            OnClickListener bookmarkClickHandler, OnClickListener customTabsBackClickHandler) {
+            OnClickListener bookmarkClickHandler, OnClickListener customTabsBackClickHandler,
+            Supplier<Boolean> showStartSurfaceSupplier) {
         assert !mInitializedWithNative;
 
         mTabModelSelector = tabModelSelector;
+
+        mShowStartSurfaceSupplier = showStartSurfaceSupplier;
 
         OnLongClickListener tabSwitcherLongClickHandler = null;
 
@@ -995,9 +1009,9 @@ public class ToolbarManager implements ScrimObserver, ToolbarTabController, UrlF
                             (id) -> mActivity.onOptionsItemSelected(id, null));
         }
 
-        mToolbar.initializeWithNative(tabModelSelector, controlsVisibilityDelegate, layoutManager,
-                tabSwitcherClickHandler, tabSwitcherLongClickHandler, newTabClickHandler,
-                bookmarkClickHandler, customTabsBackClickHandler, overviewModeBehavior);
+        mToolbar.initializeWithNative(tabModelSelector, layoutManager, tabSwitcherClickHandler,
+                tabSwitcherLongClickHandler, newTabClickHandler, bookmarkClickHandler,
+                customTabsBackClickHandler, overviewModeBehavior);
 
         mToolbar.addOnAttachStateChangeListener(new OnAttachStateChangeListener() {
             @Override
@@ -1512,18 +1526,18 @@ public class ToolbarManager implements ScrimObserver, ToolbarTabController, UrlF
     }
 
     @Override
-    public @ChromeTabbedActivity.BackPressedResult Integer back() {
+    public boolean back() {
         if (mBottomControlsCoordinator != null && mBottomControlsCoordinator.onBackPressed()) {
-            return ChromeTabbedActivity.BackPressedResult.EXITED_TAB_GROUP_DIALOG;
+            return true;
         }
 
         Tab tab = mLocationBarModel.getTab();
         if (tab != null && tab.canGoBack()) {
             tab.goBack();
             updateButtonStatus();
-            return ChromeTabbedActivity.BackPressedResult.NAVIGATED_BACK;
+            return true;
         }
-        return null;
+        return false;
     }
 
     @Override
@@ -1562,6 +1576,9 @@ public class ToolbarManager implements ScrimObserver, ToolbarTabController, UrlF
             RecordUserAction.record("MobileTopToolbarHomeButton");
         }
 
+        if (mShowStartSurfaceSupplier.get()) {
+            return;
+        }
         Tab currentTab = mLocationBarModel.getTab();
         if (currentTab == null) return;
         String homePageUrl = HomepageManager.getHomepageUri();
@@ -1626,14 +1643,6 @@ public class ToolbarManager implements ScrimObserver, ToolbarTabController, UrlF
      */
     public void setShouldUpdateToolbarPrimaryColor(boolean shouldUpdate) {
         mShouldUpdateToolbarPrimaryColor = shouldUpdate;
-    }
-
-    /**
-     * @return Whether we should be updating the toolbar primary color based on updates from the
-     * Tab.
-     */
-    public boolean getShouldUpdateToolbarPrimaryColor() {
-        return mShouldUpdateToolbarPrimaryColor;
     }
 
     /**

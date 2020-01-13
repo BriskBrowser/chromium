@@ -140,6 +140,7 @@
 <translation id="2773292004659987824">Anonim Axtarış</translation>
 <translation id="277771892408211951">Dil seçin</translation>
 <translation id="2780046210906776326">E-poçt hesabları yoxdur</translation>
+<translation id="2781331604911854368">Aktiv</translation>
 <translation id="2781692009645368755">Google Pay</translation>
 <translation id="2800683595868705743">Panel Dəyişdiricini Tərk edin</translation>
 <translation id="2830972654601096923">Ünvanları İdarə Edin...</translation>
@@ -175,6 +176,7 @@
 <translation id="3268451620468152448">Panelləri Açın</translation>
 <translation id="3277021493514034324">Sayt ünvanı kopyalandı</translation>
 <translation id="3290875554372353449">Hesab seçin</translation>
+<translation id="3311748811247479259">Deaktiv</translation>
 <translation id="3324193307694657476">Ünvan 2</translation>
 <translation id="3329904751041170572">Server qoşulmaq mümkün olması.</translation>
 <translation id="3335947283844343239">Bağlanmış Paneli yenidən açın</translation>
@@ -192,6 +194,7 @@
 <translation id="3482959374254649722">Panelləriniz sinxronizasiya olunur...</translation>
 <translation id="3493531032208478708">Təklif məzmunu haqqında <ph name="BEGIN_LINK" />daha ətraflı<ph name="END_LINK" /></translation>
 <translation id="3494788280727468875">Brauzer Data Silinməsini Təsdiq Edin</translation>
+<translation id="35083190962747987">${url} keçidini açın</translation>
 <translation id="3519193562722059437">Vebdə baxmaq üçün panel açın.</translation>
 <translation id="3527085408025491307">Qovluq</translation>
 <translation id="3529024052484145543">Təhlükəsiz deyil</translation>
@@ -301,6 +304,7 @@ Ayarı dəyişmək üçün <ph name="BEGIN_LINK" />sinxronizasiyanı sıfırlay�
 <translation id="5062321486222145940">Google Diski quraşdırın</translation>
 <translation id="5083464117946352670">Fayl ölçüsünü müəyyənləşdirmək olmur.</translation>
 <translation id="5094827893301452931">Tweet tamamlandı.</translation>
+<translation id="5118764316110575523">Deaktiv</translation>
 <translation id="5127805178023152808">Sinx deaktivdir</translation>
 <translation id="5132942445612118989">Bütün cihazlarda parol, tarixçə və s. sinxronizasiya edin</translation>
 <translation id="5140288047769711648">Chrome bu parolu Sizin üçün yadda saxlayacaq. Parolu yadda saxlamaq məcburiyyətində deyilsiniz.</translation>
@@ -349,13 +353,11 @@ Handoff Ayarların Ümumi bölməsindən də aktiv edilə bilər və cihazların
 <translation id="5854790677617711513">30 gündən çox</translation>
 <translation id="5857090052475505287">Yeni Qovluq</translation>
 <translation id="5857770089550859117">Sinxronizasiyanı başlamaq üçün parol söz tələb olunur.</translation>
-<translation id="5860033963881614850">Deaktiv</translation>
 <translation id="5869029295770560994">Ok, Anladım</translation>
 <translation id="5871497086027727873">1 element köçürüldü</translation>
 <translation id="5897956970858271241">Kopyalanmış Linkə Daxil Olun</translation>
 <translation id="5911030830365207728">Google Tərcümə</translation>
 <translation id="5913600720976431809">Səhifəni tərcümə etmək seçimləri</translation>
-<translation id="5916664084637901428">Aktiv</translation>
 <translation id="5938160824633642847">Cihaz doludur. Yer boşaldın və yenidən cəhd edin.</translation>
 <translation id="5948291296578561264">Bu fotoları foto kitabxanada saxlamağa icazə verir.</translation>
 <translation id="5955891643922670672">Oflayn versiyaya baxırsınız</translation>
@@ -365,6 +367,7 @@ Handoff Ayarların Ümumi bölməsindən də aktiv edilə bilər və cihazların
 <translation id="5979837087407522202">Parolları Axtarın</translation>
 <translation id="5982717868370722439">Mövcud datanı <ph name="USER_EMAIL" /> hesabına əlavə edin.</translation>
 <translation id="5984222099446776634">Son Ziyarət</translation>
+<translation id="5988851877894965432">Chrome'da keçidləri açın</translation>
 <translation id="6012140227487808125">Şifrələnir...</translation>
 <translation id="6021332621416007159">Burada açın...</translation>
 <translation id="6039429417015973673"><ph name="TITLE" />, <ph name="PUBLISHER_INFORMATION" />, <ph name="PUBLICATION_DATE" /></translation>
@@ -514,6 +517,7 @@ Datanız <ph name="TIME" /> tarixində sinxronizasiya parol sözü ilə şifrəl
 <translation id="7961015016161918242">Heç vaxt</translation>
 <translation id="7971521879845308059">Popupları bloklayın</translation>
 <translation id="7982789257301363584">Şəbəkə</translation>
+<translation id="800361585186029508">Google Chrome'da daxil edilən keçidləri açır.</translation>
 <translation id="8007420562015504427">Anonim Axtarış</translation>
 <translation id="8019783059653722575">Fotoları yadda saxlamağa və yükləməyə icazə verir.</translation>
 <translation id="802154636333426148">Endirmə alınmadı</translation>

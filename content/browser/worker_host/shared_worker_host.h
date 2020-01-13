@@ -49,7 +49,7 @@ class PendingURLLoaderFactoryBundle;
 namespace content {
 
 class AppCacheNavigationHandle;
-class ServiceWorkerNavigationHandle;
+class ServiceWorkerMainResourceHandle;
 class ServiceWorkerObjectHost;
 class SharedWorkerContentSettingsProxyImpl;
 class SharedWorkerServiceImpl;
@@ -107,14 +107,13 @@ class CONTENT_EXPORT SharedWorkerHost : public blink::mojom::SharedWorkerHost,
   void Destruct();
 
   void AddClient(mojo::PendingRemote<blink::mojom::SharedWorkerClient> client,
-                 int client_process_id,
-                 int frame_id,
+                 GlobalFrameRoutingId client_render_frame_host_id,
                  const blink::MessagePortChannel& port);
 
   void SetAppCacheHandle(
       std::unique_ptr<AppCacheNavigationHandle> appcache_handle);
   void SetServiceWorkerHandle(
-      std::unique_ptr<ServiceWorkerNavigationHandle> service_worker_handle);
+      std::unique_ptr<ServiceWorkerMainResourceHandle> service_worker_handle);
 
   // Removes all clients whose RenderFrameHost has been destroyed before the
   // shared worker was started.
@@ -142,13 +141,11 @@ class CONTENT_EXPORT SharedWorkerHost : public blink::mojom::SharedWorkerHost,
   struct ClientInfo {
     ClientInfo(mojo::Remote<blink::mojom::SharedWorkerClient> client,
                int connection_request_id,
-               int client_process_id,
-               int frame_id);
+               GlobalFrameRoutingId render_frame_host_id);
     ~ClientInfo();
     mojo::Remote<blink::mojom::SharedWorkerClient> client;
     const int connection_request_id;
-    const int client_process_id;
-    const int frame_id;
+    const GlobalFrameRoutingId render_frame_host_id;
   };
 
   using ClientList = std::list<ClientInfo>;
@@ -222,7 +219,7 @@ class CONTENT_EXPORT SharedWorkerHost : public blink::mojom::SharedWorkerHost,
   // renderer after main script loading finishes.
   std::unique_ptr<AppCacheNavigationHandle> appcache_handle_;
 
-  std::unique_ptr<ServiceWorkerNavigationHandle> service_worker_handle_;
+  std::unique_ptr<ServiceWorkerMainResourceHandle> service_worker_handle_;
 
   // Indicates if Start() was invoked on this instance.
   bool started_ = false;

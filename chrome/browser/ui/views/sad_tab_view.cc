@@ -573,13 +573,13 @@ SadTabView::SadTabView(content::WebContents* web_contents, SadTabKind kind)
           this, l10n_util::GetStringUTF16(GetButtonTitle()));
   auto help_link = std::make_unique<views::Link>(
       l10n_util::GetStringUTF16(GetHelpLinkTitle()));
-  help_link->set_listener(this);
+  help_link->set_callback(base::BindRepeating(
+      &SadTab::PerformAction, base::Unretained(this), Action::HELP_LINK));
   layout->StartRowWithPadding(views::GridLayout::kFixedSize, column_set_id,
                               views::GridLayout::kFixedSize,
                               unrelated_vertical_spacing_large);
-  help_link_ =
-      layout->AddView(std::move(help_link), 1.0, 1.0,
-                      views::GridLayout::LEADING, views::GridLayout::CENTER);
+  layout->AddView(std::move(help_link), 1.0, 1.0, views::GridLayout::LEADING,
+                  views::GridLayout::CENTER);
   action_button_ =
       layout->AddView(std::move(action_button), 1.0, 1.0,
                       views::GridLayout::TRAILING, views::GridLayout::LEADING);
@@ -614,6 +614,23 @@ void SadTabView::ReinstallInWebView() {
   AttachToWebView();
 }
 
+void SadTabView::ButtonPressed(views::Button* sender, const ui::Event& event) {
+  DCHECK_EQ(action_button_, sender);
+  PerformAction(Action::BUTTON);
+}
+
+void SadTabView::OnPaint(gfx::Canvas* canvas) {
+  if (!painted_) {
+    RecordFirstPaint();
+    painted_ = true;
+  }
+  View::OnPaint(canvas);
+}
+
+void SadTabView::RemovedFromWidget() {
+  owner_ = nullptr;
+}
+
 void SadTabView::AttachToWebView() {
   Browser* browser = chrome::FindBrowserWithWebContents(web_contents());
   // This can be null during prefetch.
@@ -644,28 +661,6 @@ void SadTabView::OnBoundsChanged(const gfx::Rect& previous_bounds) {
 
   message_->SizeToFit(max_width);
   title_->SizeToFit(max_width);
-}
-
-void SadTabView::LinkClicked(views::Link* source, int event_flags) {
-  PerformAction(Action::HELP_LINK);
-}
-
-void SadTabView::ButtonPressed(views::Button* sender,
-                               const ui::Event& event) {
-  DCHECK_EQ(action_button_, sender);
-  PerformAction(Action::BUTTON);
-}
-
-void SadTabView::OnPaint(gfx::Canvas* canvas) {
-  if (!painted_) {
-    RecordFirstPaint();
-    painted_ = true;
-  }
-  View::OnPaint(canvas);
-}
-
-void SadTabView::RemovedFromWidget() {
-  owner_ = nullptr;
 }
 
 SadTab* SadTab::Create(content::WebContents* web_contents,

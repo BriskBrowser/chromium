@@ -651,11 +651,6 @@ bool LocalFrameClientImpl::NavigateBackForward(int offset) const {
   return true;
 }
 
-void LocalFrameClientImpl::DidAccessInitialDocument() {
-  if (web_frame_->Client())
-    web_frame_->Client()->DidAccessInitialDocument();
-}
-
 void LocalFrameClientImpl::DidRunInsecureContent(const SecurityOrigin* origin,
                                                  const KURL& insecure_url) {
   if (web_frame_->Client()) {
@@ -1010,13 +1005,6 @@ void LocalFrameClientImpl::AnnotatedRegionsChanged() {
   web_frame_->Client()->DraggableRegionsChanged();
 }
 
-void LocalFrameClientImpl::DidBlockNavigation(
-    const KURL& blocked_url,
-    const KURL& initiator_url,
-    blink::NavigationBlockedReason reason) {
-  web_frame_->Client()->DidBlockNavigation(blocked_url, initiator_url, reason);
-}
-
 base::UnguessableToken LocalFrameClientImpl::GetDevToolsFrameToken() const {
   return web_frame_->Client()->GetDevToolsFrameToken();
 }
@@ -1026,13 +1014,6 @@ void LocalFrameClientImpl::ScrollRectToVisibleInParentFrame(
     const WebScrollIntoViewParams& params) {
   web_frame_->Client()->ScrollRectToVisibleInParentFrame(rect_to_scroll,
                                                          params);
-}
-
-void LocalFrameClientImpl::BubbleLogicalScrollInParentFrame(
-    ScrollDirection direction,
-    ScrollGranularity granularity) {
-  web_frame_->Client()->BubbleLogicalScrollInParentFrame(direction,
-                                                         granularity);
 }
 
 String LocalFrameClientImpl::evaluateInInspectorOverlayForTesting(

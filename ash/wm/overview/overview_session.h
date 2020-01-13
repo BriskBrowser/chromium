@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "ash/ash_export.h"
+#include "ash/public/cpp/shelf_types.h"
 #include "ash/shell_observer.h"
 #include "ash/wm/overview/scoped_overview_hide_windows.h"
 #include "ash/wm/splitview/split_view_controller.h"
@@ -81,7 +82,10 @@ class ASH_EXPORT OverviewSession : public display::DisplayObserver,
     kSwipeFromShelf,
     // Used only when it's desired to enter overview mode immediately without
     // animations. It's used when entering overview by dragging a window from
-    // from the top of the screen.
+    // the top of the screen or from the shelf. It's also used when entering
+    // overview to avoid the blatantly broken behaviors shown in the videos
+    // linked in https://crbug.com/1027179. This should not be used for exiting
+    // overview mode.
     kImmediateEnter,
     // Used only when it's desired to exit overview mode immediately without
     // animations. This is used when performing the desk switch animation when
@@ -145,7 +149,7 @@ class ASH_EXPORT OverviewSession : public display::DisplayObserver,
   void ResetSplitViewDragIndicatorsWindowDraggingStates();
 
   // See |OverviewGrid::RearrangeDuringDrag|.
-  void RearrangeDuringDrag(aura::Window* dragged_window);
+  void RearrangeDuringDrag(OverviewItem* dragged_item);
 
   // Updates the appearance of each drop target to visually indicate when the
   // dragged window is being dragged over it.
@@ -173,6 +177,10 @@ class ASH_EXPORT OverviewSession : public display::DisplayObserver,
   // This will use the spawn-item animation.
   // TODO(afakhry): Expose |use_spawn_animation| if needed.
   void AppendItem(aura::Window* window, bool reposition, bool animate);
+
+  // Similar to |AddItem| with reposition=true, but adds the window at the
+  // correct position according to MRU order.
+  void AddItemInMruOrder(aura::Window* window, bool animate);
 
   // Removes |overview_item| from the corresponding grid. No items are
   // repositioned.
@@ -236,11 +244,10 @@ class ASH_EXPORT OverviewSession : public display::DisplayObserver,
   // Shifts and fades the grid in |grid_list_| associated with |location|.
   // Returns a ui::ScopedLayerAnimationSettings object for the caller to
   // observe.
-  // TODO(sammiequon): Change |new_y| to use float.
   std::unique_ptr<ui::ScopedLayerAnimationSettings>
   UpdateGridAtLocationYPositionAndOpacity(
       int64_t display_id,
-      int new_y,
+      float new_y,
       float opacity,
       UpdateAnimationSettingsCallback callback);
 
@@ -301,7 +308,8 @@ class ASH_EXPORT OverviewSession : public display::DisplayObserver,
 
   // ShelObserver:
   void OnShellDestroying() override;
-  void OnShelfAlignmentChanged(aura::Window* root_window) override;
+  void OnShelfAlignmentChanged(aura::Window* root_window,
+                               ShelfAlignment old_alignment) override;
 
   // ui::EventHandler:
   void OnKeyEvent(ui::KeyEvent* event) override;
@@ -312,6 +320,11 @@ class ASH_EXPORT OverviewSession : public display::DisplayObserver,
   void OnSplitViewDividerPositionChanged() override;
 
   OverviewDelegate* delegate() { return delegate_; }
+
+  void set_ignore_window_hierarchy_changes(
+      bool ignore_window_hierarchy_changes) {
+    ignore_window_hierarchy_changes_ = ignore_window_hierarchy_changes;
+  }
 
   bool is_shutting_down() const { return is_shutting_down_; }
   void set_is_shutting_down(bool is_shutting_down) {
@@ -363,6 +376,8 @@ class ASH_EXPORT OverviewSession : public display::DisplayObserver,
 
   void RefreshNoWindowsWidgetBounds(bool animate);
 
+  void OnItemAdded();
+
   // Tracks observed windows.
   base::flat_set<aura::Window*> observed_windows_;
 
@@ -393,6 +408,10 @@ class ASH_EXPORT OverviewSession : public display::DisplayObserver,
   // initially true until this is initialized.
   bool ignore_activations_ = true;
 
+  // True when performing operations that may cause window hierarchy changes.
+  // Used to prevent handling the resulting expected window hierarchy change.
+  bool ignore_window_hierarchy_changes_ = false;
+
   // True when overview mode is exiting.
   bool is_shutting_down_ = false;
 
@@ -409,6 +428,10 @@ class ASH_EXPORT OverviewSession : public display::DisplayObserver,
 
   // The number of items in the overview.
   size_t num_items_ = 0;
+
+  // True if we are currently using keyboard (control + left/right) to scroll
+  // through the grid.
+  bool is_keyboard_scrolling_grid_ = false;
 
   // Stores the overview enter/exit type. See the enum declaration for
   // information on how these types affect overview mode.

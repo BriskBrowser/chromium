@@ -722,17 +722,17 @@ luci.console_view(
             short_name = 'bfc',
         ),
         luci.console_view_entry(
+            builder = 'ci/linux-blink-cors-rel',
+            category = 'week15a|linux',
+            short_name = 'oorcors',
+        ),
+        luci.console_view_entry(
             builder = 'ci/linux-fieldtrial-rel',
             category = 'week15a|linux',
             short_name = 'field',
         ),
         luci.console_view_entry(
-            builder = 'ci/linux-oor-cors-rel',
-            category = 'week15a|linux',
-            short_name = 'oorcors',
-        ),
-        luci.console_view_entry(
-            builder = 'ci/Android WebView P OOR-CORS FYI (rel)',
+            builder = 'ci/Android WebView P Blink-CORS FYI (rel)',
             category = 'week15b|android|webview p',
             short_name = 'oorcors',
         ),
@@ -1036,6 +1036,33 @@ luci.console_view(
             builder = 'ci/win-swangle-tot-swiftshader-x64',
             category = 'win|week4|swangle|swift',
             short_name = 'x64',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/Win x64 Builder',
+            category = 'win|week5',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/GPU Win x64 Builder',
+            category = 'win|week5',
+            short_name = 'gpu',
+        ),
+        luci.console_view_entry(
+            builder = 'ci-beta/Win x64 Builder',
+            category = 'win|week5|beta',
+        ),
+        luci.console_view_entry(
+            builder = 'ci-beta/GPU Win x64 Builder',
+            category = 'win|week5|beta',
+            short_name = 'gpu',
+        ),
+        luci.console_view_entry(
+            builder = 'ci-stable/Win x64 Builder',
+            category = 'win|week5|stable',
+        ),
+        luci.console_view_entry(
+            builder = 'ci-stable/GPU Win x64 Builder',
+            category = 'win|week5|stable',
+            short_name = 'gpu',
         ),
         luci.console_view_entry(
             builder = 'ci/linux-chromeos-dbg',

@@ -85,7 +85,6 @@ class UtilitySandboxedProcessLauncherDelegate
         sandbox_type_ == service_manager::SandboxType::kNetwork ||
         sandbox_type_ == service_manager::SandboxType::kCdm ||
         sandbox_type_ == service_manager::SandboxType::kPdfCompositor ||
-        sandbox_type_ == service_manager::SandboxType::kProfiling ||
         sandbox_type_ == service_manager::SandboxType::kPpapi ||
 #if defined(OS_CHROMEOS)
         sandbox_type_ == service_manager::SandboxType::kIme ||
@@ -426,6 +425,7 @@ bool UtilityProcessHost::StartProcess() {
       switches::kForceWaveAudio,
       switches::kTrySupportedChannelLayouts,
       switches::kWaveOutBuffers,
+      switches::kWebXrForceRuntime,
       service_manager::switches::kAddXrAppContainerCaps,
 #endif
     };

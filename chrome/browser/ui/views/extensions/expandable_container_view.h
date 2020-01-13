@@ -8,12 +8,15 @@
 #include <vector>
 
 #include "base/strings/string16.h"
-#include "ui/views/controls/link_listener.h"
 #include "ui/views/view.h"
+
+namespace views {
+class Link;
+}
 
 // A view that displays a list of details, along with a link that expands and
 // collapses those details.
-class ExpandableContainerView : public views::View, public views::LinkListener {
+class ExpandableContainerView : public views::View {
  public:
   ExpandableContainerView(const std::vector<base::string16>& details,
                           int available_width);
@@ -21,9 +24,6 @@ class ExpandableContainerView : public views::View, public views::LinkListener {
 
   // views::View:
   void ChildPreferredSizeChanged(views::View* child) override;
-
-  // views::LinkListener:
-  void LinkClicked(views::Link* source, int event_flags) override;
 
   ExpandableContainerView(const ExpandableContainerView&) = delete;
   ExpandableContainerView& operator=(const ExpandableContainerView&) = delete;
@@ -55,11 +55,11 @@ class ExpandableContainerView : public views::View, public views::LinkListener {
   void ToggleDetailLevel();
 
   // The view that expands or collapses when |details_link_| is clicked.
-  DetailsView* details_view_;
+  DetailsView* details_view_ = nullptr;
 
   // The 'Show Details' link, which changes to 'Hide Details' when the details
   // section is expanded.
-  views::Link* details_link_;
+  views::Link* details_link_ = nullptr;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_EXTENSIONS_EXPANDABLE_CONTAINER_VIEW_H_

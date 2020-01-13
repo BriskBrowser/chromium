@@ -332,7 +332,7 @@ class ASH_EXPORT ShelfView : public views::AccessiblePaneView,
     app_icons_layout_offset_ = app_icons_layout_offset;
   }
 
-  const ShelfAppButton* drag_view() const { return drag_view_; }
+  ShelfAppButton* drag_view() { return drag_view_; }
 
   // Returns true when this ShelfView is used for Overflow Bubble.
   // In this mode, it does not show app list and overflow button.
@@ -356,6 +356,7 @@ class ASH_EXPORT ShelfView : public views::AccessiblePaneView,
   ShelfWidget* shelf_widget() const { return shelf_->shelf_widget(); }
   OverflowBubble* overflow_bubble() { return overflow_bubble_.get(); }
   views::ViewModel* view_model() { return view_model_.get(); }
+  bool dragged_off_shelf() const { return dragged_off_shelf_; }
 
  private:
   friend class ShelfViewTestAPI;
@@ -510,7 +511,8 @@ class ASH_EXPORT ShelfView : public views::AccessiblePaneView,
   void ShelfItemStatusChanged(const ShelfID& id) override;
 
   // Overridden from ShellObserver:
-  void OnShelfAlignmentChanged(aura::Window* root_window) override;
+  void OnShelfAlignmentChanged(aura::Window* root_window,
+                               ShelfAlignment old_alignment) override;
   void OnShelfAutoHideBehaviorChanged(aura::Window* root_window) override;
 
   // Shows a shelf context menu with the given |model|, or a default menu.
@@ -671,7 +673,7 @@ class ASH_EXPORT ShelfView : public views::AccessiblePaneView,
   bool dragged_to_another_shelf_ = false;
 
   // The rip off view when a snap back operation is underway.
-  views::View* snap_back_from_rip_off_view_ = nullptr;
+  ShelfAppButton* snap_back_from_rip_off_view_ = nullptr;
 
   // True when this ShelfView is used for Overflow Bubble.
   bool overflow_mode_ = false;
