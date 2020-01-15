@@ -112,6 +112,12 @@
         "LayerTreePainted",
       ]
     },
+    InspectorPageStreamAgent: {
+      probes: [
+        "LayerTreeDidChange",
+        "LayerTreePainted",
+      ]
+    },
     InspectorLogAgent: {
       probes: [
         "ConsoleMessageAdded",

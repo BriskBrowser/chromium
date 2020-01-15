@@ -3435,6 +3435,56 @@ experimental domain Inspector
   # Fired when debugging target has reloaded after crash
   event targetReloadedAfterCrash
 
+experimental domain PageStream
+  depends on DOM
+
+  type LayerId extends integer
+
+  # Sends events to the client suitable for reconstructing the layer tree, and streams updates.
+  command enable
+    properties
+      # Ideal bandwidth in bytes/sec.  Used for image quality decisions.  Default Inf.
+      optional integer targetBandwidth
+      # Sends info about ClickTarget objects that could be interacted with
+      optional bool isVisible
+
+  # Information about a clickable thing.
+  type ClickTarget extends object
+    properties
+      # Backend id for the node associated with the clickable thing.
+      optional DOM.BackendNodeId backendNodeId
+      # Unique id of a layer containing the this ClickTarget.
+      LayerId layerId
+      # Layout rectangles
+      array of DOM.Quad containingQuads
+
+  # Provides all visible clickable things, together with bounding rectangles and associated layers.
+  event getClickTargets
+    parameters
+      # A list of click targets 
+      array of ClickTarget targets
+
+  # Sets the scroll position of a specific element.
+  command setScroll
+    parameters
+      DOM.BackendNodeId backendNodeId
+      integer x
+      integer y
+
+  event streamLayerInfo
+    parameters
+      # The id of the painted layer.
+      LayerId layerId
+      # Clip rectangle.
+      DOM.Rect clip
+
+  event layerTreeDidChange
+    parameters
+      # cc property_tree encoded as JSON
+      optional string propertyTreesJSON
+      # dump of layer data (pointing into property tree)
+      optional string LayerImplsJSON
+
 experimental domain LayerTree
   depends on DOM
 
@@ -3514,28 +3564,6 @@ experimental domain LayerTree
       # Sticky position constraint information
       optional StickyPositionConstraint stickyPositionConstraint
 
-  # Information about a clickable thing.
-  type ClickTarget extends object
-    properties
-      # Backend id for the node associated with the clickable thing.
-      optional DOM.BackendNodeId backendNodeId
-      # Unique id of a layer containing the this ClickTarget.
-      LayerId layerId
-      # Layout rectangles
-      array of DOM.Quad containingQuads
-
-  # Provides all visible clickable things, together with bounding rectangles and associated layers.
-  command getClickTargets
-    returns
-      # A list of strings specifying reasons for the given layer to become composited.
-      array of ClickTarget targets
-
-  # Sets the scroll position of a specific element.
-  command setScroll
-    parameters
-      DOM.BackendNodeId backendNodeId
-      integer x
-      integer y
 
   # Array of timings, one per paint step.
   type PaintProfile extends array of number
@@ -3604,8 +3632,6 @@ experimental domain LayerTree
       optional integer toStep
       # The scale to apply while replaying (defaults to 1).
       optional number scale
-      # If true, encode data as lossy webp
-      optional boolean useWebp
     returns
       # A data: URL for resulting image.
       string dataURL

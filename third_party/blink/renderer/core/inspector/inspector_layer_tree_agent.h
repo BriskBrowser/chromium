@@ -89,18 +89,10 @@ class CORE_EXPORT InspectorLayerTreeAgent final
                                     protocol::Maybe<int> from_step,
                                     protocol::Maybe<int> to_step,
                                     protocol::Maybe<double> scale,
-                                    protocol::Maybe<bool> use_webp,
                                     String* data_url) override;
   protocol::Response snapshotCommandLog(
       const String& snapshot_id,
       std::unique_ptr<protocol::Array<protocol::DictionaryValue>>* command_log)
-      override;
-
-  protocol::Response getClickTargets(
-      std::unique_ptr<protocol::Array<protocol::LayerTree::ClickTarget>>* targets)
-      override;
-
-  protocol::Response setScroll(int backend_node_id, int x, int y)
       override;
 
   // Called by other agents.
@@ -119,8 +111,6 @@ class CORE_EXPORT InspectorLayerTreeAgent final
       std::unique_ptr<protocol::Array<protocol::LayerTree::Layer>>&,
       bool has_wheel_event_handlers,
       int scrolling_root_layer_id);
-  protocol::String GetPropertyTreesJSON();
-  protocol::String GetLayerImplJSON();
 
   Member<InspectedFrames> inspected_frames_;
   Client* client_;

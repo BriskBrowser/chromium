@@ -73,6 +73,7 @@
 #include "third_party/blink/renderer/core/inspector/inspector_network_agent.h"
 #include "third_party/blink/renderer/core/inspector/inspector_overlay_agent.h"
 #include "third_party/blink/renderer/core/inspector/inspector_page_agent.h"
+#include "third_party/blink/renderer/core/inspector/inspector_page_stream_agent.h"
 #include "third_party/blink/renderer/core/inspector/inspector_performance_agent.h"
 #include "third_party/blink/renderer/core/inspector/inspector_resource_container.h"
 #include "third_party/blink/renderer/core/inspector/inspector_resource_content_loader.h"
@@ -287,6 +288,9 @@ void WebDevToolsAgentImpl::AttachSession(DevToolsSession* session,
   session->Append(MakeGarbageCollected<InspectorAuditsAgent>(network_agent));
 
   session->Append(MakeGarbageCollected<InspectorMediaAgent>(inspected_frames));
+
+  session->Append(MakeGarbageCollected<InspectorPageStreamAgent>(inspected_frames));
+
 
   // TODO(dgozman): we should actually pass the view instead of frame, but
   // during remote->local transition we cannot access mainFrameImpl() yet, so

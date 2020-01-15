@@ -34,7 +34,6 @@
 #include <memory>
 
 #include "base/stl_util.h"
-#include "base/json/json_writer.h"
 #include "cc/base/region.h"
 #include "cc/layers/picture_layer.h"
 #include "cc/trees/transform_node.h"
@@ -42,14 +41,12 @@
 #include "third_party/blink/renderer/core/dom/dom_node_ids.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
-#include "third_party/blink/renderer/core/frame/root_frame_viewport.h"
 #include "third_party/blink/renderer/core/frame/visual_viewport.h"
 #include "third_party/blink/renderer/core/inspector/identifiers_factory.h"
 #include "third_party/blink/renderer/core/inspector/inspected_frames.h"
 #include "third_party/blink/renderer/core/layout/layout_embedded_content.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
-#include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
@@ -74,13 +71,6 @@ unsigned InspectorLayerTreeAgent::last_snapshot_id_;
 
 inline String IdForLayer(const cc::Layer* layer) {
   return String::Number(layer->id());
-}
-
-std::unique_ptr<protocol::Array<double>> BuildArrayForQuad(
-    const FloatQuad& quad) {
-  return std::make_unique<std::vector<double>, std::initializer_list<double>>(
-      {quad.P1().X(), quad.P1().Y(), quad.P2().X(), quad.P2().Y(),
-       quad.P3().X(), quad.P3().Y(), quad.P4().X(), quad.P4().Y()});
 }
 
 static std::unique_ptr<protocol::DOM::Rect> BuildObjectForRect(
@@ -302,10 +292,7 @@ Response InspectorLayerTreeAgent::disable() {
 }
 
 void InspectorLayerTreeAgent::LayerTreeDidChange() {
-  GetFrontend()->layerTreeDidChange(
-      BuildLayerTree(),
-      GetPropertyTreesJSON(),
-      GetLayerImplJSON());
+  GetFrontend()->layerTreeDidChange(BuildLayerTree());
 }
 
 void InspectorLayerTreeAgent::LayerTreePainted() {
@@ -338,34 +325,6 @@ InspectorLayerTreeAgent::BuildLayerTree() {
   return layers;
 }
 
-protocol::String InspectorLayerTreeAgent::GetPropertyTreesJSON() {
-  const auto* root_layer = RootLayer();
-  if (!root_layer)
-    return "";
-
-  return std::move(root_layer->layer_tree_host()->property_trees()->ToString().c_str());
-}
-
-protocol::String InspectorLayerTreeAgent::GetLayerImplJSON() {
-  const auto* root_layer = RootLayer();
-  if (!root_layer)
-    return "";
-  
-  auto list = std::make_unique<base::ListValue>();
-  for (auto* layer : *root_layer->layer_tree_host())
-    list->Append(layer->ToString());
-  
-  std::string str;
-  base::JSONWriter::WriteWithOptions(
-      *list,
-      base::JSONWriter::OPTIONS_OMIT_DOUBLE_TYPE_PRESERVATION |
-      base::JSONWriter::OPTIONS_PRETTY_PRINT,
-      &str);
-  
-  return std::move(str.c_str());
-}
-
-
 void InspectorLayerTreeAgent::GatherLayers(
     const cc::Layer* layer,
     std::unique_ptr<Array<protocol::LayerTree::Layer>>& layers,
@@ -390,7 +349,7 @@ const cc::Layer* InspectorLayerTreeAgent::RootLayer() {
 }
 
 static const cc::Layer* FindLayerById(const cc::Layer* root, int layer_id) {
-  if (!root || root->id() == layer_id)
+  if (root->id() == layer_id)
     return root;
   for (auto child : root->children()) {
     if (const auto* layer = FindLayerById(child.get(), layer_id))
@@ -516,21 +475,16 @@ Response InspectorLayerTreeAgent::replaySnapshot(const String& snapshot_id,
                                                  Maybe<int> from_step,
                                                  Maybe<int> to_step,
                                                  Maybe<double> scale,
-                                                 Maybe<bool> use_webp,
                                                  String* data_url) {
   const PictureSnapshot* snapshot = nullptr;
   Response response = GetSnapshotById(snapshot_id, snapshot);
   if (!response.isSuccess())
     return response;
-  auto image_data = snapshot->Replay(from_step.fromMaybe(0), to_step.fromMaybe(0),
-                                     scale.fromMaybe(1.0), use_webp.fromMaybe(false));
-  if (image_data.IsEmpty())
+  auto png_data = snapshot->Replay(from_step.fromMaybe(0), to_step.fromMaybe(0),
+                                   scale.fromMaybe(1.0));
+  if (png_data.IsEmpty())
     return Response::Error("Image encoding failed");
-
-  *data_url = (use_webp.fromMaybe(false)?
-               "data:image/webp;base64,":"data:image/png;base64,")
-              + Base64Encode(image_data);
-
+  *data_url = "data:image/png;base64," + Base64Encode(png_data);
   return Response::OK();
 }
 
@@ -584,84 +538,5 @@ Response InspectorLayerTreeAgent::snapshotCommandLog(
   return Response::OK();
 }
 
-
-static std::unique_ptr<protocol::LayerTree::ClickTarget> BuildClickTarget(Node* node) {
-  LayoutObject* layout_object = node->GetLayoutObject();
-  if (!layout_object) return nullptr;
-
-  const LayoutBoxModelObject& paint_invalidation_container = layout_object->ContainerForPaintInvalidation();
-  if (!paint_invalidation_container.Layer())
-    return nullptr;
-
-  const PaintLayer& paint_layer = *paint_invalidation_container.Layer();
-  GraphicsLayer* gfx_layer = paint_layer.GraphicsLayerBacking(layout_object);
-  if (!gfx_layer)
-    return nullptr;
-  cc::Layer* layer = gfx_layer->CcLayer();
-  if (!layer)
-    return nullptr;
-
-  Vector<FloatQuad> abs_quads;
-  auto layer_quads = std::make_unique<protocol::Array<protocol::Array<double>>>();
-  layout_object->AbsoluteQuads(abs_quads, kTraverseDocumentBoundaries);
-  for (FloatQuad& quad : abs_quads) {
-    FloatQuad local_quad = paint_invalidation_container.AbsoluteToLocalQuad(quad, kTraverseDocumentBoundaries);
-    // The layer might represent a scrollable thing, in which case we want the inner part for coordinates
-    if (paint_invalidation_container.GetScrollableArea()) {
-      const FloatPoint scroll_position = paint_invalidation_container.GetScrollableArea()->ScrollPosition();
-      local_quad.Move(scroll_position.X(), scroll_position.Y());
-    }
-    layer_quads->emplace_back(BuildArrayForQuad(local_quad));
-  }
-  return protocol::LayerTree::ClickTarget::create()
-          .setBackendNodeId(IdentifiersFactory::IntIdForNode(node))
-          .setLayerId(IdForLayer(layer))
-          .setContainingQuads(std::move(layer_quads))
-          .build();
-}
-
-Response InspectorLayerTreeAgent::getClickTargets(std::unique_ptr<protocol::Array<protocol::LayerTree::ClickTarget>>* targets) {
-  HitTestRequest request(HitTestRequest::kReadOnly | HitTestRequest::kActive |
-                         HitTestRequest::kListBased |
-                         HitTestRequest::kPenetratingList);
-
-  auto* root_frame = inspected_frames_->Root();
-  auto* root_viewport = root_frame->View()->GetRootFrameViewport();
-
-  PhysicalRect viewport_rect(root_frame->View()->DocumentToFrame(root_viewport->VisibleContentRect()));
-
-  HitTestLocation location(viewport_rect);
-  HitTestResult result(request, location);
-  root_frame->ContentLayoutObject()->HitTest(location, result);
-  *targets = std::make_unique<protocol::Array<protocol::LayerTree::ClickTarget>>();
-  Node* previous_node = nullptr;
-  for (const auto hit_test_result_node : result.ListBasedTestResult()) {
-    Node* node = hit_test_result_node.Get();
-    if (!node || node->IsDocumentNode())
-      continue;
-    if (node->IsPseudoElement() || node->IsTextNode())
-      node = node->ParentOrShadowHostNode();
-    auto* element = DynamicTo<Element>(node);
-    if (!node || node == previous_node || !element)
-      continue;
-    if (!node->HasEventListeners(event_type_names::kClick) && !node->IsLink())
-      continue;
-    auto target = BuildClickTarget(node);
-    if (target)
-      (*targets)->emplace_back(std::move(target));
-    previous_node = node;
-  }
-  return Response::OK();
-}
-
-Response InspectorLayerTreeAgent::setScroll(int cc_element_id, int x, int y) {
-  const auto* root_layer = RootLayer();
-  if (!root_layer)
-    return Response::Error("No root layer");
-
-  root_layer->layer_tree_host()->property_trees()->scroll_tree.NotifyDidScroll(cc::ElementId(cc_element_id), gfx::ScrollOffset(x, y), base::nullopt);
-
-  return Response::OK();
-}
-
 }  // namespace blink
+
