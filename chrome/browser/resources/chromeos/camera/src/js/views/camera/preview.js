@@ -118,7 +118,7 @@ export class Preview {
     video.classList = this.video_.classList;
     video.muted = true;  // Mute to avoid echo from the captured audio.
     return new Promise((resolve) => {
-             var handler = () => {
+             const handler = () => {
                video.removeEventListener('canplay', handler);
                resolve();
              };
@@ -461,6 +461,3 @@ export class Preview {
     document.querySelector('#preview-focus-aim').hidden = true;
   }
 }
-
-/** @const */
-cca.views.camera.Preview = Preview;

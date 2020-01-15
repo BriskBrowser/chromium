@@ -104,7 +104,7 @@ export class MasterSettings extends BaseSettings {
    * @private
    */
   openFeedback() {
-    var data = {
+    const data = {
       'categoryTag': 'chromeos-camera-app',
       'requestFeedback': true,
       'feedbackInfo': {
@@ -633,10 +633,3 @@ export class ResolutionSettings extends BaseSettings {
     });
   }
 }
-
-/** @const */
-cca.views.BaseSettings = BaseSettings;
-/** @const */
-cca.views.MasterSettings = MasterSettings;
-/** @const */
-cca.views.ResolutionSettings = ResolutionSettings;

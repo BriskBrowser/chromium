@@ -47,6 +47,8 @@ public final class ChromePreferenceKeys {
      */
     public static final String ACCESSIBILITY_TAB_SWITCHER = "accessibility_tab_switcher";
 
+    public static final String APP_LOCALE = "locale";
+
     /** Whether Autofill Assistant is enabled */
     public static final String AUTOFILL_ASSISTANT_ENABLED = "autofill_assistant_switch";
     /** Whether the Autofill Assistant onboarding has been accepted. */
@@ -401,6 +403,8 @@ public final class ChromePreferenceKeys {
      */
     public static final String HOMEPAGE_LOCATION_POLICY = "Chrome.Policy.HomepageLocation";
 
+    public static final String INCOGNITO_SHORTCUT_ADDED = "incognito-shortcut-added";
+
     /**
      * Key for UUID-based generator used for Chrome Invalidations (sync, etc.).
      */
@@ -414,10 +418,28 @@ public final class ChromePreferenceKeys {
      */
     public static final String LATEST_UNSUPPORTED_VERSION = "android_os_unsupported_chrome_version";
 
+    public static final String LOCALE_MANAGER_AUTO_SWITCH = "LocaleManager_PREF_AUTO_SWITCH";
+    public static final String LOCALE_MANAGER_PROMO_SHOWN = "LocaleManager_PREF_PROMO_SHOWN";
+    public static final String LOCALE_MANAGER_SEARCH_ENGINE_PROMO_SHOW_STATE =
+            "com.android.chrome.SEARCH_ENGINE_PROMO_SHOWN";
+    public static final String LOCALE_MANAGER_WAS_IN_SPECIAL_LOCALE =
+            "LocaleManager_WAS_IN_SPECIAL_LOCALE";
+
     /**
      * Key to cache whether offline indicator v2 (persistent offline indicator) is enabled.
      */
     public static final String OFFLINE_INDICATOR_V2_ENABLED = "offline_indicator_v2_enabled";
+
+    /** Prefix of the preferences to persist use count of the payment instruments. */
+    public static final KeyPrefix PAYMENTS_PAYMENT_INSTRUMENT_USE_COUNT =
+            new KeyPrefix("payment_instrument_use_count_*");
+
+    /** Prefix of the preferences to persist last use date of the payment instruments. */
+    public static final KeyPrefix PAYMENTS_PAYMENT_INSTRUMENT_USE_DATE =
+            new KeyPrefix("payment_instrument_use_date_*");
+
+    /** Preference to indicate whether payment request has been completed successfully once.*/
+    public static final String PAYMENTS_PAYMENT_COMPLETE_ONCE = "payment_complete_once";
 
     public static final String PRIVACY_METRICS_REPORTING = "metrics_reporting";
     public static final String PRIVACY_METRICS_IN_SAMPLE = "in_metrics_sample";
@@ -425,6 +447,11 @@ public final class ChromePreferenceKeys {
     public static final String PRIVACY_BANDWIDTH_OLD = "prefetch_bandwidth";
     public static final String PRIVACY_BANDWIDTH_NO_CELLULAR_OLD = "prefetch_bandwidth_no_cellular";
     public static final String PRIVACY_ALLOW_PRERENDER_OLD = "allow_prefetch";
+
+    /**
+     * Key to cache the enabled bottom toolbar parameter.
+     */
+    public static final String VARIATION_CACHED_BOTTOM_TOOLBAR = "bottom_toolbar_variation";
 
     /**
      * Whether the promotion for data reduction has been skipped on first invocation.
@@ -437,6 +464,21 @@ public final class ChromePreferenceKeys {
      * enabled.
      */
     public static final String REACHED_CODE_PROFILER_GROUP = "reached_code_profiler_group";
+
+    public static final String RLZ_NOTIFIED = "rlz_first_search_notified";
+
+    /** Key used to store the default Search Engine Type before choice is presented. */
+    public static final String SEARCH_ENGINE_CHOICE_DEFAULT_TYPE_BEFORE =
+            "search_engine_choice_default_type_before";
+    /** Key used to store the version of Chrome in which the choice was presented. */
+    public static final String SEARCH_ENGINE_CHOICE_PRESENTED_VERSION =
+            "search_engine_choice_presented_version";
+    /** Key used to store the date of when search engine choice was requested. */
+    public static final String SEARCH_ENGINE_CHOICE_REQUESTED_TIMESTAMP =
+            "search_engine_choice_requested_timestamp";
+
+    public static final String SHARING_LAST_SHARED_CLASS_NAME = "last_shared_class_name";
+    public static final String SHARING_LAST_SHARED_PACKAGE_NAME = "last_shared_package_name";
 
     /**
      * Generic signin and sync promo preferences.
@@ -475,6 +517,9 @@ public final class ChromePreferenceKeys {
     public static final String SNAPSHOT_DATABASE_REMOVED = "snapshot_database_removed";
 
     public static final String SYNC_SESSIONS_UUID = "chromium.sync.sessions.id";
+
+    public static final String TABBED_ACTIVITY_LAST_BACKGROUNDED_TIME_MS_PREF =
+            "ChromeTabbedActivity.BackgroundTimeMs";
 
     public static final String TAB_ID_MANAGER_NEXT_ID =
             "org.chromium.chrome.browser.tab.TabIdManager.NEXT_ID";
@@ -603,6 +648,7 @@ public final class ChromePreferenceKeys {
         // clang-format off
         return Arrays.asList(
                 ACCESSIBILITY_TAB_SWITCHER,
+                APP_LOCALE,
                 AUTOFILL_ASSISTANT_ENABLED,
                 AUTOFILL_ASSISTANT_ONBOARDING_ACCEPTED,
                 AUTOFILL_ASSISTANT_SKIP_INIT_SCREEN,
@@ -690,9 +736,15 @@ public final class ChromePreferenceKeys {
                 HOMEPAGE_CUSTOM_URI,
                 HOMEPAGE_ENABLED,
                 HOMEPAGE_USE_DEFAULT_URI,
+                INCOGNITO_SHORTCUT_ADDED,
                 INVALIDATIONS_UUID_PREF_KEY,
                 LATEST_UNSUPPORTED_VERSION,
+                LOCALE_MANAGER_AUTO_SWITCH,
+                LOCALE_MANAGER_PROMO_SHOWN,
+                LOCALE_MANAGER_SEARCH_ENGINE_PROMO_SHOW_STATE,
+                LOCALE_MANAGER_WAS_IN_SPECIAL_LOCALE,
                 OFFLINE_INDICATOR_V2_ENABLED,
+                PAYMENTS_PAYMENT_COMPLETE_ONCE,
                 PRIVACY_ALLOW_PRERENDER_OLD,
                 PRIVACY_BANDWIDTH_NO_CELLULAR_OLD,
                 PRIVACY_BANDWIDTH_OLD,
@@ -701,6 +753,12 @@ public final class ChromePreferenceKeys {
                 PRIVACY_NETWORK_PREDICTIONS,
                 PROMOS_SKIPPED_ON_FIRST_START,
                 REACHED_CODE_PROFILER_GROUP,
+                RLZ_NOTIFIED,
+                SEARCH_ENGINE_CHOICE_DEFAULT_TYPE_BEFORE,
+                SEARCH_ENGINE_CHOICE_PRESENTED_VERSION,
+                SEARCH_ENGINE_CHOICE_REQUESTED_TIMESTAMP,
+                SHARING_LAST_SHARED_CLASS_NAME,
+                SHARING_LAST_SHARED_PACKAGE_NAME,
                 SIGNIN_AND_SYNC_PROMO_SHOW_COUNT,
                 SIGNIN_PROMO_IMPRESSIONS_COUNT_BOOKMARKS,
                 SIGNIN_PROMO_IMPRESSIONS_COUNT_SETTINGS,
@@ -713,12 +771,14 @@ public final class ChromePreferenceKeys {
                 SNAPSHOT_DATABASE_REMOVED,
                 START_SURFACE_SINGLE_PANE_ENABLED_KEY,
                 SYNC_SESSIONS_UUID,
+                TABBED_ACTIVITY_LAST_BACKGROUNDED_TIME_MS_PREF,
                 TAB_ID_MANAGER_NEXT_ID,
                 TWA_DIALOG_NUMBER_OF_DISMISSALS_ON_CLEAR_DATA,
                 TWA_DIALOG_NUMBER_OF_DISMISSALS_ON_UNINSTALL,
                 TWA_DISCLOSURE_ACCEPTED_PACKAGES,
                 UI_THEME_DARKEN_WEBSITES_ENABLED,
                 UI_THEME_SETTING,
+                VARIATION_CACHED_BOTTOM_TOOLBAR,
                 VERIFIED_DIGITAL_ASSET_LINKS,
                 VR_SHOULD_REGISTER_ASSETS_COMPONENT_ON_STARTUP,
                 WEBAPK_UNINSTALLED_PACKAGES
@@ -728,7 +788,12 @@ public final class ChromePreferenceKeys {
 
     @CheckDiscard("Validation is performed in tests and in debug builds.")
     static List<KeyPrefix> createGrandfatheredPrefixesInUse() {
-        return Collections.EMPTY_LIST;
+        // clang-format off
+        return Arrays.asList(
+                PAYMENTS_PAYMENT_INSTRUMENT_USE_COUNT,
+                PAYMENTS_PAYMENT_INSTRUMENT_USE_DATE
+        );
+        // clang-format on
     }
 
     @CheckDiscard("Validation is performed in tests and in debug builds.")

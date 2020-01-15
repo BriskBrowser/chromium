@@ -1509,9 +1509,6 @@ class HotseatShelfViewTest : public ShelfViewTest,
 INSTANTIATE_TEST_SUITE_P(All, HotseatShelfViewTest, testing::Bool());
 
 TEST_P(HotseatShelfViewTest, ShouldHideTooltipTest) {
-  // TODO(https://crbug.com/1016823): Fix this test for the hotseat.
-  if (chromeos::switches::ShouldShowShelfHotseat())
-    return;
 
   ShelfID app_button_id = AddAppShortcut();
   ShelfID platform_button_id = AddApp();
@@ -3236,8 +3233,7 @@ TEST_F(ShelfViewInkDropTest, HomeButtonMouseEventsWhenVisible) {
             home_button_ink_drop_->GetTargetInkDropState());
   EXPECT_THAT(home_button_ink_drop_->GetAndResetRequestedStates(),
               ElementsAre(views::InkDropState::ACTION_PENDING,
-                          views::InkDropState::DEACTIVATED,
-                          views::InkDropState::HIDDEN));
+                          views::InkDropState::DEACTIVATED));
 
   // Dragging mouse out and back and releasing the button should not change the
   // ink drop state.
@@ -3298,8 +3294,7 @@ TEST_F(ShelfViewInkDropTest, HomeButtonGestureTapWhenVisible) {
   EXPECT_EQ(views::InkDropState::HIDDEN,
             home_button_ink_drop_->GetTargetInkDropState());
   EXPECT_THAT(home_button_ink_drop_->GetAndResetRequestedStates(),
-              ElementsAre(views::InkDropState::DEACTIVATED,
-                          views::InkDropState::HIDDEN));
+              ElementsAre(views::InkDropState::DEACTIVATED));
 }
 
 // Tests that when the app list is hidden, tapping down on the home button

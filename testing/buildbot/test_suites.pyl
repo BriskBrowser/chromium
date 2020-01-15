@@ -379,7 +379,7 @@
             {
               "cipd_package": 'chromium/chrome/test/chromedriver/cipd',
               'location': 'chrome/test/chromedriver/cipd',
-              'revision': 'tLMjWvOcbQX4nMo5WnMsKWn0aaVludzuSX9yiVFUCoUC',
+              'revision': 'JvTGvPUc-qPtmBqyJhvc-1i28yILiGeTjqGi-BvjiN4C',
             }
           ]
         },
@@ -3205,7 +3205,7 @@
             {
               "cipd_package": 'chromium/chrome/test/chromedriver/cipd',
               'location': 'chrome/test/chromedriver/cipd',
-              'revision': 'tLMjWvOcbQX4nMo5WnMsKWn0aaVludzuSX9yiVFUCoUC',
+              'revision': 'JvTGvPUc-qPtmBqyJhvc-1i28yILiGeTjqGi-BvjiN4C',
             }
           ]
         },
@@ -3243,6 +3243,8 @@
     'weblayer_android_gtests': {
       'weblayer_instrumentation_test_apk': {
       },
+      'weblayer_private_instrumentation_test_apk': {
+      },
     },
 
     'weblayer_gtests': {
@@ -3260,7 +3262,7 @@
             {
               "cipd_package": 'chromium/chrome/test/chromedriver/cipd',
               'location': 'chrome/test/chromedriver/cipd',
-              'revision': 'tLMjWvOcbQX4nMo5WnMsKWn0aaVludzuSX9yiVFUCoUC',
+              'revision': 'JvTGvPUc-qPtmBqyJhvc-1i28yILiGeTjqGi-BvjiN4C',
             }
           ]
         },

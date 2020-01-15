@@ -311,8 +311,8 @@
   [self.formInputAccessoryCoordinator start];
 
   self.snackbarCoordinator = [[SnackbarCoordinator alloc]
-      initWithBaseViewController:self.viewController];
-  self.snackbarCoordinator.dispatcher = self.dispatcher;
+      initWithBaseViewController:self.viewController
+                         browser:self.browser];
   [self.snackbarCoordinator start];
 
   self.translateInfobarCoordinator = [[LegacyTranslateInfobarCoordinator alloc]
@@ -320,12 +320,13 @@
                          browser:self.browser];
   [self.translateInfobarCoordinator start];
 
-  self.passKitCoordinator = [[PassKitCoordinator alloc]
-      initWithBaseViewController:self.viewController];
+  self.passKitCoordinator =
+      [[PassKitCoordinator alloc] initWithBaseViewController:self.viewController
+                                                     browser:self.browser];
 
   self.passwordBreachCoordinator = [[PasswordBreachCoordinator alloc]
-      initWithBaseViewController:self.viewController];
-  self.passwordBreachCoordinator.dispatcher = self.dispatcher;
+      initWithBaseViewController:self.viewController
+                         browser:self.browser];
 
   self.printController = [[PrintController alloc] init];
 
@@ -344,7 +345,7 @@
 
   self.addCreditCardCoordinator = [[AutofillAddCreditCardCoordinator alloc]
       initWithBaseViewController:self.viewController
-                    browserState:self.browserState];
+                         browser:self.browser];
 }
 
 // Stops child coordinators.

@@ -649,6 +649,12 @@ extern const char kDesktopPWAsLocalUpdatingDescription[] =
     "Enable installed PWAs to update their app manifest data when the site "
     "manifest data has changed.";
 
+extern const char kDesktopPWAsLocalUpdatingThrottlePersistenceName[] =
+    "Desktop PWAs local updating throttle persistence";
+extern const char kDesktopPWAsLocalUpdatingThrottlePersistenceDescription[] =
+    "Persist the throttling of local PWA manifest update checks across browser "
+    "restarts.";
+
 extern const char kDesktopPWAsTabStripName[] = "Desktop PWA tab strips";
 extern const char kDesktopPWAsTabStripDescription[] =
     "Experimental UI for exploring what PWA windows would look like with a tab "
@@ -1419,6 +1425,17 @@ const char kOmniboxExperimentalSuggestScoringName[] =
 const char kOmniboxExperimentalSuggestScoringDescription[] =
     "Enables an experimental scoring mode for suggestions when Google is the "
     "default search engine.";
+
+const char kOmniboxHistoryQuickProviderAllowButDoNotScoreMidwordTermsName[] =
+    "Omnibox History Quick Provider Allow but Do Not Score Midword Terms";
+const char
+    kOmniboxHistoryQuickProviderAllowButDoNotScoreMidwordTermsDescription[] =
+        "Midword terms are allowed but not scored.";
+const char kOmniboxHistoryQuickProviderAllowMidwordContinuationsName[] =
+    "Omnibox History Quick Provider Allow Midword Continuations";
+const char kOmniboxHistoryQuickProviderAllowMidwordContinuationsDescription[] =
+    "Midword matches are allowed and scored when the match begins immediately "
+    "after the previous match ends.";
 
 const char kOmniboxLocalEntitySuggestionsName[] =
     "Omnibox Local Entity Suggestions";
@@ -2631,6 +2648,10 @@ const char kInterestFeedContentSuggestionsDescription[] =
 const char kInterestFeedContentSuggestionsName[] =
     "Interest Feed Content Suggestions";
 
+const char kInterestFeedFeedbackDescription[] =
+    "Allow the user to provide feedback from a feed card.";
+const char kInterestFeedFeedbackName[] = "Interest Feed Feedback";
+
 const char kManualPasswordGenerationAndroidName[] =
     "Manual password generation";
 const char kManualPasswordGenerationAndroidDescription[] =
@@ -2886,13 +2907,6 @@ const char kAndroidNightModeDescription[] =
 
 #else  // !defined(OS_ANDROID)
 
-const char kShowSyncPausedReasonCookiesClearedOnExitName[] =
-    "Show sync paused reason is the setup of cookie settings.";
-const char kShowSyncPausedReasonCookiesClearedOnExitDescription[] =
-    "If enabled and the user is in sync paused state because of cookie settings"
-    " set to clear cookies on exit, we show the user a message with the reason"
-    " in the user menu.";
-
 const char kAppManagementName[] = "Enable App Management page";
 const char kAppManagementDescription[] =
     "Shows the new app management page at chrome://apps.";
@@ -2937,6 +2951,11 @@ const char kNtpRealboxMatchOmniboxThemeName[] =
 const char kNtpRealboxMatchOmniboxThemeDescription[] =
     "Themes the real search box in the middle of the NTP to match the omnibox. "
     "Only has an an effect if #ntp-realbox is enabled.";
+
+const char kNtpWebUIName[] =
+    "Use the WebUI new tab page when opening a new tab";
+const char kNtpWebUIDescription[] =
+    "The WebUI new tab page is a replacement for the local NTP.";
 
 const char kImprovedCookieControlsName[] =
     "Enable improved cookie controls UI in incognito mode";
@@ -3617,8 +3636,14 @@ const char kExperimentalAccessibilityChromeVoxLanguageSwitchingDescription[] =
     "Enable ChromeVox language switching, which changes ChromeVox's "
     "output language upon detection of new language.";
 
+const char kExperimentalAccessibilityChromeVoxSearchMenusName[] =
+    "Enable experimental ChromeVox search menus feature.";
+const char kExperimentalAccessibilityChromeVoxSearchMenusDescription[] =
+    "Allows users to search for items in the ChromeVox menu.";
+
 const char kExperimentalAccessibilityChromeVoxSubNodeLanguageSwitchingName[] =
-    "Enable experimental ChromeVox sub-node (word-level) language switching.";
+    "Enable experimental ChromeVox sub-node (word-level) language "
+    "switching.";
 const char
     kExperimentalAccessibilityChromeVoxSubNodeLanguageSwitchingDescription[] =
         "Enable ChromeVox language switching at the sub-node level, "
@@ -3972,10 +3997,6 @@ const char kAnimatedAvatarButtonName[] = "Animated avatar button";
 const char kAnimatedAvatarButtonDescription[] =
     "If enabled, Chrome will animate a pill with identity information around "
     "the avatar button on start-up and on sign-in.";
-
-const char kProfileMenuRevampName[] = "Profile menu revamp";
-const char kProfileMenuRevampDescription[] =
-    "Enables the new version of the profile menu (aka user menu).";
 
 #endif  // defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
 

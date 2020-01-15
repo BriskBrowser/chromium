@@ -424,6 +424,12 @@ void ThreadState::VisitPersistents(Visitor* visitor) {
   }
 }
 
+void ThreadState::VisitRememberedSets(MarkingVisitor* visitor) {
+  ThreadHeapStatsCollector::EnabledScope stats_scope(
+      Heap().stats_collector(), ThreadHeapStatsCollector::kVisitRememberedSets);
+  Heap().MarkRememberedSets(visitor);
+}
+
 void ThreadState::VisitWeakPersistents(Visitor* visitor) {
   ProcessHeap::GetCrossThreadWeakPersistentRegion().TraceNodes(visitor);
   weak_persistent_region_->TraceNodes(visitor);
@@ -529,7 +535,8 @@ void ThreadState::PerformConcurrentSweep() {
   // Concurrent sweeper doesn't call finalizers - this guarantees that sweeping
   // is not called recursively.
   ThreadHeapStatsCollector::EnabledConcurrentScope stats_scope(
-      Heap().stats_collector(), ThreadHeapStatsCollector::kConcurrentSweep);
+      Heap().stats_collector(),
+      ThreadHeapStatsCollector::kConcurrentSweepingStep);
   const bool finished = Heap().AdvanceSweep(
       ThreadHeap::SweepingType::kConcurrent,
       base::TimeTicks::Now() + kConcurrentSweepStepDuration);
@@ -1648,6 +1655,11 @@ void ThreadState::MarkPhaseVisitRoots() {
         Heap().stats_collector(), ThreadHeapStatsCollector::kVisitStackRoots);
     PushRegistersAndVisitStack();
   }
+
+  // Visit remembered sets (card tables) for minor collections.
+  if (current_gc_data_.collection_type == BlinkGC::CollectionType::kMinor) {
+    VisitRememberedSets(static_cast<MarkingVisitor*>(visitor));
+  }
 }
 
 bool ThreadState::MarkPhaseAdvanceMarking(base::TimeTicks deadline) {
@@ -1743,7 +1755,8 @@ void ThreadState::PerformConcurrentMark() {
   VLOG(2) << "[state:" << this << "] [threadid:" << CurrentThread() << "] "
           << "ConcurrentMark";
   ThreadHeapStatsCollector::EnabledConcurrentScope stats_scope(
-      Heap().stats_collector(), ThreadHeapStatsCollector::kConcurrentMark);
+      Heap().stats_collector(),
+      ThreadHeapStatsCollector::kConcurrentMarkingStep);
 
   uint8_t task_id;
   {

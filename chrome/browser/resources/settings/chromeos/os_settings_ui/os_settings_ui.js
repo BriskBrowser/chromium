@@ -10,12 +10,16 @@
  *
  *    <settings-ui prefs="{{prefs}}"></settings-ui>
  */
-cr.exportPath('settings');
-assert(
-    !settings.defaultResourceLoaded,
-    'settings_ui.js run twice. You probably have an invalid import.');
-/** Global defined when the main Settings script runs. */
-settings.defaultResourceLoaded = true;
+cr.define('settings', function() {
+  /** Global defined when the main Settings script runs. */
+  let defaultResourceLoaded = true;  // eslint-disable-line prefer-const
+
+  assert(
+      !window.settings || !settings.defaultResourceLoaded,
+      'settings_ui.js run twice. You probably have an invalid import.');
+
+  return {defaultResourceLoaded};
+});
 
 Polymer({
   is: 'os-settings-ui',
@@ -110,7 +114,7 @@ Polymer({
   activeRoute_: null,
 
   /** @override */
-  created: function() {
+  created() {
     settings.initializeRouteFromUrl();
   },
 
@@ -119,7 +123,7 @@ Polymer({
    * @suppress {es5Strict} Object literals cannot contain duplicate keys in ES5
    *     strict mode.
    */
-  ready: function() {
+  ready() {
     // Lazy-create the drawer the first time it is opened or swiped into view.
     listenOnce(this.$.drawer, 'cr-drawer-opening', () => {
       this.$.drawerTemplate.if = true;
@@ -170,7 +174,7 @@ Polymer({
   },
 
   /** @override */
-  attached: function() {
+  attached() {
     document.documentElement.classList.remove('loading');
 
     setTimeout(function() {
@@ -208,12 +212,12 @@ Polymer({
   },
 
   /** @override */
-  detached: function() {
+  detached() {
     settings.resetRouteForTesting();
   },
 
   /** @param {!settings.Route} route */
-  currentRouteChanged: function(route) {
+  currentRouteChanged(route) {
     if (route.depth <= 1) {
       // Main page uses scroll visibility to determine shadow.
       this.enableShadowBehavior(true);
@@ -246,7 +250,7 @@ Polymer({
   },
 
   // Override FindShortcutBehavior methods.
-  handleFindShortcut: function(modalContextOpen) {
+  handleFindShortcut(modalContextOpen) {
     if (modalContextOpen) {
       return false;
     }
@@ -255,7 +259,7 @@ Polymer({
   },
 
   // Override FindShortcutBehavior methods.
-  searchInputHasFocus: function() {
+  searchInputHasFocus() {
     return this.$$('os-toolbar').getSearchField().isSearchFocused();
   },
 
@@ -263,7 +267,7 @@ Polymer({
    * @param {!CustomEvent<string>} e
    * @private
    */
-  onRefreshPref_: function(e) {
+  onRefreshPref_(e) {
     return /** @type {SettingsPrefsElement} */ (this.$.prefs).refresh(e.detail);
   },
 
@@ -272,7 +276,7 @@ Polymer({
    * @param {!Event} e
    * @private
    */
-  onSearchChanged_: function(e) {
+  onSearchChanged_(e) {
     const query = e.detail;
     settings.navigateTo(
         settings.routes.BASIC,
@@ -287,7 +291,7 @@ Polymer({
    * @param {!Event} e
    * @private
    */
-  onIronActivate_: function(e) {
+  onIronActivate_(e) {
     const section = e.detail.selected;
     const path = new URL(section).pathname;
     const route = settings.getRouteForPath(path);
@@ -304,7 +308,7 @@ Polymer({
   },
 
   /** @private */
-  onMenuButtonTap_: function() {
+  onMenuButtonTap_() {
     this.$.drawer.toggle();
   },
 
@@ -314,7 +318,7 @@ Polymer({
    * animations complete to ensure focus ends up in the right place.
    * @private
    */
-  navigateToActiveRoute_: function() {
+  navigateToActiveRoute_() {
     if (this.activeRoute_) {
       settings.navigateTo(
           this.activeRoute_, /* dynamicParams */ null, /* removeSearch */ true);
@@ -330,7 +334,7 @@ Polymer({
    * the container, and pressing tab focuses a component in settings.
    * @private
    */
-  onMenuClose_: function() {
+  onMenuClose_() {
     if (!this.$.drawer.wasCanceled()) {
       // If a navigation happened, MainPageBehavior#currentRouteChanged handles
       // focusing the corresponding section when we call settings.NavigateTo().
@@ -348,7 +352,7 @@ Polymer({
   },
 
   /** @private */
-  onAdvancedOpenedInMainChanged_: function() {
+  onAdvancedOpenedInMainChanged_() {
     // Only sync value when opening, not closing.
     if (this.advancedOpenedInMain_) {
       this.advancedOpenedInMenu_ = true;
@@ -356,7 +360,7 @@ Polymer({
   },
 
   /** @private */
-  onAdvancedOpenedInMenuChanged_: function() {
+  onAdvancedOpenedInMenuChanged_() {
     // Only sync value when opening, not closing.
     if (this.advancedOpenedInMenu_) {
       this.advancedOpenedInMain_ = true;
@@ -364,7 +368,7 @@ Polymer({
   },
 
   /** @private */
-  onNarrowChanged_: function() {
+  onNarrowChanged_() {
     if (this.$.drawer.open && !this.isNarrow) {
       this.$.drawer.close();
     }

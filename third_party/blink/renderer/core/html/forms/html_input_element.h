@@ -235,6 +235,10 @@ class CORE_EXPORT HTMLInputElement
   bool CanReceiveDroppedFiles() const;
   void SetCanReceiveDroppedFiles(bool);
 
+  // Returns 'Choose File(s)' button in a file control. This returns
+  // nullptr for other input types.
+  HTMLInputElement* UploadButton() const;
+
   void OnSearch();
 
   void UpdateClearButtonVisibility();
@@ -361,6 +365,7 @@ class CORE_EXPORT HTMLInputElement
 
   void CloneNonAttributePropertiesFrom(const Element&, CloneChildrenFlag) final;
 
+  bool TypeShouldForceLegacyLayout() const final;
   void AttachLayoutTree(AttachContext&) final;
 
   void AppendToFormData(FormData&) final;

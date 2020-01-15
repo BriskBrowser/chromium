@@ -90,6 +90,7 @@
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/plugins/pdf_iframe_navigation_throttle.h"
 #include "chrome/browser/plugins/plugin_utils.h"
+#include "chrome/browser/prerender/isolated/isolated_prerender_url_loader_interceptor.h"
 #include "chrome/browser/prerender/prerender_final_status.h"
 #include "chrome/browser/prerender/prerender_manager.h"
 #include "chrome/browser/prerender/prerender_manager_factory.h"
@@ -119,7 +120,6 @@
 #include "chrome/browser/safe_browsing/ui_manager.h"
 #include "chrome/browser/safe_browsing/url_checker_delegate_impl.h"
 #include "chrome/browser/search/search.h"
-#include "chrome/browser/sessions/session_tab_helper.h"
 #include "chrome/browser/sharing/sms/sms_remote_fetcher.h"
 #include "chrome/browser/signin/chrome_signin_proxying_url_loader_factory.h"
 #include "chrome/browser/signin/chrome_signin_url_loader_throttle.h"
@@ -3573,7 +3573,7 @@ base::string16 ChromeContentBrowserClient::GetAppContainerSidForSandboxType(
     case service_manager::SandboxType::kXrCompositing:
     case service_manager::SandboxType::kNetwork:
     case service_manager::SandboxType::kCdm:
-    case service_manager::SandboxType::kPdfCompositor:
+    case service_manager::SandboxType::kPrintCompositor:
     case service_manager::SandboxType::kAudio:
     case service_manager::SandboxType::kSoda:
       // Should never reach here.
@@ -4561,6 +4561,12 @@ ChromeContentBrowserClient::WillCreateURLLoaderRequestInterceptors(
             previews::PreviewsLitePageRedirectURLLoaderInterceptor>(
             network_loader_factory,
             chrome_navigation_ui_data->data_reduction_proxy_page_id(),
+            frame_tree_node_id));
+  }
+
+  if (base::FeatureList::IsEnabled(features::kIsolatePrerenders)) {
+    interceptors.push_back(
+        std::make_unique<IsolatedPrerenderURLLoaderInterceptor>(
             frame_tree_node_id));
   }
 

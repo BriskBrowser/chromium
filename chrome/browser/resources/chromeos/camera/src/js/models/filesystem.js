@@ -426,7 +426,7 @@ export async function saveVideo(tempfile, filename) {
   assert(dir !== null);
 
   // Non-null version for the Closure Compiler.
-  let nonNullDir = dir;
+  const nonNullDir = dir;
 
   // Assuming content of tempfile contains all recorded chunks appended together
   // and is a well-formed video. The work needed here is just to move the file
@@ -514,26 +514,3 @@ export function pictureURL(entry) {
     }
   });
 }
-
-/** @const */
-cca.models.FileSystem.hasVideoPrefix = hasVideoPrefix;
-/** @const */
-cca.models.FileSystem.getExternalDirectory = getExternalDirectory;
-/** @const */
-cca.models.FileSystem.initialize = initialize;
-/** @const */
-cca.models.FileSystem.saveBlob = saveBlob;
-/** @const */
-cca.models.FileSystem.getMetadata = getMetadata;
-/** @const */
-cca.models.FileSystem.createTempVideoFile = createTempVideoFile;
-/** @const */
-cca.models.FileSystem.createPrivateTempVideoFile = createPrivateTempVideoFile;
-/** @const */
-cca.models.FileSystem.saveVideo = saveVideo;
-/** @const */
-cca.models.FileSystem.getFile = getFile;
-/** @const */
-cca.models.FileSystem.getEntries = getEntries;
-/** @const */
-cca.models.FileSystem.pictureURL = pictureURL;

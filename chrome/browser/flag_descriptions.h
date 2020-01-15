@@ -401,6 +401,9 @@ extern const char kEnableDesktopPWAsDescription[];
 extern const char kDesktopPWAsLocalUpdatingName[];
 extern const char kDesktopPWAsLocalUpdatingDescription[];
 
+extern const char kDesktopPWAsLocalUpdatingThrottlePersistenceName[];
+extern const char kDesktopPWAsLocalUpdatingThrottlePersistenceDescription[];
+
 extern const char kDesktopPWAsTabStripName[];
 extern const char kDesktopPWAsTabStripDescription[];
 
@@ -858,6 +861,14 @@ extern const char kOmniboxDisplayTitleForCurrentUrlDescription[];
 
 extern const char kOmniboxExperimentalSuggestScoringName[];
 extern const char kOmniboxExperimentalSuggestScoringDescription[];
+
+extern const char
+    kOmniboxHistoryQuickProviderAllowButDoNotScoreMidwordTermsName[];
+extern const char
+    kOmniboxHistoryQuickProviderAllowButDoNotScoreMidwordTermsDescription[];
+extern const char kOmniboxHistoryQuickProviderAllowMidwordContinuationsName[];
+extern const char
+    kOmniboxHistoryQuickProviderAllowMidwordContinuationsDescription[];
 
 extern const char kOmniboxLocalEntitySuggestionsName[];
 extern const char kOmniboxLocalEntitySuggestionsDescription[];
@@ -1562,6 +1573,9 @@ extern const char kInterestFeedNotificationsDescription[];
 extern const char kInterestFeedContentSuggestionsName[];
 extern const char kInterestFeedContentSuggestionsDescription[];
 
+extern const char kInterestFeedFeedbackName[];
+extern const char kInterestFeedFeedbackDescription[];
+
 extern const char kManualPasswordGenerationAndroidName[];
 extern const char kManualPasswordGenerationAndroidDescription[];
 
@@ -1695,9 +1709,6 @@ extern const char kAndroidNightModeDescription[];
 
 #else  // !defined(OS_ANDROID)
 
-extern const char kShowSyncPausedReasonCookiesClearedOnExitName[];
-extern const char kShowSyncPausedReasonCookiesClearedOnExitDescription[];
-
 extern const char kAppManagementName[];
 extern const char kAppManagementDescription[];
 
@@ -1727,6 +1738,9 @@ extern const char kNtpRealboxDescription[];
 
 extern const char kNtpRealboxMatchOmniboxThemeName[];
 extern const char kNtpRealboxMatchOmniboxThemeDescription[];
+
+extern const char kNtpWebUIName[];
+extern const char kNtpWebUIDescription[];
 
 extern const char kImprovedCookieControlsName[];
 extern const char kImprovedCookieControlsDescription[];
@@ -2153,6 +2167,9 @@ extern const char kExperimentalAccessibilityChromeVoxLanguageSwitchingName[];
 extern const char
     kExperimentalAccessibilityChromeVoxLanguageSwitchingDescription[];
 
+extern const char kExperimentalAccessibilityChromeVoxSearchMenusName[];
+extern const char kExperimentalAccessibilityChromeVoxSearchMenusDescription[];
+
 extern const char
     kExperimentalAccessibilityChromeVoxSubNodeLanguageSwitchingName[];
 extern const char
@@ -2380,9 +2397,6 @@ extern const char kDirectManipulationStylusDescription[];
 
 extern const char kAnimatedAvatarButtonName[];
 extern const char kAnimatedAvatarButtonDescription[];
-
-extern const char kProfileMenuRevampName[];
-extern const char kProfileMenuRevampDescription[];
 
 #endif  // defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
 

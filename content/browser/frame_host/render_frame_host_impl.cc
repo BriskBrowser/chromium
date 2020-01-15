@@ -2567,12 +2567,13 @@ void RenderFrameHostImpl::DidAddContentSecurityPolicies(
                "RenderFrameHostImpl::OnDidAddContentSecurityPolicies",
                "frame_tree_node", frame_tree_node_->frame_tree_node_id());
 
-  std::vector<ContentSecurityPolicyHeader> headers;
+  std::vector<network::mojom::ContentSecurityPolicyHeaderPtr> headers;
   for (const ContentSecurityPolicy& policy : policies) {
     AddContentSecurityPolicy(policy);
-    headers.push_back(policy.header);
+    headers.push_back(
+        network::mojom::ContentSecurityPolicyHeader::New(policy.header));
   }
-  frame_tree_node()->AddContentSecurityPolicies(headers);
+  frame_tree_node()->AddContentSecurityPolicies(std::move(headers));
 }
 
 void RenderFrameHostImpl::OnOpenURL(const FrameHostMsg_OpenURL_Params& params) {
@@ -4547,7 +4548,15 @@ void RenderFrameHostImpl::CreatePortal(
   auto it = portals_.insert(std::move(portal)).first;
 
   RenderFrameProxyHost* proxy_host = (*it)->CreateProxyAndAttachPortal();
-  std::move(callback).Run(proxy_host->GetRoutingID(), (*it)->portal_token(),
+
+  // Since the portal is newly created and has yet to commit a navigation, this
+  // state is trivial.
+  const FrameReplicationState& initial_replicated_state =
+      proxy_host->frame_tree_node()->current_replication_state();
+  DCHECK(initial_replicated_state.origin.opaque());
+
+  std::move(callback).Run(proxy_host->GetRoutingID(), initial_replicated_state,
+                          (*it)->portal_token(),
                           (*it)->GetDevToolsFrameToken());
 }
 

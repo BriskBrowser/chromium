@@ -28,8 +28,8 @@ MockRuntime.prototype.getMissingFrameCount = function() {
 };
 
 // Patch in experimental features.
-MockRuntime.featureToMojoMap["dom-overlay-for-handheld-ar"] =
-    device.mojom.XRSessionFeature.DOM_OVERLAY_FOR_HANDHELD_AR;
+MockRuntime.featureToMojoMap["dom-overlay"] =
+    device.mojom.XRSessionFeature.DOM_OVERLAY;
 
 ChromeXRTest.prototype.getService = function() {
   return this.mockVRService_;
@@ -48,3 +48,21 @@ MockVRService.prototype.getFramesThrottled = function() {
   return this.frames_throttled_;
 };
 
+MockXRInputSource.prototype.getInputSourceStateCommon =
+    MockXRInputSource.prototype.getInputSourceState;
+
+MockXRInputSource.prototype.getInputSourceState = function() {
+  let input_state = this.getInputSourceStateCommon();
+
+  console.log('getInputSourceState this.overlay_pointer_position_=' + JSON.stringify(this.overlay_pointer_position_));
+  if (this.overlay_pointer_position_) {
+    input_state.overlayPointerPosition = this.overlay_pointer_position_;
+  }
+
+  console.log('input_state=' + JSON.stringify(input_state));
+  return input_state;
+};
+
+MockXRInputSource.prototype.setOverlayPointerPosition = function(x, y) {
+  this.overlay_pointer_position_ = { x: x, y: y };
+};

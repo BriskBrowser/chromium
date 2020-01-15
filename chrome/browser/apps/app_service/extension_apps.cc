@@ -117,6 +117,7 @@ ash::ShelfLaunchSource ConvertLaunchSource(
     case apps::mojom::LaunchSource::kFromFileManager:
     case apps::mojom::LaunchSource::kFromLink:
     case apps::mojom::LaunchSource::kFromOmnibox:
+    case apps::mojom::LaunchSource::kFromChromeInternal:
       return ash::LAUNCH_FROM_UNKNOWN;
   }
 }
@@ -407,6 +408,7 @@ void ExtensionApps::Launch(const std::string& app_id,
     case apps::mojom::LaunchSource::kFromFileManager:
     case apps::mojom::LaunchSource::kFromLink:
     case apps::mojom::LaunchSource::kFromOmnibox:
+    case apps::mojom::LaunchSource::kFromChromeInternal:
       break;
   }
 
@@ -634,6 +636,12 @@ void ExtensionApps::UnpauseApps(const std::string& app_id) {
       chromeos::app_time::WebTimeLimitInterface::Get(profile_);
   DCHECK(web_limit);
   web_limit->ResumeWebActivity(app_id);
+}
+
+void ExtensionApps::GetMenuModel(const std::string& app_id,
+                                 apps::mojom::MenuType menu_type,
+                                 GetMenuModelCallback callback) {
+  std::move(callback).Run(apps::mojom::MenuItems::New());
 }
 
 void ExtensionApps::OpenNativeSettings(const std::string& app_id) {
@@ -1183,11 +1191,13 @@ IconEffects ExtensionApps::GetIconEffects(
   icon_effects =
       static_cast<IconEffects>(icon_effects | IconEffects::kResizeAndPad);
   if (extensions::util::ShouldApplyChromeBadge(profile_, extension->id())) {
-    icon_effects = static_cast<IconEffects>(icon_effects | IconEffects::kBadge);
+    icon_effects =
+        static_cast<IconEffects>(icon_effects | IconEffects::kChromeBadge);
   }
 #endif
   if (!extensions::util::IsAppLaunchable(extension->id(), profile_)) {
-    icon_effects = static_cast<IconEffects>(icon_effects | IconEffects::kGray);
+    icon_effects =
+        static_cast<IconEffects>(icon_effects | IconEffects::kBlocked);
   }
   if (extension->from_bookmark()) {
     icon_effects =

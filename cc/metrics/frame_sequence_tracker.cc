@@ -20,9 +20,9 @@
 // This macro is used with DCHECK to provide addition debug info.
 #if DCHECK_IS_ON()
 #define TRACKER_TRACE_STREAM frame_sequence_trace_
-#define TRACKER_DCHECK_MSG                                                 \
-  " in " << GetFrameSequenceTrackerTypeName(static_cast<int>(this->type_)) \
-         << " tracker: " << frame_sequence_trace_.str() << " ("            \
+#define TRACKER_DCHECK_MSG                                      \
+  " in " << GetFrameSequenceTrackerTypeName(this->type_)        \
+         << " tracker: " << frame_sequence_trace_.str() << " (" \
          << frame_sequence_trace_.str().size() << ")";
 #else
 #define TRACKER_TRACE_STREAM EAT_STREAM_PARAMETERS
@@ -32,23 +32,23 @@
 namespace cc {
 
 const char* FrameSequenceTracker::GetFrameSequenceTrackerTypeName(
-    int type_index) {
-  switch (type_index) {
-    case static_cast<int>(FrameSequenceTrackerType::kCompositorAnimation):
+    FrameSequenceTrackerType type) {
+  switch (type) {
+    case FrameSequenceTrackerType::kCompositorAnimation:
       return "CompositorAnimation";
-    case static_cast<int>(FrameSequenceTrackerType::kMainThreadAnimation):
+    case FrameSequenceTrackerType::kMainThreadAnimation:
       return "MainThreadAnimation";
-    case static_cast<int>(FrameSequenceTrackerType::kPinchZoom):
+    case FrameSequenceTrackerType::kPinchZoom:
       return "PinchZoom";
-    case static_cast<int>(FrameSequenceTrackerType::kRAF):
+    case FrameSequenceTrackerType::kRAF:
       return "RAF";
-    case static_cast<int>(FrameSequenceTrackerType::kTouchScroll):
+    case FrameSequenceTrackerType::kTouchScroll:
       return "TouchScroll";
-    case static_cast<int>(FrameSequenceTrackerType::kUniversal):
+    case FrameSequenceTrackerType::kUniversal:
       return "Universal";
-    case static_cast<int>(FrameSequenceTrackerType::kVideo):
+    case FrameSequenceTrackerType::kVideo:
       return "Video";
-    case static_cast<int>(FrameSequenceTrackerType::kWheelScroll):
+    case FrameSequenceTrackerType::kWheelScroll:
       return "WheelScroll";
     default:
       return "";
@@ -74,22 +74,22 @@ int GetIndexForMetric(FrameSequenceMetrics::ThreadType thread_type,
 }
 
 std::string GetCheckerboardingHistogramName(FrameSequenceTrackerType type) {
-  return base::StrCat({"Graphics.Smoothness.Checkerboarding.",
-                       FrameSequenceTracker::GetFrameSequenceTrackerTypeName(
-                           static_cast<int>(type))});
+  return base::StrCat(
+      {"Graphics.Smoothness.Checkerboarding.",
+       FrameSequenceTracker::GetFrameSequenceTrackerTypeName(type)});
 }
 
 std::string GetThroughputHistogramName(FrameSequenceTrackerType type,
                                        const char* thread_name) {
-  return base::StrCat({"Graphics.Smoothness.Throughput.", thread_name, ".",
-                       FrameSequenceTracker::GetFrameSequenceTrackerTypeName(
-                           static_cast<int>(type))});
+  return base::StrCat(
+      {"Graphics.Smoothness.Throughput.", thread_name, ".",
+       FrameSequenceTracker::GetFrameSequenceTrackerTypeName(type)});
 }
 
 std::string GetFrameSequenceLengthHistogramName(FrameSequenceTrackerType type) {
-  return base::StrCat({"Graphics.Smoothness.FrameSequenceLength.",
-                       FrameSequenceTracker::GetFrameSequenceTrackerTypeName(
-                           static_cast<int>(type))});
+  return base::StrCat(
+      {"Graphics.Smoothness.FrameSequenceLength.",
+       FrameSequenceTracker::GetFrameSequenceTrackerTypeName(type)});
 }
 
 bool ShouldReportForAnimation(FrameSequenceTrackerType sequence_type,
@@ -131,8 +131,7 @@ FrameSequenceMetrics::FrameSequenceMetrics(FrameSequenceTrackerType type,
       throughput_ukm_reporter_(ukm_reporter) {
   TRACE_EVENT_ASYNC_BEGIN1(
       "cc,benchmark", "FrameSequenceTracker", this, "name",
-      FrameSequenceTracker::GetFrameSequenceTrackerTypeName(
-          static_cast<int>(type_)));
+      FrameSequenceTracker::GetFrameSequenceTrackerTypeName(type_));
 }
 
 FrameSequenceMetrics::~FrameSequenceMetrics() {
@@ -489,9 +488,6 @@ void FrameSequenceTracker::ReportBeginMainFrame(
   if (args.type == viz::BeginFrameArgs::NORMAL) {
     DCHECK(impl_frames_.contains(args.frame_id));
   }
-  last_started_main_sequence_ = args.frame_id.sequence_number;
-  DCHECK_EQ(last_started_impl_sequence_, last_started_main_sequence_)
-      << TRACKER_DCHECK_MSG;
 #endif
 
   UpdateTrackedFrameData(&begin_main_frame_data_, args.frame_id.source_id,
@@ -725,8 +721,10 @@ void FrameSequenceTracker::ReportMainFrameCausedNoDamage(
   TRACKER_TRACE_STREAM << "N(" << begin_main_frame_data_.previous_sequence
                        << "," << args.frame_id.sequence_number << ")";
 
-  if (ShouldIgnoreSequence(args.frame_id.sequence_number))
+  if (!first_received_main_sequence_ ||
+      first_received_main_sequence_ > args.frame_id.sequence_number) {
     return;
+  }
 
   if (last_no_main_damage_sequence_ == args.frame_id.sequence_number)
     return;
@@ -742,12 +740,6 @@ void FrameSequenceTracker::ReportMainFrameCausedNoDamage(
 
   if (begin_main_frame_data_.previous_sequence == args.frame_id.sequence_number)
     begin_main_frame_data_.previous_sequence = 0;
-
-#if DCHECK_IS_ON()
-  DCHECK_EQ(last_started_main_sequence_, args.frame_id.sequence_number)
-      << TRACKER_DCHECK_MSG;
-  last_started_main_sequence_ = 0;
-#endif
 }
 
 void FrameSequenceTracker::PauseFrameProduction() {

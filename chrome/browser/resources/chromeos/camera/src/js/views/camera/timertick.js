@@ -42,7 +42,7 @@ export function start() {
       3: '#sound-tick-inc',
       [tickCounter]: '#sound-tick-start',
     };
-    var onTimerTick = () => {
+    const onTimerTick = () => {
       if (tickCounter === 0) {
         resolve();
       } else {
@@ -69,8 +69,3 @@ export function cancel() {
     doCancel = null;
   }
 }
-
-/** @const */
-cca.views.camera.timertick.start = start;
-/** @const */
-cca.views.camera.timertick.cancel = cancel;

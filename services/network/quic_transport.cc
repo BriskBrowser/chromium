@@ -278,9 +278,10 @@ void QuicTransport::SendDatagram(base::span<const uint8_t> data,
   memcpy(buffer->data(), data.data(), data.size());
   quic::QuicMemSlice slice(
       quic::QuicMemSliceImpl(std::move(buffer), data.size()));
-  const quic::MessageResult result =
-      transport_->session()->SendMessage(quic::QuicMemSliceSpan(&slice));
-  std::move(callback).Run(result.status == quic::MESSAGE_STATUS_SUCCESS);
+  const quic::MessageStatus status =
+      transport_->session()->datagram_queue()->SendOrQueueDatagram(
+          std::move(slice));
+  std::move(callback).Run(status == quic::MESSAGE_STATUS_SUCCESS);
 }
 
 void QuicTransport::CreateStream(
@@ -468,6 +469,18 @@ void QuicTransport::OnIncomingUnidirectionalStreamAvailable() {
                           this, stream, std::move(writable_for_incoming))));
     std::move(acceptance).Run(stream->id(), std::move(readable_for_incoming));
   }
+}
+
+void QuicTransport::OnIncomingDatagramAvailable() {
+  // TODO(yhirano): Implement this.
+}
+
+void QuicTransport::OnCanCreateNewOutgoingBidirectionalStream() {
+  // TODO(yhirano): Implement this.
+}
+
+void QuicTransport::OnCanCreateNewOutgoingUnidirectionalStream() {
+  // TODO(yhirano): Implement this.
 }
 
 void QuicTransport::TearDown() {

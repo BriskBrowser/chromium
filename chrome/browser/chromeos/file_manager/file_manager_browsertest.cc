@@ -124,7 +124,6 @@ struct TestCase {
   const char* test_case_name = nullptr;
   GuestMode guest_mode = NOT_IN_GUEST_MODE;
   bool tablet_mode = false;
-  base::Optional<bool> enable_myfiles_volume;
   base::Optional<bool> enable_documents_provider;
   bool enable_arc = false;
   bool with_browser = false;
@@ -466,9 +465,9 @@ WRAPPED_INSTANTIATE_TEST_SUITE_P(
         TestCase("openQuickViewRemovablePartitions"),
         TestCase("openQuickViewMtp"),
         TestCase("openQuickViewTabIndexImage"),
+        TestCase("openQuickViewTabIndexText"),
         TestCase("pressEnterOnInfoBoxToOpenClose"),
         TestCase("closeQuickView"),
-        TestCase("cantOpenQuickViewWithMultipleFiles"),
         TestCase("openQuickViewFromDirectoryTree")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
@@ -478,6 +477,7 @@ WRAPPED_INSTANTIATE_TEST_SUITE_P(
                       TestCase("directoryTreeSelectedDirectory"),
                       TestCase("directoryTreeHorizontalScroll"),
                       TestCase("directoryTreeExpandHorizontalScroll"),
+                      TestCase("directoryTreeExpandHorizontalScrollRTL"),
                       TestCase("directoryTreeVerticalScroll"),
                       TestCase("directoryTreeClippedWindowResize"),
                       TestCase("directoryTreeClippedSplitterResize")));

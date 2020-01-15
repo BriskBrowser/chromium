@@ -19,6 +19,7 @@
 #include "chrome/browser/permissions/permission_manager.h"
 #include "chrome/browser/permissions/permission_result.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/resource_coordinator/intervention_policy_database.h"
 #include "chrome/browser/resource_coordinator/lifecycle_unit_state.mojom.h"
 #include "chrome/browser/resource_coordinator/local_site_characteristics_data_store_factory.h"
 #include "chrome/browser/resource_coordinator/tab_activity_watcher.h"
@@ -276,8 +277,8 @@ class TabLifecycleUnitExternalImpl : public TabLifecycleUnitExternal {
     tab_lifecycle_unit_->SetAutoDiscardable(auto_discardable);
   }
 
-  bool DiscardTab() override {
-    return tab_lifecycle_unit_->Discard(LifecycleUnitDiscardReason::EXTERNAL);
+  bool DiscardTab(LifecycleUnitDiscardReason reason) override {
+    return tab_lifecycle_unit_->Discard(reason);
   }
 
   bool IsDiscarded() const override {
@@ -571,6 +572,10 @@ bool TabLifecycleUnitSource::TabLifecycleUnit::CanFreeze(
 
   if (web_contents()->GetVisibility() == content::Visibility::VISIBLE)
     decision_details->AddReason(DecisionFailureReason::LIVE_STATE_VISIBLE);
+
+  // Check the freezing intervention policy database. Tabs that have opted-in
+  // will be marked as freezable regardless of the other heuristics.
+  CheckFreezingInterventionPolicyDatabase(decision_details);
 
   // Do not freeze tabs using media, irrespective of any opt-in, as this usually
   // breaks functionality.
@@ -1043,6 +1048,15 @@ void TabLifecycleUnitSource::TabLifecycleUnit::DidStartLoading() {
 
 void TabLifecycleUnitSource::TabLifecycleUnit::OnVisibilityChanged(
     content::Visibility visibility) {
+  // Ensure that the tab is not considered focused when not visible.
+  //
+  // TabLifeycleUnitSource calls SetFocused(false) when focus changes to another
+  // tab. The code below is also required to cover the case where the focused
+  // tab is hidden but no other tab is focused, which can happen when the
+  // focused window is minimized or occluded.
+  if (visibility != content::Visibility::VISIBLE)
+    SetFocused(false);
+
   OnLifecycleUnitVisibilityChanged(visibility);
 }
 
@@ -1074,6 +1088,26 @@ void TabLifecycleUnitSource::TabLifecycleUnit::CheckFreezingOriginTrial(
       break;
     case performance_manager::mojom::InterventionPolicy::kDefault:
       // Let other heuristics determine whether the tab can be frozen.
+      break;
+  }
+}
+
+void TabLifecycleUnitSource::TabLifecycleUnit::
+    CheckFreezingInterventionPolicyDatabase(
+        DecisionDetails* decision_details) const {
+  // Apply intervention database opt-in/opt-out (policy is per origin).
+  auto intervention_policy =
+      GetTabSource()->intervention_policy_database()->GetFreezingPolicy(
+          url::Origin::Create(web_contents()->GetLastCommittedURL()));
+
+  switch (intervention_policy) {
+    case OriginInterventions::OPT_IN:
+      decision_details->AddReason(DecisionSuccessReason::GLOBAL_WHITELIST);
+      break;
+    case OriginInterventions::OPT_OUT:
+      decision_details->AddReason(DecisionFailureReason::GLOBAL_BLACKLIST);
+      break;
+    case OriginInterventions::DEFAULT:
       break;
   }
 }

@@ -81,8 +81,6 @@ jumbo_source_set("browser") {
     "//components/viz/client",
     "//components/viz/common",
     "//components/viz/host",
-    "//components/viz/service",
-    "//components/viz/service/main",
     "//content:resources",
     "//content/app/resources",
     "//content/browser/background_fetch:background_fetch_proto",
@@ -1981,10 +1979,6 @@ jumbo_source_set("browser") {
     ]
   }
 
-  if (is_chromeos || is_android || is_chromecast || is_fuchsia) {
-    defines += [ "ENABLE_PROTECTED_MEDIA_IDENTIFIER_PERMISSION" ]
-  }
-
   if (is_chromecast && is_linux) {
     sources += [
       "tracing/cast_tracing_agent.cc",
@@ -2579,7 +2573,7 @@ jumbo_source_set("browser") {
       "renderer_host/delegated_frame_host.h",
     ]
     deps += [
-      "//components/viz/service",
+      "//components/viz/service/main",
       "//ui/compositor",
       "//ui/compositor/host",
     ]
@@ -2644,13 +2638,9 @@ group("for_content_tests") {
     "//content/public/test/*",
   ]
   if (!is_component_build) {
-    public_deps = [
-      ":browser",
-    ]
+    public_deps = [ ":browser" ]
   } else {
-    public_deps = [
-      "//third_party/leveldatabase",
-    ]
+    public_deps = [ "//third_party/leveldatabase" ]
   }
 }
 
@@ -2658,8 +2648,6 @@ group("for_content_tests") {
 group("for_internal_webauthn") {
   visibility = [ "//components/autofill/content/browser/webauthn" ]
   if (!is_component_build) {
-    public_deps = [
-      ":browser",
-    ]
+    public_deps = [ ":browser" ]
   }
 }

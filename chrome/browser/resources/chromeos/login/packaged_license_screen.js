@@ -15,16 +15,23 @@ Polymer({
 
   },
 
-  ready: function() {
+  ready() {
     this.initializeLoginScreen('PackagedLicenseScreen', {
       resetAllowed: true,
     });
   },
 
+  /**
+   * Returns the control which should receive initial focus.
+   */
+  get defaultControl() {
+    return this.$.packagedLicenseDialog;
+  },
+
   /*
    * Executed on language change.
    */
-  updateLocalizedContent: function() {
+  updateLocalizedContent() {
     this.i18nUpdateLocale();
   },
 
@@ -33,7 +40,7 @@ Polymer({
    *
    * @private
    */
-  onDontEnrollButtonPressed_: function() {
+  onDontEnrollButtonPressed_() {
     chrome.send('login.PackagedLicenseScreen.userActed', ['dont-enroll']);
   },
 
@@ -42,7 +49,7 @@ Polymer({
    *
    * @private
    */
-  onEnrollButtonPressed_: function() {
+  onEnrollButtonPressed_() {
     chrome.send('login.PackagedLicenseScreen.userActed', ['enroll']);
   },
 

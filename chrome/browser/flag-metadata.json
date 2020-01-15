@@ -1259,6 +1259,11 @@
     "expiry_milestone": 83
   },
   {
+    "name": "enable-desktop-pwas-local-updating-throttle-persistence",
+    "owners": [ "desktop-pwas-team@google.com" ],
+    "expiry_milestone": 83
+  },
+  {
     "name": "enable-desktop-pwas-tab-strip",
     "owners": [ "desktop-pwas-team@google.com" ],
     "expiry_milestone": 84
@@ -1307,6 +1312,11 @@
   {
     "name": "enable-experimental-accessibility-chromevox-language-switching",
     "owners": [ "akihiroota", "dmazzoni", "dtseng" ],
+    "expiry_milestone": 82
+  },
+  {
+    "name": "enable-experimental-accessibility-chromevox-search-menus",
+    "owners": ["akihiroota"],
     "expiry_milestone": 82
   },
   {
@@ -2501,6 +2511,11 @@
     "expiry_milestone": 90
   },
   {
+    "name": "interest-feed-feedback",
+    "owners": [ "petewil", "//chrome/android/feed/OWNERS" ],
+    "expiry_milestone": 90
+  },
+  {
     "name": "interest-feed-notifications",
     "owners": [ "iwells", "//chrome/android/feed/OWNERS" ],
     "expiry_milestone": 80
@@ -2706,6 +2721,11 @@
     "expiry_milestone": 85
   },
   {
+    "name": "ntp-webui",
+    "owners": ["aee", "mahmadi", "tiborg"],
+    "expiry_milestone": 85
+  },
+  {
     "name": "offline-indicator-always-http-probe",
     "owners": [ "jianli", "offline-dev" ],
     "expiry_milestone": 76
@@ -2814,6 +2834,16 @@
     "name": "omnibox-experimental-suggest-scoring",
     "owners": [ "jdonnelly", "chrome-omnibox-team@google.com" ],
     "expiry_milestone": 85
+  },
+  {
+    "name": "omnibox-history-quick-provider-allow-but-do-not-score-midword-terms",
+    "owners": [ "manukh", "chrome-omnibox-team@google.com" ],
+    "expiry_milestone": 88
+  },
+  {
+    "name": "omnibox-history-quick-provider-allow-midword-continuations",
+    "owners": [ "manukh", "chrome-omnibox-team@google.com" ],
+    "expiry_milestone": 88
   },
   {
     "name": "omnibox-local-entity-suggestions",

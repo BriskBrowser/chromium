@@ -14,13 +14,9 @@ if (is_android) {
 # See //content/BUILD.gn for how this works.
 group("browser") {
   if (is_component_build) {
-    public_deps = [
-      "//content",
-    ]
+    public_deps = [ "//content" ]
   } else {
-    public_deps = [
-      ":browser_sources",
-    ]
+    public_deps = [ ":browser_sources" ]
   }
 }
 
@@ -470,6 +466,10 @@ jumbo_source_set("browser_sources") {
     "//content/browser",
   ]
 
+  if (is_chromeos || is_android || is_chromecast || is_fuchsia) {
+    defines = [ "ENABLE_PROTECTED_MEDIA_IDENTIFIER_PERMISSION" ]
+  }
+
   if (is_posix || is_fuchsia) {
     sources += [ "posix_file_descriptor_info.h" ]
   }
@@ -501,8 +501,6 @@ jumbo_source_set("browser_sources") {
 
 if (is_android) {
   java_cpp_enum("contacts_picker_properties_requested_javagen") {
-    sources = [
-      "contacts_picker_properties_requested.h",
-    ]
+    sources = [ "contacts_picker_properties_requested.h" ]
   }
 }

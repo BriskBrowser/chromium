@@ -487,6 +487,12 @@ void ArcApps::UnpauseApps(const std::string& app_id) {
   SetIconEffect(app_id);
 }
 
+void ArcApps::GetMenuModel(const std::string& app_id,
+                           apps::mojom::MenuType menu_type,
+                           GetMenuModelCallback callback) {
+  std::move(callback).Run(apps::mojom::MenuItems::New());
+}
+
 void ArcApps::OpenNativeSettings(const std::string& app_id) {
   ArcAppListPrefs* prefs = ArcAppListPrefs::Get(profile_);
   if (!prefs) {
@@ -850,7 +856,7 @@ apps::mojom::AppPtr ArcApps::Convert(ArcAppListPrefs* prefs,
     IconEffects icon_effects = IconEffects::kNone;
     if (app_info.suspended) {
       icon_effects =
-          static_cast<IconEffects>(icon_effects | IconEffects::kGray);
+          static_cast<IconEffects>(icon_effects | IconEffects::kBlocked);
     }
     app->icon_key = icon_key_factory_.MakeIconKey(icon_effects);
   }
@@ -927,7 +933,8 @@ void ArcApps::SetIconEffect(const std::string& app_id) {
 
   IconEffects icon_effects = IconEffects::kNone;
   if (app_info->suspended) {
-    icon_effects = static_cast<IconEffects>(icon_effects | IconEffects::kGray);
+    icon_effects =
+        static_cast<IconEffects>(icon_effects | IconEffects::kBlocked);
   }
   if (paused_apps_.find(app_id) != paused_apps_.end()) {
     icon_effects =

@@ -93,8 +93,6 @@ class MODULES_EXPORT RTCPeerConnectionHandler
       scoped_refptr<base::SingleThreadTaskRunner> task_runner);
   ~RTCPeerConnectionHandler() override;
 
-  void AssociateWithFrame(blink::WebLocalFrame* frame) override;
-
   // Initialize method only used for unit test.
   bool InitializeForTest(
       const webrtc::PeerConnectionInterface::RTCConfiguration&
@@ -105,7 +103,8 @@ class MODULES_EXPORT RTCPeerConnectionHandler
   // RTCPeerConnectionHandlerPlatform implementation
   bool Initialize(const webrtc::PeerConnectionInterface::RTCConfiguration&
                       server_configuration,
-                  const MediaConstraints& options) override;
+                  const MediaConstraints& options,
+                  WebLocalFrame* web_frame) override;
 
   Vector<std::unique_ptr<RTCRtpTransceiverPlatform>> CreateOffer(
       RTCSessionDescriptionRequest* request,
@@ -196,7 +195,7 @@ class MODULES_EXPORT RTCPeerConnectionHandler
   void StopEventLog();
 
   // WebRTC event log fragments sent back from PeerConnection land here.
-  void OnWebRtcEventLogWrite(const std::string& output);
+  void OnWebRtcEventLogWrite(const WTF::Vector<uint8_t>& output);
 
  protected:
   webrtc::PeerConnectionInterface* native_peer_connection() {

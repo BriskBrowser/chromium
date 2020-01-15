@@ -736,7 +736,7 @@ ImageBitmap* WebGLRenderingContextBase::TransferToImageBitmapBase(
   WebFeature feature = WebFeature::kOffscreenCanvasTransferToImageBitmapWebGL;
   UseCounter::Count(ExecutionContext::From(script_state), feature);
   return MakeGarbageCollected<ImageBitmap>(
-      GetDrawingBuffer()->TransferToStaticBitmapImage(nullptr));
+      GetDrawingBuffer()->TransferToStaticBitmapImage());
 }
 
 void WebGLRenderingContextBase::commit() {
@@ -1376,6 +1376,11 @@ void WebGLRenderingContextBase::MarkContextChanged(
     IntSize canvas_size = ClampedCanvasSize();
     DidDraw(SkIRect::MakeXYWH(0, 0, canvas_size.Width(), canvas_size.Height()));
   }
+}
+
+scoped_refptr<base::SingleThreadTaskRunner>
+WebGLRenderingContextBase::GetContextTaskRunner() {
+  return task_runner_;
 }
 
 void WebGLRenderingContextBase::DidDraw(const SkIRect& dirty_rect) {

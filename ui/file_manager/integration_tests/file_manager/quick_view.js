@@ -1200,39 +1200,6 @@
   };
 
   /**
-   * Tests that Quick View doesn't open with multiple files selected.
-   */
-  testcase.cantOpenQuickViewWithMultipleFiles = async () => {
-    // Open Files app on Downloads containing ENTRIES.hello and ENTRIES.world.
-    const appId = await setupAndWaitUntilReady(
-        RootPath.DOWNLOADS, [ENTRIES.hello, ENTRIES.world], []);
-
-    // Select all 2 files.
-    const ctrlA = ['#file-list', 'a', true, false, false];
-    await remoteCall.callRemoteTestUtil('fakeKeyDown', appId, ctrlA);
-
-    // Wait for the files to be selected.
-    await remoteCall.waitForElement(
-        appId,
-        '#cancel-selection-button-wrapper:not([hidden]):not([disabled])');
-
-    // Attempt to open Quick View via its keyboard shortcut.
-    const space = ['#file-list', ' ', false, false, false];
-    await remoteCall.callRemoteTestUtil('fakeKeyDown', appId, space);
-
-    // Wait for it to possibly open.
-    await new Promise((resolve) => {
-      window.setTimeout(resolve, 500);
-    });
-
-    // Check Quick View hasn't opened.
-    chrome.test.assertEq(
-        [],
-        await remoteCall.callRemoteTestUtil(
-            'deepQueryAllElements', appId, [['#quick-view', '#dialog[open]']]));
-  };
-
-  /**
    * Tests opening Quick View and closing with Escape key returns focus to file
    * list.
    */
@@ -1277,7 +1244,8 @@
     await remoteCall.fakeKeyDown(appId, ...ctrlA);
 
     // Use selection menu button to open Quick View.
-    await simulateUiClick(appId, '#selection-menu-button:not([hidden])');
+    await remoteCall.simulateUiClick(
+        appId, '#selection-menu-button:not([hidden])');
 
     // Wait because WebUI Menu ignores the following click if it happens in
     // <200ms from the previous click.
@@ -1286,7 +1254,7 @@
     // Click the Menu item to show the Quick View.
     const getInfoMenuItem = '#file-context-menu:not([hidden]) ' +
         ' [command="#get-info"]:not([hidden])';
-    await simulateUiClick(appId, getInfoMenuItem);
+    await remoteCall.simulateUiClick(appId, getInfoMenuItem);
 
     // Check: the Quick View dialog should be shown.
     const caller = getCaller();
@@ -1307,22 +1275,6 @@
    * shown in Quick View.
    */
   testcase.openQuickViewTabIndexImage = async () => {
-    const caller = getCaller();
-
-    /**
-     * The <webview> resides in the <files-safe-media type="image"> shadow DOM,
-     * which is a child of the #quick-view shadow DOM.
-     */
-    const webView =
-        ['#quick-view', 'files-safe-media[type="image"]', 'webview'];
-
-    // Open Files app on Downloads containing ENTRIES.smallJpeg.
-    const appId = await setupAndWaitUntilReady(
-        RootPath.DOWNLOADS, [ENTRIES.smallJpeg], []);
-
-    // Open the file in Quick View.
-    await openQuickView(appId, ENTRIES.smallJpeg.nameText);
-
     // Prepare a list of tab-index focus queries.
     const tabQueries = [
       {'query': ['#quick-view', '[aria-label="Back"]:focus']},
@@ -1331,6 +1283,13 @@
       {'query': ['#quick-view', '[aria-label="Back"]:focus']},
     ];
 
+    // Open Files app on Downloads containing ENTRIES.smallJpeg.
+    const appId = await setupAndWaitUntilReady(
+        RootPath.DOWNLOADS, [ENTRIES.smallJpeg], []);
+
+    // Open the file in Quick View.
+    await openQuickView(appId, ENTRIES.smallJpeg.nameText);
+
     for (const query of tabQueries) {
       // Make the browser dispatch a tab key event to FilesApp.
       const result = await sendTestMessage(
@@ -1338,12 +1297,49 @@
       chrome.test.assertEq(
           result, 'tabKeyDispatched', 'Tab key dispatch failure');
 
-      // Wait until we get the focus on the element.
-      await remoteCall.waitForElement(appId, query.query);
+      // Note: Allow 500ms between key events to filter out the focus
+      // traversal problems noted in crbug.com/907380#c10.
+      await wait(500);
 
-      // Ensure all events have been processed before continuing.
-      chrome.test.assertTrue(await remoteCall.callRemoteTestUtil(
-          'requestAnimationFrame', appId, []));
+      // Check: the queried element should gain the focus.
+      await remoteCall.waitForElement(appId, query.query);
+    }
+  };
+
+  /**
+   * Tests the tab-index focus order when sending tab keys when a text file is
+   * shown in Quick View.
+   */
+  testcase.openQuickViewTabIndexText = async () => {
+    // Prepare a list of tab-index focus queries.
+    const tabQueries = [
+      {'query': ['#quick-view', '[aria-label="Back"]:focus']},
+      {'query': ['#quick-view', '[aria-label="Open"]:focus']},
+      {'query': ['#quick-view', '[aria-label="File info"]:focus']},
+      {'query': ['#quick-view']},  // Tab past the content panel.
+      {'query': ['#quick-view', '[aria-label="Back"]:focus']},
+    ];
+
+    // Open Files app on Downloads containing ENTRIES.tallText.
+    const appId = await setupAndWaitUntilReady(
+        RootPath.DOWNLOADS, [ENTRIES.tallText], []);
+
+    // Open the file in Quick View.
+    await openQuickView(appId, ENTRIES.tallText.nameText);
+
+    for (const query of tabQueries) {
+      // Make the browser dispatch a tab key event to FilesApp.
+      const result = await sendTestMessage(
+          {name: 'dispatchTabKey', shift: query.shift || false});
+      chrome.test.assertEq(
+          result, 'tabKeyDispatched', 'Tab key dispatch failure');
+
+      // Note: Allow 500ms between key events to filter out the focus
+      // traversal problems noted in crbug.com/907380#c10.
+      await wait(500);
+
+      // Check: the queried element should gain the focus.
+      await remoteCall.waitForElement(appId, query.query);
     }
   };
 })();

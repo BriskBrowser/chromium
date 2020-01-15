@@ -1088,65 +1088,22 @@ const FeatureEntry::FeatureVariation kTabFreezeVariations[] = {
 const FeatureEntry::FeatureParam kExploreSitesExperimental = {
     chrome::android::explore_sites::kExploreSitesVariationParameterName,
     chrome::android::explore_sites::kExploreSitesVariationExperimental};
-const FeatureEntry::FeatureParam kExploreSitesPersonalized = {
-    chrome::android::explore_sites::kExploreSitesVariationParameterName,
-    chrome::android::explore_sites::kExploreSitesVariationPersonalized};
 const FeatureEntry::FeatureParam kExploreSitesDenseTitleBottom[] = {
-    {chrome::android::explore_sites::kExploreSitesVariationParameterName,
-     chrome::android::explore_sites::kExploreSitesVariationMostLikelyTile},
     {chrome::android::explore_sites::kExploreSitesDenseVariationParameterName,
      chrome::android::explore_sites::
          kExploreSitesDenseVariationDenseTitleBottom},
-    {chrome::android::explore_sites::
-         kExploreSitesMostLikelyVariationParameterName,
-     chrome::android::explore_sites::kExploreSitesMostLikelyVariationIconDots}};
+};
 const FeatureEntry::FeatureParam kExploreSitesDenseTitleRight[] = {
-    {chrome::android::explore_sites::kExploreSitesVariationParameterName,
-     chrome::android::explore_sites::kExploreSitesVariationMostLikelyTile},
     {chrome::android::explore_sites::kExploreSitesDenseVariationParameterName,
      chrome::android::explore_sites::
          kExploreSitesDenseVariationDenseTitleRight},
-    {chrome::android::explore_sites::
-         kExploreSitesMostLikelyVariationParameterName,
-     chrome::android::explore_sites::kExploreSitesMostLikelyVariationIconDots}};
-const FeatureEntry::FeatureParam kExploreSitesIconArrow[] = {
-    {chrome::android::explore_sites::kExploreSitesVariationParameterName,
-     chrome::android::explore_sites::kExploreSitesVariationMostLikelyTile},
-    {chrome::android::explore_sites::
-         kExploreSitesMostLikelyVariationParameterName,
-     chrome::android::explore_sites::
-         kExploreSitesMostLikelyVariationIconArrow}};
-const FeatureEntry::FeatureParam kExploreSitesIconDots[] = {
-    {chrome::android::explore_sites::kExploreSitesVariationParameterName,
-     chrome::android::explore_sites::kExploreSitesVariationMostLikelyTile},
-    {chrome::android::explore_sites::
-         kExploreSitesMostLikelyVariationParameterName,
-     chrome::android::explore_sites::kExploreSitesMostLikelyVariationIconDots}};
-const FeatureEntry::FeatureParam kExploreSitesIconGrouped[] = {
-    {chrome::android::explore_sites::kExploreSitesVariationParameterName,
-     chrome::android::explore_sites::kExploreSitesVariationMostLikelyTile},
-    {chrome::android::explore_sites::
-         kExploreSitesMostLikelyVariationParameterName,
-     chrome::android::explore_sites::
-         kExploreSitesMostLikelyVariationIconGrouped}};
+};
 const FeatureEntry::FeatureParam kExploreSitesWithGamesTop[] = {
-    {chrome::android::explore_sites::kExploreSitesVariationParameterName,
-     chrome::android::explore_sites::kExploreSitesVariationMostLikelyTile},
-    {chrome::android::explore_sites::
-         kExploreSitesMostLikelyVariationParameterName,
-     chrome::android::explore_sites::kExploreSitesMostLikelyVariationIconDots},
     {chrome::android::explore_sites::
          kExploreSitesHeadersExperimentParameterName,
      chrome::android::explore_sites::kExploreSitesGamesTopExperiment}};
 const FeatureEntry::FeatureVariation kExploreSitesVariations[] = {
     {"Experimental", &kExploreSitesExperimental, 1, nullptr},
-    {"Personalized", &kExploreSitesPersonalized, 1, nullptr},
-    {"Arrow Icon", kExploreSitesIconArrow, base::size(kExploreSitesIconArrow),
-     nullptr},
-    {"Dots Icon", kExploreSitesIconDots, base::size(kExploreSitesIconDots),
-     nullptr},
-    {"Grouped Icon", kExploreSitesIconGrouped,
-     base::size(kExploreSitesIconGrouped), nullptr},
     {"Games Top", kExploreSitesWithGamesTop,
      base::size(kExploreSitesWithGamesTop), nullptr},
     {"Dense Title Bottom", kExploreSitesDenseTitleBottom,
@@ -1230,6 +1187,24 @@ const FeatureEntry::FeatureVariation kTabSwitcherOnReturnVariations[] = {
 #endif  // OS_ANDROID
 
 #if defined(OS_ANDROID)
+const FeatureEntry::FeatureParam kChromeDuet_HomeSearchTabSwitcher[] = {
+    {"chrome_duet_variation", "HomeSearchTabSwitcher"}};
+
+const FeatureEntry::FeatureParam kChromeDuet_HomeSearchShare[] = {
+    {"chrome_duet_variation", "HomeSearchShare"}};
+
+const FeatureEntry::FeatureParam kChromeDuet_NewTabSearchShare[] = {
+    {"chrome_duet_variation", "NewTabSearchShare"}};
+
+const FeatureEntry::FeatureVariation kChromeDuetVariations[] = {
+    {"Home-Search-TabSwitcher Variation", kChromeDuet_HomeSearchTabSwitcher,
+     base::size(kChromeDuet_HomeSearchTabSwitcher), nullptr},
+    {"Home-Search-Share Variation", kChromeDuet_HomeSearchShare,
+     base::size(kChromeDuet_HomeSearchShare), nullptr},
+    {"NewTab-Search-Share Variation", kChromeDuet_NewTabSearchShare,
+     base::size(kChromeDuet_NewTabSearchShare), nullptr},
+};
+
 const FeatureEntry::FeatureParam kTabGridLayoutAndroid_NewTabVariation[] = {
     {"tab_grid_layout_android_new_tab", "NewTabVariation"}};
 
@@ -1353,7 +1328,8 @@ const FeatureEntry::FeatureParam
         {QuietNotificationPermissionUiConfig::kEnableAdaptiveActivation,
          "true"},
         {QuietNotificationPermissionUiConfig::kEnableCrowdDenyTriggering,
-         "true"}};
+         "true"},
+        {QuietNotificationPermissionUiConfig::kCrowdDenyHoldBackChance, "0"}};
 
 // The default "Enabled" option has the semantics of showing the quiet UI
 // (animated location bar indicator on Desktop, and mini-infobars on Android),
@@ -2000,13 +1976,6 @@ const FeatureEntry kFeatureEntries[] = {
      flag_descriptions::kWebglDraftExtensionsName,
      flag_descriptions::kWebglDraftExtensionsDescription, kOsAll,
      SINGLE_VALUE_TYPE(switches::kEnableWebGLDraftExtensions)},
-#if BUILDFLAG(ENABLE_DICE_SUPPORT)
-    {"show-sync-paused-reason-cookies-cleared-on-exit",
-     flag_descriptions::kShowSyncPausedReasonCookiesClearedOnExitName,
-     flag_descriptions::kShowSyncPausedReasonCookiesClearedOnExitDescription,
-     kOsAll,
-     FEATURE_VALUE_TYPE(features::kShowSyncPausedReasonCookiesClearedOnExit)},
-#endif
 #if defined(OS_ANDROID)
     {"enable-android-autofill-accessibility",
      flag_descriptions::kAndroidAutofillAccessibilityName,
@@ -2063,7 +2032,9 @@ const FeatureEntry kFeatureEntries[] = {
 #if defined(OS_ANDROID)
     {"enable-chrome-duet", flag_descriptions::kChromeDuetName,
      flag_descriptions::kChromeDuetDescription, kOsAndroid,
-     FEATURE_VALUE_TYPE(chrome::android::kChromeDuetFeature)},
+     FEATURE_WITH_PARAMS_VALUE_TYPE(chrome::android::kChromeDuetFeature,
+                                    kChromeDuetVariations,
+                                    "ChromeDuet")},
     {"enable-chrome-duet-labels", flag_descriptions::kChromeDuetLabelsName,
      flag_descriptions::kChromeDuetLabelsDescription, kOsAndroid,
      FEATURE_VALUE_TYPE(chrome::android::kChromeDuetLabeled)},
@@ -2237,6 +2208,12 @@ const FeatureEntry kFeatureEntries[] = {
      flag_descriptions::kDesktopPWAsLocalUpdatingName,
      flag_descriptions::kDesktopPWAsLocalUpdatingDescription, kOsDesktop,
      FEATURE_VALUE_TYPE(features::kDesktopPWAsLocalUpdating)},
+    {"enable-desktop-pwas-local-updating-throttle-persistence",
+     flag_descriptions::kDesktopPWAsLocalUpdatingThrottlePersistenceName,
+     flag_descriptions::kDesktopPWAsLocalUpdatingThrottlePersistenceDescription,
+     kOsDesktop,
+     FEATURE_VALUE_TYPE(
+         features::kDesktopPWAsLocalUpdatingThrottlePersistence)},
     {"enable-desktop-pwas-tab-strip",
      flag_descriptions::kDesktopPWAsTabStripName,
      flag_descriptions::kDesktopPWAsTabStripDescription, kOsDesktop,
@@ -2482,6 +2459,9 @@ const FeatureEntry kFeatureEntries[] = {
      FEATURE_WITH_PARAMS_VALUE_TYPE(feed::kInterestFeedContentSuggestions,
                                     kInterestFeedFeatureVariations,
                                     "InterestFeedContentSuggestions")},
+    {"interest-feed-feedback", flag_descriptions::kInterestFeedFeedbackName,
+     flag_descriptions::kInterestFeedFeedbackDescription, kOsAndroid,
+     FEATURE_VALUE_TYPE(feed::kInterestFeedFeedback)},
     {"interest-feed-notifications",
      flag_descriptions::kInterestFeedNotificationsName,
      flag_descriptions::kInterestFeedNotificationsDescription, kOsAndroid,
@@ -2603,6 +2583,13 @@ const FeatureEntry kFeatureEntries[] = {
      flag_descriptions::kKernelnextVMsName,
      flag_descriptions::kKernelnextVMsDescription, kOsCrOS,
      FEATURE_VALUE_TYPE(features::kKernelnextVMs)},
+    {"enable-experimental-accessibility-chromevox-search-menus",
+     flag_descriptions::kExperimentalAccessibilityChromeVoxSearchMenusName,
+     flag_descriptions::
+         kExperimentalAccessibilityChromeVoxSearchMenusDescription,
+     kOsCrOS,
+     SINGLE_VALUE_TYPE(
+         ::switches::kEnableExperimentalAccessibilityChromeVoxSearchMenus)},
 #endif  // OS_CHROMEOS
 #if !defined(OS_ANDROID) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
     {"enable-google-branded-context-menu",
@@ -2841,6 +2828,23 @@ const FeatureEntry kFeatureEntries[] = {
      flag_descriptions::kOmniboxExperimentalSuggestScoringName,
      flag_descriptions::kOmniboxExperimentalSuggestScoringDescription, kOsAll,
      FEATURE_VALUE_TYPE(omnibox::kOmniboxExperimentalSuggestScoring)},
+
+    {"omnibox-history-quick-provider-allow-but-do-not-score-midword-terms",
+     flag_descriptions::
+         kOmniboxHistoryQuickProviderAllowButDoNotScoreMidwordTermsName,
+     flag_descriptions::
+         kOmniboxHistoryQuickProviderAllowButDoNotScoreMidwordTermsDescription,
+     kOsAll,
+     FEATURE_VALUE_TYPE(
+         omnibox::kHistoryQuickProviderAllowButDoNotScoreMidwordTerms)},
+    {"omnibox-history-quick-provider-allow-midword-continuations",
+     flag_descriptions::
+         kOmniboxHistoryQuickProviderAllowMidwordContinuationsName,
+     flag_descriptions::
+         kOmniboxHistoryQuickProviderAllowMidwordContinuationsDescription,
+     kOsAll,
+     FEATURE_VALUE_TYPE(
+         omnibox::kHistoryQuickProviderAllowMidwordContinuations)},
 
 #if defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_WIN)
     {"omnibox-experimental-keyword-mode",
@@ -3160,6 +3164,10 @@ const FeatureEntry kFeatureEntries[] = {
      flag_descriptions::kNtpRealboxMatchOmniboxThemeName,
      flag_descriptions::kNtpRealboxMatchOmniboxThemeDescription, kOsDesktop,
      FEATURE_VALUE_TYPE(ntp_features::kRealboxMatchOmniboxTheme)},
+
+    {"ntp-webui", flag_descriptions::kNtpWebUIName,
+     flag_descriptions::kNtpWebUIDescription, kOsDesktop,
+     FEATURE_VALUE_TYPE(ntp_features::kWebUI)},
 
     {"webui-a11y-enhancements", flag_descriptions::kWebUIA11yEnhancementsName,
      flag_descriptions::kWebUIA11yEnhancementsDescription, kOsDesktop,
@@ -4551,13 +4559,6 @@ const FeatureEntry kFeatureEntries[] = {
      FEATURE_VALUE_TYPE(
          chrome::android::kDarkenWebsitesCheckboxInThemesSetting)},
 #endif  // defined(OS_ANDROID)
-
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
-    {"profile-menu-revamp", flag_descriptions::kProfileMenuRevampName,
-     flag_descriptions::kProfileMenuRevampDescription,
-     kOsWin | kOsMac | kOsLinux,
-     FEATURE_VALUE_TYPE(features::kProfileMenuRevamp)},
-#endif  // defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
 
     {"password-leak-detection", flag_descriptions::kPasswordLeakDetectionName,
      flag_descriptions::kPasswordLeakDetectionDescription, kOsAll,

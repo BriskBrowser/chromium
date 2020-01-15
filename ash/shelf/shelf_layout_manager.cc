@@ -461,8 +461,10 @@ gfx::Rect ShelfLayoutManager::GetIdealBounds() const {
 }
 
 gfx::Rect ShelfLayoutManager::GetIdealBoundsForWorkAreaCalculation() const {
-  if (!IsTabletModeEnabled() || !chromeos::switches::ShouldShowShelfHotseat())
+  if (!IsTabletModeEnabled() || !chromeos::switches::ShouldShowShelfHotseat() ||
+      state_.session_state != session_manager::SessionState::ACTIVE) {
     return GetIdealBounds();
+  }
 
   // For the work-area calculation in tablet mode, always use in-app shelf
   // bounds, because when the shelf is not in-app the UI is either showing
@@ -1256,10 +1258,7 @@ HotseatState ShelfLayoutManager::CalculateHotseatState(
       ((overview_controller && overview_controller->InOverviewSession()) ||
        overview_mode_will_start_) &&
       !overview_controller->IsCompletingShutdownAnimations();
-  const bool app_list_visible =
-      app_list_controller->IsVisible() ||
-      app_list_controller->GetTargetVisibility() ||
-      (!in_overview && app_list_controller->ShouldHomeLauncherBeVisible());
+  const bool app_list_visible = app_list_controller->GetTargetVisibility();
 
   // Only force to show if there is not a pending drag operation.
   if (shelf_widget_->is_hotseat_forced_to_show() && drag_status_ == kDragNone)
@@ -1281,13 +1280,8 @@ HotseatState ShelfLayoutManager::CalculateHotseatState(
         case AppListControllerImpl::HomeLauncherTransitionState::kMostlyHidden:
           return in_overview ? HotseatState::kExtended : HotseatState::kHidden;
         case AppListControllerImpl::HomeLauncherTransitionState::kFinished:
-          // Consider the AppList visible if it is beginning to show. Also
-          // detect the case where the last window is being minimized.
-          if (app_list_controller->GetTargetVisibility() ||
-              (!in_overview &&
-               app_list_controller->ShouldHomeLauncherBeVisible())) {
+          if (app_list_visible)
             return HotseatState::kShown;
-          }
 
           // Show the hotseat if the shelf view's context menu is showing.
           if (shelf_widget_->hotseat_widget()->IsShowingShelfMenu())

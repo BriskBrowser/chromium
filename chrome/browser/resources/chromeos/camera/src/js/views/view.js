@@ -153,7 +153,7 @@ export class View {
     // The session is started by entering the view and ended by leaving the
     // view.
     if (!this.session_) {
-      var end;
+      let end;
       this.session_ = new Promise((resolve) => {
         end = resolve;
       });
@@ -189,8 +189,3 @@ export class View {
     return false;
   }
 }
-
-/** @const */
-cca.views.ViewName = ViewName;
-/** @const */
-cca.views.View = View;

@@ -331,22 +331,14 @@ jumbo_component("base") {
       "accelerators/media_keys_util.h",
       "accelerators/menu_label_accelerator_util.cc",
       "accelerators/menu_label_accelerator_util.h",
-      "accelerators/menu_label_accelerator_util_linux.cc",
-      "accelerators/menu_label_accelerator_util_linux.h",
-      "accelerators/platform_accelerator_cocoa.h",
-      "accelerators/platform_accelerator_cocoa.mm",
       "accelerators/system_media_controls_media_keys_listener.cc",
       "accelerators/system_media_controls_media_keys_listener.h",
       "base_window.cc",
       "base_window.h",
-      "cocoa/bubble_closer.h",
-      "cocoa/bubble_closer.mm",
       "cursor/cursor_util.cc",
       "cursor/cursor_util.h",
       "default_theme_provider.cc",
       "default_theme_provider.h",
-      "dragdrop/cocoa_dnd_util.h",
-      "dragdrop/cocoa_dnd_util.mm",
       "dragdrop/file_info.cc",
       "dragdrop/file_info.h",
       "emoji/emoji_panel_helper.h",
@@ -362,6 +354,24 @@ jumbo_component("base") {
       "user_activity/user_activity_detector.h",
       "user_activity/user_activity_observer.h",
     ]
+
+    if (is_linux) {
+      sources += [
+        "accelerators/menu_label_accelerator_util_linux.cc",
+        "accelerators/menu_label_accelerator_util_linux.h",
+      ]
+    }
+
+    if (is_mac) {
+      sources += [
+        "accelerators/platform_accelerator_cocoa.h",
+        "accelerators/platform_accelerator_cocoa.mm",
+        "cocoa/bubble_closer.h",
+        "cocoa/bubble_closer.mm",
+        "dragdrop/cocoa_dnd_util.h",
+        "dragdrop/cocoa_dnd_util.mm",
+      ]
+    }
   }
 
   if (is_mac) {
@@ -691,8 +701,6 @@ jumbo_static_library("test_support") {
     "resource/mock_resource_bundle_delegate.h",
     "test/material_design_controller_test_api.cc",
     "test/material_design_controller_test_api.h",
-    "test/ui_controls_aura.cc",
-    "test/ui_controls_aura.h",
   ]
 
   if (is_mac) {
@@ -724,7 +732,6 @@ jumbo_static_library("test_support") {
     sources += [
       "test/ui_controls_internal_win.cc",
       "test/ui_controls_internal_win.h",
-      "test/ui_controls_win.cc",
     ]
   }
 
@@ -744,9 +751,14 @@ jumbo_static_library("test_support") {
     ]
   }
 
-  public_deps = [
-    ":base",
-  ]
+  if (use_aura) {
+    sources += [
+      "test/ui_controls_aura.cc",
+      "test/ui_controls_aura.h",
+    ]
+  }
+
+  public_deps = [ ":base" ]
   deps = [
     "//base",
     "//base/test:test_config",
@@ -807,15 +819,6 @@ jumbo_static_library("test_support") {
       "//ui/base/ime/chromeos",
     ]
   }
-
-  if (!use_aura) {
-    sources -= [
-      "test/ui_controls_aura.cc",
-      "test/ui_controls_aura.h",
-    ]
-  } else if (is_win) {
-    sources -= [ "test/ui_controls_win.cc" ]
-  }
 }
 
 if (is_android) {
@@ -832,21 +835,15 @@ if (is_android) {
   }
 
   java_cpp_enum("ui_base_cursor_type_java_enums_srcjar") {
-    sources = [
-      "./cursor/types/cursor_types.h",
-    ]
+    sources = [ "./cursor/types/cursor_types.h" ]
   }
 }
 
 bundle_data("ui_base_unittests_bundle_data") {
   testonly = true
-  sources = [
-    "test/data/data_pack_unittest/truncated-header.pak",
-  ]
-  outputs = [
-    "{{bundle_resources_dir}}/" +
-        "{{source_root_relative_dir}}/{{source_file_part}}",
-  ]
+  sources = [ "test/data/data_pack_unittest/truncated-header.pak" ]
+  outputs = [ "{{bundle_resources_dir}}/" +
+              "{{source_root_relative_dir}}/{{source_file_part}}" ]
 }
 
 # The resource labels below should not end with "_resources" or the Android
@@ -862,15 +859,9 @@ grit("ui_base_test_resources_grit") {
 
 copy("ui_base_test_resources_pak") {
   testonly = true
-  sources = [
-    "$target_gen_dir/ui_base_test_resources.pak",
-  ]
-  outputs = [
-    "$root_out_dir/ui_base_test_resources.pak",
-  ]
-  public_deps = [
-    ":ui_base_test_resources_grit",
-  ]
+  sources = [ "$target_gen_dir/ui_base_test_resources.pak" ]
+  outputs = [ "$root_out_dir/ui_base_test_resources.pak" ]
+  public_deps = [ ":ui_base_test_resources_grit" ]
 }
 
 if (is_android) {
@@ -878,27 +869,17 @@ if (is_android) {
     testonly = true
 
     # Use $target_gen_dir so the associated .pak.info file is available.
-    sources = [
-      "$target_gen_dir/ui_base_test_resources.pak",
-    ]
-    deps = [
-      ":ui_base_test_resources_grit",
-    ]
+    sources = [ "$target_gen_dir/ui_base_test_resources.pak" ]
+    deps = [ ":ui_base_test_resources_grit" ]
   }
 }
 
 if (is_ios) {
   bundle_data("ui_base_test_bundle_data") {
     testonly = true
-    public_deps = [
-      ":ui_base_test_resources_grit",
-    ]
-    sources = [
-      "$target_gen_dir/ui_base_test_resources.pak",
-    ]
-    outputs = [
-      "{{bundle_resources_dir}}/{{source_file_part}}",
-    ]
+    public_deps = [ ":ui_base_test_resources_grit" ]
+    sources = [ "$target_gen_dir/ui_base_test_resources.pak" ]
+    outputs = [ "{{bundle_resources_dir}}/{{source_file_part}}" ]
   }
 }
 
@@ -926,11 +907,14 @@ test("ui_base_unittests") {
     sources += [ "l10n/l10n_util_mac_unittest.mm" ]
   }
   if (!is_ios) {
-    sources += [
-      "test/scoped_fake_nswindow_fullscreen_unittest.mm",
-      "test/view_tree_validator_unittest.mm",
-      "user_activity/user_activity_detector_unittest.cc",
-    ]
+    sources += [ "user_activity/user_activity_detector_unittest.cc" ]
+
+    if (is_mac) {
+      sources += [
+        "test/scoped_fake_nswindow_fullscreen_unittest.mm",
+        "test/view_tree_validator_unittest.mm",
+      ]
+    }
   }
 
   data = []
@@ -982,19 +966,8 @@ test("ui_base_unittests") {
       "accelerators/accelerator_history_unittest.cc",
       "accelerators/accelerator_manager_unittest.cc",
       "accelerators/accelerator_unittest.cc",
-      "accelerators/menu_label_accelerator_util_linux_unittest.cc",
       "accelerators/menu_label_accelerator_util_unittest.cc",
-      "accelerators/platform_accelerator_cocoa_unittest.mm",
       "accelerators/system_media_controls_media_keys_listener_unittest.cc",
-      "cocoa/base_view_unittest.mm",
-      "cocoa/bubble_closer_unittest.mm",
-      "cocoa/cocoa_base_utils_unittest.mm",
-      "cocoa/constrained_window/constrained_window_animation_unittest.mm",
-      "cocoa/focus_tracker_unittest.mm",
-      "cocoa/menu_controller_unittest.mm",
-      "cocoa/touch_bar_util_unittest.mm",
-      "cocoa/tracking_area_unittest.mm",
-      "cocoa/weak_ptr_nsobject_unittest.mm",
       "cursor/cursor_unittest.cc",
       "cursor/cursor_util_unittest.cc",
       "models/list_model_unittest.cc",
@@ -1008,6 +981,26 @@ test("ui_base_unittests") {
       ":pixel_diff_test_support",
       "//components/system_media_controls:test_support",
     ]
+
+    if (is_linux) {
+      sources +=
+          [ "accelerators/menu_label_accelerator_util_linux_unittest.cc" ]
+    }
+
+    if (is_mac) {
+      sources += [
+        "accelerators/platform_accelerator_cocoa_unittest.mm",
+        "cocoa/base_view_unittest.mm",
+        "cocoa/bubble_closer_unittest.mm",
+        "cocoa/cocoa_base_utils_unittest.mm",
+        "cocoa/constrained_window/constrained_window_animation_unittest.mm",
+        "cocoa/focus_tracker_unittest.mm",
+        "cocoa/menu_controller_unittest.mm",
+        "cocoa/touch_bar_util_unittest.mm",
+        "cocoa/tracking_area_unittest.mm",
+        "cocoa/weak_ptr_nsobject_unittest.mm",
+      ]
+    }
   }
 
   if (build_ime) {
@@ -1183,9 +1176,7 @@ if (is_mac) {
     testonly = true
     framework_version = "U"
     framework_contents = [ "Resources" ]
-    deps = [
-      "//ui/resources:ui_test_pak_bundle_data",
-    ]
+    deps = [ "//ui/resources:ui_test_pak_bundle_data" ]
     info_plist = "test/framework-Info.plist"
     extra_substitutions = [ "CHROMIUM_BUNDLE_ID=$chrome_mac_bundle_id" ]
     output_name = "ui_unittests Framework"
@@ -1209,9 +1200,8 @@ if (is_win) {
 source_set("base_interactive_ui_tests") {
   testonly = true
   if (is_win) {
-    sources = [
-      "accelerators/global_media_keys_listener_win_interactive_test.cc",
-    ]
+    sources =
+        [ "accelerators/global_media_keys_listener_win_interactive_test.cc" ]
 
     deps = [
       ":base",

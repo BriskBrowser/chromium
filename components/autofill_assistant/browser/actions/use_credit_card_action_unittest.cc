@@ -159,6 +159,9 @@ TEST_F(UseCreditCardActionTest, FillCreditCardRequiredFieldsFilled) {
 }
 
 TEST_F(UseCreditCardActionTest, FillCreditCardWithFallback) {
+  ON_CALL(mock_action_delegate_, GetElementTag(_, _))
+      .WillByDefault(RunOnceCallback<1>(OkClientStatus(), "INPUT"));
+
   ActionProto action = CreateUseCreditCardAction();
   AddRequiredField(
       &action, UseCreditCardProto::RequiredField::CREDIT_CARD_VERIFICATION_CODE,
@@ -290,6 +293,9 @@ TEST_F(UseCreditCardActionTest, FillCreditCardWithFallback) {
 }
 
 TEST_F(UseCreditCardActionTest, ForcedFallback) {
+  ON_CALL(mock_action_delegate_, GetElementTag(_, _))
+      .WillByDefault(RunOnceCallback<1>(OkClientStatus(), "INPUT"));
+
   ActionProto action = CreateUseCreditCardAction();
   auto* cvc_required = AddRequiredField(
       &action, UseCreditCardProto::RequiredField::CREDIT_CARD_VERIFICATION_CODE,
@@ -347,6 +353,9 @@ TEST_F(UseCreditCardActionTest, AutofillFailureWithoutRequiredFieldsIsFatal) {
 
 TEST_F(UseCreditCardActionTest,
        AutofillFailureWithRequiredFieldsLaunchesFallback) {
+  ON_CALL(mock_action_delegate_, GetElementTag(_, _))
+      .WillByDefault(RunOnceCallback<1>(OkClientStatus(), "INPUT"));
+
   ActionProto action_proto = CreateUseCreditCardAction();
   AddRequiredField(
       &action_proto,

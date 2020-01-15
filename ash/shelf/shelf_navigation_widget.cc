@@ -90,8 +90,6 @@ class ShelfNavigationWidget::Delegate : public views::AccessiblePaneView,
 
   // views::WidgetDelegate:
   bool CanActivate() const override;
-  views::Widget* GetWidget() override { return View::GetWidget(); }
-  const views::Widget* GetWidget() const override { return View::GetWidget(); }
 
   BackButton* back_button() const { return back_button_; }
   HomeButton* home_button() const { return home_button_; }
@@ -161,7 +159,9 @@ void ShelfNavigationWidget::Delegate::UpdateOpaqueBackground() {
 
   // The opaque background does not show up when there are two buttons.
   gfx::Rect opaque_background_bounds = GetFirstButtonBounds();
-  if (base::i18n::IsRTL()) {
+  if (base::i18n::IsRTL() && GetWidget() &&
+      Shelf::ForWindow(GetWidget()->GetNativeWindow())
+          ->IsHorizontalAlignment()) {
     opaque_background_bounds.set_x(
         2 * ShelfConfig::Get()->home_button_edge_spacing());
   }

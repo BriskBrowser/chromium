@@ -6,6 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_BINDINGS_CORE_V8_IDL_TYPES_H_
 
 #include <type_traits>
+
 #include "base/optional.h"
 #include "base/time/time.h"
 #include "third_party/blink/renderer/bindings/core/v8/idl_types_base.h"
@@ -17,7 +18,9 @@
 
 namespace blink {
 
+class EventListener;
 class ScriptPromise;
+class ScriptValue;
 
 // Boolean
 struct IDLBoolean final : public IDLBaseHelper<bool> {};
@@ -84,7 +87,7 @@ using IDLStringTreatNullAsEmptyString =
 
 namespace bindings {
 
-enum class NativeValueTraitsStringConv {
+enum class IDLStringConvMode {
   kDefault,
   kNullable,
   kTreatNullAsEmptyString,
@@ -93,30 +96,29 @@ enum class NativeValueTraitsStringConv {
 }  // namespace bindings
 
 // ByteString
-template <bindings::NativeValueTraitsStringConv mode>
+template <bindings::IDLStringConvMode mode>
 struct IDLByteStringBaseV2 final : public IDLBaseHelper<String> {};
 using IDLByteStringV2 =
-    IDLByteStringBaseV2<bindings::NativeValueTraitsStringConv::kDefault>;
+    IDLByteStringBaseV2<bindings::IDLStringConvMode::kDefault>;
 using IDLByteStringOrNullV2 =
-    IDLByteStringBaseV2<bindings::NativeValueTraitsStringConv::kNullable>;
+    IDLByteStringBaseV2<bindings::IDLStringConvMode::kNullable>;
 
 // DOMString
-template <bindings::NativeValueTraitsStringConv mode>
+template <bindings::IDLStringConvMode mode>
 struct IDLStringBaseV2 final : public IDLBaseHelper<String> {};
-using IDLStringV2 =
-    IDLStringBaseV2<bindings::NativeValueTraitsStringConv::kDefault>;
+using IDLStringV2 = IDLStringBaseV2<bindings::IDLStringConvMode::kDefault>;
 using IDLStringOrNullV2 =
-    IDLStringBaseV2<bindings::NativeValueTraitsStringConv::kNullable>;
-using IDLStringTreatNullAsEmptyStringV2 = IDLStringBaseV2<
-    bindings::NativeValueTraitsStringConv::kTreatNullAsEmptyString>;
+    IDLStringBaseV2<bindings::IDLStringConvMode::kNullable>;
+using IDLStringTreatNullAsEmptyStringV2 =
+    IDLStringBaseV2<bindings::IDLStringConvMode::kTreatNullAsEmptyString>;
 
 // USVString
-template <bindings::NativeValueTraitsStringConv mode>
+template <bindings::IDLStringConvMode mode>
 struct IDLUSVStringBaseV2 final : public IDLBaseHelper<String> {};
 using IDLUSVStringV2 =
-    IDLUSVStringBaseV2<bindings::NativeValueTraitsStringConv::kDefault>;
+    IDLUSVStringBaseV2<bindings::IDLStringConvMode::kDefault>;
 using IDLUSVStringOrNullV2 =
-    IDLUSVStringBaseV2<bindings::NativeValueTraitsStringConv::kNullable>;
+    IDLUSVStringBaseV2<bindings::IDLStringConvMode::kNullable>;
 
 // Double
 struct IDLDouble final : public IDLBaseHelper<double> {};
@@ -129,6 +131,9 @@ struct IDLUnrestrictedFloat final : public IDLBaseHelper<float> {};
 // Nullable Date
 struct IDLDateOrNull final : public IDLBaseHelper<base::Optional<base::Time>> {
 };
+
+// object
+struct IDLObject final : public IDLBaseHelper<ScriptValue> {};
 
 // Promise
 struct IDLPromise final : public IDLBaseHelper<ScriptPromise> {};
@@ -185,6 +190,11 @@ struct IDLNullable<InnerType,
   using ImplType = typename InnerTraits::ImplType;
   static inline ResultType NullValue() { return InnerTraits::NullValue(); }
 };
+
+// EventHandler types
+struct IDLEventHandler : public IDLBaseHelper<EventListener*> {};
+struct IDLOnBeforeUnloadEventHandler : public IDLBaseHelper<EventListener*> {};
+struct IDLOnErrorEventHandler : public IDLBaseHelper<EventListener*> {};
 
 }  // namespace blink
 

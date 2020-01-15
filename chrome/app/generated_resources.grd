@@ -7893,10 +7893,10 @@ Please help our engineers fix this problem. Tell us what happened right before y
         <message name="IDS_SYNC_STATUS_NEEDS_PASSWORD" desc="Message indicating user must re-enter their sync password.">
           Enter your passphrase to sync your data
         </message>
-        <message name="IDS_SYNC_STATUS_NEEDS_PASSWORD_LINK_LABEL" desc="Hyperlink text indicating user must re-enter their sync password.">
+        <message name="IDS_SYNC_STATUS_NEEDS_PASSWORD_BUTTON" desc="Button indicating user must re-enter their sync password.">
           Enter passphrase
         </message>
-        <message name="IDS_SYNC_STATUS_NEEDS_KEYS_LINK_LABEL" desc="Hyperlink text indicating user must reauthenticate to sync encrypted datatypes.">
+        <message name="IDS_SYNC_STATUS_NEEDS_KEYS_BUTTON" desc="Button indicating user must reauthenticate to sync encrypted datatypes.">
           Fix now
         </message>
 
@@ -7914,12 +7914,12 @@ Please help our engineers fix this problem. Tell us what happened right before y
           </message>
         </if>
         <if expr="not chromeos">
-          <message name="IDS_SYNC_RELOGIN_LINK_LABEL" desc="The text to display on in the hyperlink when the user needs to sign in again to use sync.">
+          <message name="IDS_SYNC_RELOGIN_BUTTON" desc="The text to display on the button when the user needs to sign in again to use sync.">
             Sign in again
           </message>
         </if>
         <if expr="chromeos">
-          <message name="IDS_SYNC_RELOGIN_LINK_LABEL" desc="The text to display on in the hyperlink when the user needs to sign out and sign in again to use sync on Chrome OS.">
+          <message name="IDS_SYNC_RELOGIN_BUTTON" desc="The text to display on the button when the user needs to sign out and sign in again to use sync on Chrome OS.">
             Sign out
           </message>
           <message name="IDS_ACTIVE_DIRECTORY_PASSWORD_EXPIRED" desc="The text to display on the hyperlink when the user needs to sign out and sign in again to change their password.">
@@ -9023,6 +9023,23 @@ Please help our engineers fix this problem. Tell us what happened right before y
         </message>
         <message name="IDS_NFC_PERMISSION_TITLE" desc="Title text for dialog requesting permission for a site to use NFC">
           NFC
+        </message>
+      </if>
+
+      <!-- WebXr permissions -->
+      <!-- TODO(crbug.com/1041009): Finalize WebXr Permissions strings -->
+      <message name="IDS_VR_PERMISSION_FRAGMENT" desc="Permission request shown if the user is visiting a site that wants to use VR. Follows a prompt: 'This site would like to:">
+        Access Virtual Reality devices and data
+      </message>
+      <message name="IDS_AR_PERMISSION_FRAGMENT" desc="Permission request shown if the user is visiting a site that wants to use AR. Follows a prompt: 'This site would like to:">
+        Track camera position and map your room
+      </message>
+      <if expr="is_android">
+        <message name="IDS_VR_INFOBAR_TEXT" desc="Text requesting permission for a site to use VR">
+          <ph name="URL">$1<ex>google.com</ex></ph> wants to be able to start virtual reality sessions
+        </message>
+        <message name="IDS_AR_INFOBAR_TEXT" desc="Text requesting permission for a site to use AR">
+          <ph name="URL">$1<ex>google.com</ex></ph> wants to track camera position and map your room
         </message>
       </if>
 
@@ -10486,6 +10503,35 @@ Please help our engineers fix this problem. Tell us what happened right before y
       The limit on "<ph name="APP_NAME">$1<ex>Google Photos</ex></ph>" that your parent set ran out. You can use it for <ph name="TIME_LIMIT">$2<ex>2 hours and 30 minutes</ex></ph> tomorrow.
     </message>
 
+    <!-- Extension request -->
+    <if expr="not is_android">
+      <message name="IDS_ENTERPRISE_EXTENSION_REQUEST_APPROVED_TITLE" desc="The notification title when there are some extension requests approved.">
+        {NUM_EXTENSIONS, plural,
+          =1 {An extension has been approved}
+          other {# extensions have been approved}}
+      </message>
+      <message name="IDS_ENTERPRISE_EXTENSION_REQUEST_REJECTED_TITLE" desc="The notification title when there are some extension requests rejected.">
+        {NUM_EXTENSIONS, plural,
+          =1 {An extension has been rejected}
+          other {# extensions have been rejected}}
+      </message>
+      <message name="IDS_ENTERPRISE_EXTENSION_REQUEST_FORCE_INSTALLED_TITLE" desc="The notification title when there are some extension requests force installed.">
+        {NUM_EXTENSIONS, plural,
+          =1 {An extension has been installed by your administrator}
+          other {# extensions have been installed by your administrator}}
+      </message>
+
+      <message name="IDS_ENTERPRISE_EXTENSION_REQUEST_CLICK_TO_INSTALL" desc="The notification message that tell user how to install the approved extension.">
+        {NUM_EXTENSIONS, plural,
+          =1 {Click to install the extension}
+          other {Click to install these extensions}}
+      </message>
+      <message name="IDS_ENTERPRISE_EXTENSION_REQUEST_CLICK_TO_VIEW" desc="The notification message that show user the reviewed installed extension requests.">
+        {NUM_EXTENSIONS, plural,
+          =1 {Click to view the extension}
+          other {Click to view these extensions}}
+      </message>
+    </if>
   </messages>
 </release>
 </grit>

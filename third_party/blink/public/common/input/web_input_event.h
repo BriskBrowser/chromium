@@ -33,6 +33,8 @@
 
 #include <string.h>
 
+#include <memory>
+
 #include "base/time/time.h"
 #include "third_party/blink/public/common/common_export.h"
 #include "ui/gfx/geometry/point_f.h"
@@ -246,6 +248,12 @@ class BLINK_COMMON_EXPORT WebInputEvent {
     // ancestor frames moved within its embedding page's viewport recently.
     kTargetFrameMovedRecently = 1 << 24,
 
+    // When an event is forwarded to the main thread, this modifier will tell if
+    // the event was already handled by the compositor thread or not. Based on
+    // this, the decision of whether or not the main thread should handle this
+    // event for the scrollbar can then be made.
+    kScrollbarManipulationHandledOnCompositorThread = 1 << 25,
+
     // The set of non-stateful modifiers that specifically change the
     // interpretation of the key being pressed. For example; IsLeft,
     // IsRight, IsComposing don't change the meaning of the key
@@ -253,6 +261,7 @@ class BLINK_COMMON_EXPORT WebInputEvent {
     // and don't indicate explicit depressed state.
     kKeyModifiers = kSymbolKey | kFnKey | kAltGrKey | kMetaKey | kAltKey |
                     kControlKey | kShiftKey,
+
     kNoModifiers = 0,
   };
 
@@ -428,6 +437,10 @@ class BLINK_COMMON_EXPORT WebInputEvent {
 
   void SetTargetFrameMovedRecently() {
     modifiers_ |= kTargetFrameMovedRecently;
+  }
+
+  void SetScrollbarManipulationHandledOnCompositorThread() {
+    modifiers_ |= kScrollbarManipulationHandledOnCompositorThread;
   }
 
   virtual ~WebInputEvent() = default;

@@ -3537,9 +3537,16 @@ void Element::SetNeedsCompositingUpdate() {
   if (!layout_object->HasLayer())
     return;
   layout_object->Layer()->SetNeedsCompositingInputsUpdate();
-  // Changes in the return value of requiresAcceleratedCompositing change if
-  // the PaintLayer is self-painting.
-  layout_object->Layer()->UpdateSelfPaintingLayer();
+
+  // Changes to RequiresAcceleratedCompositing change if the PaintLayer is
+  // self-painting (see: LayoutEmbeddedContent::LayerTypeRequired).
+  if (layout_object->IsLayoutEmbeddedContent())
+    layout_object->Layer()->UpdateSelfPaintingLayer();
+
+  // Changes to AdditionalCompositingReasons can change direct compositing
+  // reasons which affect paint properties.
+  if (layout_object->CanHaveAdditionalCompositingReasons())
+    layout_object->SetNeedsPaintPropertyUpdate();
 }
 
 void Element::V0SetCustomElementDefinition(
@@ -4353,7 +4360,7 @@ bool Element::IsAutofocusable() const {
 bool Element::ActivateDisplayLockIfNeeded(DisplayLockActivationReason reason) {
   if (!RuntimeEnabledFeatures::DisplayLockingEnabled(GetExecutionContext()) ||
       GetDocument().LockedDisplayLockCount() ==
-          GetDocument().ActivationBlockingDisplayLockCount())
+          GetDocument().DisplayLockBlockingAllActivationCount())
     return false;
   const_cast<Element*>(this)->UpdateDistributionForFlatTreeTraversal();
 
@@ -4391,7 +4398,7 @@ bool Element::DisplayLockPreventsActivation(
   if (!RuntimeEnabledFeatures::DisplayLockingEnabled(GetExecutionContext()))
     return false;
 
-  if (GetDocument().ActivationBlockingDisplayLockCount() == 0)
+  if (GetDocument().LockedDisplayLockCount() == 0)
     return false;
 
   const_cast<Element*>(this)->UpdateDistributionForFlatTreeTraversal();
@@ -4700,7 +4707,7 @@ void Element::setOuterHTML(const StringOrTrustedHTML& string_or_html,
 Node* Element::InsertAdjacent(const String& where,
                               Node* new_child,
                               ExceptionState& exception_state) {
-  if (DeprecatedEqualIgnoringCase(where, "beforeBegin")) {
+  if (EqualIgnoringASCIICase(where, "beforeBegin")) {
     if (ContainerNode* parent = parentNode()) {
       parent->InsertBefore(new_child, this, exception_state);
       if (!exception_state.HadException())
@@ -4709,17 +4716,17 @@ Node* Element::InsertAdjacent(const String& where,
     return nullptr;
   }
 
-  if (DeprecatedEqualIgnoringCase(where, "afterBegin")) {
+  if (EqualIgnoringASCIICase(where, "afterBegin")) {
     InsertBefore(new_child, firstChild(), exception_state);
     return exception_state.HadException() ? nullptr : new_child;
   }
 
-  if (DeprecatedEqualIgnoringCase(where, "beforeEnd")) {
+  if (EqualIgnoringASCIICase(where, "beforeEnd")) {
     AppendChild(new_child, exception_state);
     return exception_state.HadException() ? nullptr : new_child;
   }
 
-  if (DeprecatedEqualIgnoringCase(where, "afterEnd")) {
+  if (EqualIgnoringASCIICase(where, "afterEnd")) {
     if (ContainerNode* parent = parentNode()) {
       parent->InsertBefore(new_child, nextSibling(), exception_state);
       if (!exception_state.HadException())
@@ -5230,7 +5237,7 @@ void Element::UpdateFirstLetterPseudoElement(StyleUpdatePhase phase) {
     DCHECK(!To<FirstLetterPseudoElement>(element)->RemainingTextLayoutObject());
     DCHECK(text_node_changed);
     scoped_refptr<ComputedStyle> pseudo_style = element->StyleForLayoutObject();
-    if (PseudoElementLayoutObjectIsNeeded(pseudo_style.get()))
+    if (PseudoElementLayoutObjectIsNeeded(pseudo_style.get(), this))
       element->SetComputedStyle(std::move(pseudo_style));
     else
       GetElementRareData()->SetPseudoElement(kPseudoIdFirstLetter, nullptr);
@@ -5246,7 +5253,7 @@ void Element::UpdateFirstLetterPseudoElement(StyleUpdatePhase phase) {
   element->RecalcStyle(change);
 
   if (element->NeedsReattachLayoutTree() &&
-      !PseudoElementLayoutObjectIsNeeded(element->GetComputedStyle())) {
+      !PseudoElementLayoutObjectIsNeeded(element->GetComputedStyle(), this)) {
     GetElementRareData()->SetPseudoElement(kPseudoIdFirstLetter, nullptr);
     GetDocument().GetStyleEngine().PseudoElementRemoved(*this);
   }
@@ -5256,8 +5263,11 @@ void Element::UpdatePseudoElement(PseudoId pseudo_id,
                                   const StyleRecalcChange change) {
   PseudoElement* element = GetPseudoElement(pseudo_id);
   if (!element) {
-    if ((element = CreatePseudoElementIfNeeded(pseudo_id)))
+    if ((element = CreatePseudoElementIfNeeded(pseudo_id))) {
+      // ::before and ::after can have a nested ::marker
+      element->CreatePseudoElementIfNeeded(kPseudoIdMarker);
       element->SetNeedsReattachLayoutTree();
+    }
     return;
   }
 
@@ -5266,7 +5276,7 @@ void Element::UpdatePseudoElement(PseudoId pseudo_id,
       element->RecalcStyle(change.ForPseudoElement());
       if (!element->NeedsReattachLayoutTree())
         return;
-      if (PseudoElementLayoutObjectIsNeeded(element->GetComputedStyle()))
+      if (PseudoElementLayoutObjectIsNeeded(element->GetComputedStyle(), this))
         return;
     }
     GetElementRareData()->SetPseudoElement(pseudo_id, nullptr);
@@ -5275,8 +5285,6 @@ void Element::UpdatePseudoElement(PseudoId pseudo_id,
 }
 
 PseudoElement* Element::CreatePseudoElementIfNeeded(PseudoId pseudo_id) {
-  if (IsPseudoElement())
-    return nullptr;
   if (!CanGeneratePseudoElement(pseudo_id))
     return nullptr;
   if (pseudo_id == kPseudoIdFirstLetter) {
@@ -5290,7 +5298,7 @@ PseudoElement* Element::CreatePseudoElementIfNeeded(PseudoId pseudo_id) {
 
   scoped_refptr<ComputedStyle> pseudo_style =
       pseudo_element->StyleForLayoutObject();
-  if (!PseudoElementLayoutObjectIsNeeded(pseudo_style.get())) {
+  if (!PseudoElementLayoutObjectIsNeeded(pseudo_style.get(), this)) {
     GetElementRareData()->SetPseudoElement(pseudo_id, nullptr);
     return nullptr;
   }
@@ -5398,6 +5406,8 @@ bool Element::CanGeneratePseudoElement(PseudoId pseudo_id) const {
   if (pseudo_id == kPseudoIdBackdrop && !IsInTopLayer())
     return false;
   if (pseudo_id == kPseudoIdFirstLetter && IsSVGElement())
+    return false;
+  if (pseudo_id == kPseudoIdMarker && IsA<HTMLFieldSetElement>(this))
     return false;
   if (const ComputedStyle* style = GetComputedStyle())
     return style->CanGeneratePseudoElement(pseudo_id);

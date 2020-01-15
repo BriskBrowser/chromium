@@ -910,10 +910,10 @@ void RenderFrameHostManager::OnDidUpdateName(const std::string& name,
 }
 
 void RenderFrameHostManager::OnDidAddContentSecurityPolicies(
-    const std::vector<ContentSecurityPolicyHeader>& headers) {
+    std::vector<network::mojom::ContentSecurityPolicyHeaderPtr> headers) {
   for (const auto& pair : proxy_hosts_) {
-    pair.second->Send(new FrameMsg_AddContentSecurityPolicies(
-        pair.second->GetRoutingID(), headers));
+    pair.second->GetAssociatedRemoteFrame()
+        ->AddReplicatedContentSecurityPolicies(mojo::Clone(headers));
   }
 }
 
@@ -1279,9 +1279,7 @@ RenderFrameHostManager::GetSiteInstanceForNavigation(
     render_frame_host_->set_browsing_instance_not_swapped_reason(
         force_swap_result);
   }
-  SiteInstanceDescriptor new_instance_descriptor =
-      SiteInstanceDescriptor(current_instance);
-  new_instance_descriptor = DetermineSiteInstanceForURL(
+  SiteInstanceDescriptor new_instance_descriptor = DetermineSiteInstanceForURL(
       dest_url, source_instance, current_instance, dest_instance, transition,
       is_failure, dest_is_restore, dest_is_view_source_mode, force_swap,
       was_server_redirect);

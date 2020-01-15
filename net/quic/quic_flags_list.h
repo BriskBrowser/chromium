@@ -97,7 +97,7 @@ QUIC_FLAG(bool, FLAGS_quic_restart_flag_quic_offload_pacing_to_usps2, false)
 // adaptive packet threshold.
 QUIC_FLAG(bool,
           FLAGS_quic_restart_flag_quic_default_on_ietf_loss_detection,
-          false)
+          true)
 
 // Max time that QUIC can pace packets into the future in ms.
 QUIC_FLAG(int32_t, FLAGS_quic_max_pace_time_into_future_ms, 10)
@@ -208,12 +208,6 @@ QUIC_FLAG(bool,
           FLAGS_quic_reloadable_flag_quic_use_http2_priority_write_scheduler,
           true)
 
-// If true and FIFO connection option is received, write_blocked_streams uses
-// FIFO(stream with smallest ID has highest priority) write scheduler.
-QUIC_FLAG(bool,
-          FLAGS_quic_reloadable_flag_quic_enable_fifo_write_scheduler,
-          true)
-
 // If true and LIFO connection option is received, write_blocked_streams uses
 // LIFO(stream with largest ID has highest priority) write scheduler.
 QUIC_FLAG(bool,
@@ -239,14 +233,6 @@ QUIC_FLAG(bool,
 // If true, enable HTTP/2 default scheduling(round robin).
 QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_enable_rr_write_scheduler, true)
 
-// Call NeuterHandshakePackets() at most once per connection.
-QUIC_FLAG(bool,
-          FLAGS_quic_reloadable_flag_quic_neuter_handshake_packets_once2,
-          true)
-
-// If true, support HTTP/3 priority in v99.
-QUIC_FLAG(bool, FLAGS_quic_allow_http3_priority, false)
-
 // If the bandwidth during ack aggregation is smaller than (estimated
 // bandwidth * this flag), consider the current aggregation completed
 // and starts a new one.
@@ -271,16 +257,8 @@ QUIC_FLAG(bool,
           FLAGS_quic_reloadable_flag_quic_bbr_donot_inject_bandwidth,
           true)
 
-// If true, close connection if CreateAndSerializeStreamFrame fails.
-QUIC_FLAG(
-    bool,
-    FLAGS_quic_reloadable_flag_quic_close_connection_on_failed_consume_data_fast_path,
-    true)
-
 // If true, add a up call when N packet numbers get skipped.
-QUIC_FLAG(bool,
-          FLAGS_quic_reloadable_flag_quic_on_packet_numbers_skipped,
-          false)
+QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_on_packet_numbers_skipped, true)
 
 // The default minimum duration for BBRv2-native probes, in milliseconds.
 QUIC_FLAG(int32_t, FLAGS_quic_bbr2_default_probe_bw_base_duration_ms, 2000)
@@ -302,13 +280,6 @@ QUIC_FLAG(int32_t, FLAGS_quic_bbr2_default_startup_full_loss_count, 8)
 // The default fraction of unutilized headroom to try to leave in path
 // upon high loss.
 QUIC_FLAG(double, FLAGS_quic_bbr2_default_inflight_hi_headroom, 0.01)
-
-// If true, when a stream receives data with wrong close offset, it closes the
-// connection. And the stream frame data will be discarded.
-QUIC_FLAG(
-    bool,
-    FLAGS_quic_reloadable_flag_quic_close_connection_and_discard_data_on_wrong_offset,
-    true)
 
 // If true, log number of ack aggregation epochs in QUIC transport connection
 // stats.
@@ -340,7 +311,7 @@ QUIC_FLAG(bool,
 
 // If true, QUIC crypto handshaker uses handshaker delegate to notify session
 // about handshake events.
-QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_use_handshaker_delegate2, false)
+QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_use_handshaker_delegate2, true)
 
 // If true, disable QUIC version Q043.
 QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_disable_version_q043, false)
@@ -358,7 +329,7 @@ QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_disable_version_q049, false)
 QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_disable_version_q050, false)
 
 // If true, enable QUIC version Q099.
-QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_enable_version_q099, true)
+QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_enable_version_q099, false)
 
 // If true, enable QUIC version T050.
 QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_enable_version_t050, true)
@@ -371,7 +342,7 @@ QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_testonly_default_false, false)
 
 // If true, QuicSentPacketManager will cap ack_delay to
 // peer_advertized_ack_delay before using it.
-QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_sanitize_ack_delay, false)
+QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_sanitize_ack_delay, true)
 
 // If true, allow connection IDs of length [21,255] in version
 // negotiation packets.
@@ -380,7 +351,7 @@ QUIC_FLAG(bool,
           true)
 
 // If true, frames will be hold in an optimized wrapper data structure.
-QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_interval_deque, false)
+QUIC_FLAG(bool, FLAGS_quic_reloadable_flag_quic_interval_deque, true)
 
 // If true, QUIC BBRv2 will cut inflight_hi gradually upon loss from PROBE_UP.
 QUIC_FLAG(bool,
@@ -395,7 +366,7 @@ QUIC_FLAG(bool,
 // If true, QUIC will call bandwidth sampler once per ack event, instead of once
 // per acked packet.
 QUIC_FLAG(bool,
-          FLAGS_quic_reloadable_flag_quic_one_bw_sample_per_ack_event,
+          FLAGS_quic_reloadable_flag_quic_one_bw_sample_per_ack_event2,
           false)
 
 // If true, QUIC will call bandwidth sampler once per ack event, instead of once
@@ -417,3 +388,9 @@ QUIC_FLAG(
 QUIC_FLAG(bool,
           FLAGS_quic_reloadable_flag_quic_log_coalesce_stream_frame_frequency,
           true)
+
+// In BBR, slow pacing rate if it is likely causing overshoot.
+QUIC_FLAG(
+    bool,
+    FLAGS_quic_reloadable_flag_quic_bbr_mitigate_overly_large_bandwidth_sample,
+    false)

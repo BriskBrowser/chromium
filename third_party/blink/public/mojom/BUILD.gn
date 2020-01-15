@@ -95,6 +95,7 @@ mojom("mojom_platform") {
     "payments/payment_app.mojom",
     "peerconnection/peer_connection_tracker.mojom",
     "permissions/permission.mojom",
+    "permissions/permission_automation.mojom",
     "permissions/permission_status.mojom",
     "picture_in_picture/picture_in_picture.mojom",
     "plugins/plugin_registry.mojom",
@@ -153,6 +154,7 @@ mojom("mojom_platform") {
     "worker/subresource_loader_updater.mojom",
     "worker/worker_content_settings_proxy.mojom",
     "worker/worker_main_script_load_params.mojom",
+    "worker/worker_options.mojom",
   ]
 
   if (!is_android) {
@@ -236,11 +238,14 @@ mojom("android_mojo_bindings") {
     "mediasession/media_session.mojom",
     "payments/payment_handler_host.mojom",
     "payments/payment_request.mojom",
-    "remote_objects/remote_objects.mojom",
     "webauthn/authenticator.mojom",
     "webauthn/internal_authenticator.mojom",
     "webshare/webshare.mojom",
   ]
+
+  if (is_android) {
+    sources += [ "remote_objects/remote_objects.mojom" ]
+  }
   public_deps = [
     "//components/payments/mojom",
     "//mojo/public/mojom/base",

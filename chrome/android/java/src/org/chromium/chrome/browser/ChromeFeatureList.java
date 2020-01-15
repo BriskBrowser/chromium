@@ -23,7 +23,7 @@ public abstract class ChromeFeatureList {
     private static Map<String, Boolean> sTestFeatures;
 
     // Prevent instantiation.
-    private ChromeFeatureList() {}
+    protected ChromeFeatureList() {}
 
     /**
      * Sets the feature flags to use in JUnit tests, since native calls are not available there.
@@ -178,6 +178,7 @@ public abstract class ChromeFeatureList {
     public static final String ANDROID_SITE_SETTINGS_UI_REFRESH = "AndroidSiteSettingsUIRefresh";
     public static final String APP_NOTIFICATION_STATUS_MESSAGING = "AppNotificationStatusMessaging";
     public static final String AUTOFILL_ASSISTANT = "AutofillAssistant";
+    public static final String AUTOFILL_ASSISTANT_CHROME_ENTRY = "AutofillAssistantChromeEntry";
     public static final String AUTOFILL_ASSISTANT_DIRECT_ACTIONS = "AutofillAssistantDirectActions";
     public static final String AUTOFILL_MANUAL_FALLBACK_ANDROID = "AutofillManualFallbackAndroid";
     public static final String AUTOFILL_REFRESH_STYLE_ANDROID = "AutofillRefreshStyleAndroid";
@@ -264,7 +265,8 @@ public abstract class ChromeFeatureList {
     public static final String INTENT_BLOCK_EXTERNAL_FORM_REDIRECT_NO_GESTURE =
             "IntentBlockExternalFormRedirectsNoGesture";
     public static final String INTEREST_FEED_CONTENT_SUGGESTIONS = "InterestFeedContentSuggestions";
-    public static final String JELLY_BEAN_SUPPORTED = "JellyBeanSupported";
+    public static final String INTEREST_FEED_FEEDBACK = "InterestFeedFeedback";
+    public static final String KITKAT_SUPPORTED = "KitKatSupported";
     public static final String LOOKALIKE_NAVIGATION_URL_SUGGESTIONS_UI =
             "LookalikeUrlNavigationSuggestionsUI";
     public static final String SEARCH_ENGINE_PROMO_EXISTING_DEVICE =

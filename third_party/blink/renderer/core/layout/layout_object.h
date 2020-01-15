@@ -1484,6 +1484,9 @@ class CORE_EXPORT LayoutObject : public ImageResourceObserver,
   virtual void AddAnnotatedRegions(Vector<AnnotatedRegionValue>&);
 
   CompositingState GetCompositingState() const;
+
+  // True for object types which override |AdditionalCompositingReasons|.
+  virtual bool CanHaveAdditionalCompositingReasons() const;
   virtual CompositingReasons AdditionalCompositingReasons() const;
 
   // |accumulated_offset| is accumulated physical offset of this object from
@@ -2189,8 +2192,12 @@ class CORE_EXPORT LayoutObject : public ImageResourceObserver,
   // Returns the bounding box of the visual rects of all fragments.
   IntRect FragmentsVisualRectBoundingBox() const;
 
-  void SetNeedsOverflowRecalc();
-  void SetNeedsVisualOverflowAndPaintInvalidation();
+  enum OverflowRecalcType {
+    kOnlyVisualOverflowRecalc,
+    kLayoutAndVisualOverflowRecalc,
+  };
+  void SetNeedsOverflowRecalc(
+      OverflowRecalcType = OverflowRecalcType::kLayoutAndVisualOverflowRecalc);
 
   void InvalidateClipPathCache();
 
@@ -2724,7 +2731,10 @@ class CORE_EXPORT LayoutObject : public ImageResourceObserver,
   // scroll anchoring on.
   void SetScrollAnchorDisablingStyleChangedOnAncestor();
 
-  inline void MarkContainerChainForOverflowRecalcIfNeeded();
+  bool SelfPaintingLayerNeedsVisualOverflowRecalc() const;
+  inline void MarkContainerChainForOverflowRecalcIfNeeded(
+      bool mark_container_chain_layout_overflow_recalc,
+      bool mark_container_chain_visual_overflow_recalc);
 
   inline void SetNeedsPaintOffsetAndVisualRectUpdate();
 

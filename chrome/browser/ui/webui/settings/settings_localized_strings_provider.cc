@@ -250,6 +250,7 @@ void AddA11yStrings(content::WebUIDataSource* html_source) {
     {"captionsColorCyan", IDS_SETTINGS_CAPTIONS_COLOR_CYAN},
     {"captionsColorMagenta", IDS_SETTINGS_CAPTIONS_COLOR_MAGENTA},
     {"captionsDefaultSetting", IDS_SETTINGS_CAPTIONS_DEFAULT_SETTING},
+    {"captionsEnableLiveCaption", IDS_SETTINGS_CAPTIONS_ENABLE_LIVE_CAPTION},
     {"settingsSliderRoleDescription",
      IDS_SETTINGS_SLIDER_MIN_MAX_ARIA_ROLE_DESCRIPTION},
 #if defined(OS_CHROMEOS)
@@ -410,6 +411,9 @@ void AddA11yStrings(content::WebUIDataSource* html_source) {
   html_source->AddBoolean(
       "enableCaptionSettings",
       base::FeatureList::IsEnabled(features::kCaptionSettings));
+
+  html_source->AddBoolean("enableLiveCaption",
+                          base::FeatureList::IsEnabled(media::kLiveCaption));
 
 #if defined(OS_WIN)
   html_source->AddBoolean("isWindows10OrNewer",
@@ -666,6 +670,8 @@ void AddPluginVmStrings(content::WebUIDataSource* html_source,
        IDS_SETTINGS_PLUGIN_VM_SHARED_PATHS_REMOVE_SHARING},
       {"pluginVmRemove", IDS_SETTINGS_PLUGIN_VM_REMOVE_LABEL},
       {"pluginVmRemoveButton", IDS_SETTINGS_PLUGIN_VM_REMOVE_BUTTON},
+      {"pluginVmRemoveConfirmationDialogMessage",
+       IDS_SETTINGS_PLUGIN_VM_CONFIRM_REMOVE_DIALOG_BODY},
   };
   AddLocalizedStringsBulk(html_source, kLocalizedStrings);
 }
@@ -1474,17 +1480,23 @@ void AddFingerprintStrings(content::WebUIDataSource* html_source) {
       aria_label_id =
           IDS_SETTINGS_ADD_FINGERPRINT_DIALOG_INSTRUCTION_LOCATE_SCANNER_POWER_BUTTON_ARIA_LABEL;
       break;
-    case FingerprintLocation::KEYBOARD_TOP_RIGHT:
+    case FingerprintLocation::KEYBOARD_BOTTOM_LEFT:
       instruction_id =
           IDS_SETTINGS_ADD_FINGERPRINT_DIALOG_INSTRUCTION_LOCATE_SCANNER_KEYBOARD;
       aria_label_id =
-          IDS_SETTINGS_ADD_FINGERPRINT_DIALOG_INSTRUCTION_LOCATE_SCANNER_KEYBOARD_TOP_RIGHT_ARIA_LABEL;
+          IDS_SETTINGS_ADD_FINGERPRINT_DIALOG_INSTRUCTION_LOCATE_SCANNER_KEYBOARD_BOTTOM_LEFT_ARIA_LABEL;
       break;
     case FingerprintLocation::KEYBOARD_BOTTOM_RIGHT:
       instruction_id =
           IDS_SETTINGS_ADD_FINGERPRINT_DIALOG_INSTRUCTION_LOCATE_SCANNER_KEYBOARD;
       aria_label_id =
           IDS_SETTINGS_ADD_FINGERPRINT_DIALOG_INSTRUCTION_LOCATE_SCANNER_KEYBOARD_BOTTOM_RIGHT_ARIA_LABEL;
+      break;
+    case FingerprintLocation::KEYBOARD_TOP_RIGHT:
+      instruction_id =
+          IDS_SETTINGS_ADD_FINGERPRINT_DIALOG_INSTRUCTION_LOCATE_SCANNER_KEYBOARD;
+      aria_label_id =
+          IDS_SETTINGS_ADD_FINGERPRINT_DIALOG_INSTRUCTION_LOCATE_SCANNER_KEYBOARD_TOP_RIGHT_ARIA_LABEL;
       break;
   }
   html_source->AddLocalizedString(
@@ -2529,6 +2541,21 @@ void AddPrintingStrings(content::WebUIDataSource* html_source) {
     {"ippPrinterUnreachable", IDS_SETTINGS_PRINTING_CUPS_IPP_URI_UNREACHABLE},
     {"generalPrinterDialogError",
      IDS_SETTINGS_PRINTING_CUPS_DIALOG_GENERAL_ERROR},
+    {"printServerButtonText", IDS_SETTINGS_PRINTING_CUPS_PRINT_SERVER},
+    {"addPrintServerTitle", IDS_SETTINGS_PRINTING_CUPS_ADD_PRINT_SERVER_TITLE},
+    {"printServerAddress", IDS_SETTINGS_PRINTING_CUPS_PRINT_SERVER_ADDRESS},
+    {"printServerFoundZeroPrinters",
+     IDS_SETTINGS_PRINTING_CUPS_PRINT_SERVER_FOUND_ZERO_PRINTERS},
+    {"printServerFoundOnePrinter",
+     IDS_SETTINGS_PRINTING_CUPS_PRINT_SERVER_FOUND_ONE_PRINTER},
+    {"printServerFoundManyPrinters",
+     IDS_SETTINGS_PRINTING_CUPS_PRINT_SERVER_FOUND_MANY_PRINTERS},
+    {"printServerInvalidUrlAddress",
+     IDS_SETTINGS_PRINTING_CUPS_PRINT_SERVER_INVALID_URL_ADDRESS},
+    {"printServerConnectionError",
+     IDS_SETTINGS_PRINTING_CUPS_PRINT_SERVER_CONNECTION_ERROR},
+    {"printServerConfigurationErrorMessage",
+     IDS_SETTINGS_PRINTING_CUPS_PRINT_SERVER_REACHABLE_BUT_CANNOT_ADD},
 #else
     {"localPrintersTitle", IDS_SETTINGS_PRINTING_LOCAL_PRINTERS_TITLE},
 #endif
@@ -2545,6 +2572,9 @@ void AddPrintingStrings(content::WebUIDataSource* html_source) {
   html_source->AddString(
       "printingCUPSPrintPpdLearnMoreUrl",
       GetHelpUrlWithBoard(chrome::kCupsPrintPPDLearnMoreURL));
+  html_source->AddBoolean(
+      "consumerPrintServerUiEnabled",
+      base::FeatureList::IsEnabled(features::kPrintServerUi));
 #endif
 }
 
@@ -3154,6 +3184,16 @@ void AddSiteSettingsStrings(content::WebUIDataSource* html_source,
      IDS_SETTINGS_SITE_SETTINGS_BLUETOOTH_SCANNING_ASK_RECOMMENDED},
     {"siteSettingsBluetoothScanningBlock",
      IDS_SETTINGS_SITE_SETTINGS_BLUETOOTH_SCANNING_BLOCK},
+    {"siteSettingsAr", IDS_SETTINGS_SITE_SETTINGS_AR},
+    {"siteSettingsArAsk", IDS_SETTINGS_SITE_SETTINGS_AR_ASK},
+    {"siteSettingsArAskRecommended",
+     IDS_SETTINGS_SITE_SETTINGS_AR_ASK_RECOMMENDED},
+    {"siteSettingsArBlock", IDS_SETTINGS_SITE_SETTINGS_AR_BLOCK},
+    {"siteSettingsVr", IDS_SETTINGS_SITE_SETTINGS_VR},
+    {"siteSettingsVrAsk", IDS_SETTINGS_SITE_SETTINGS_VR_ASK},
+    {"siteSettingsVrAskRecommended",
+     IDS_SETTINGS_SITE_SETTINGS_VR_ASK_RECOMMENDED},
+    {"siteSettingsVrBlock", IDS_SETTINGS_SITE_SETTINGS_VR_BLOCK},
   };
   AddLocalizedStringsBulk(html_source, kLocalizedStrings);
 
@@ -3222,6 +3262,10 @@ void AddSiteSettingsStrings(content::WebUIDataSource* html_source,
   html_source->AddBoolean(
       "enableQuietNotificationPromptsSetting",
       base::FeatureList::IsEnabled(features::kQuietNotificationPrompts));
+
+  html_source->AddBoolean(
+      "enableWebXrContentSetting",
+      base::FeatureList::IsEnabled(features::kWebXrPermissionsApi));
 }
 
 #if defined(OS_CHROMEOS)

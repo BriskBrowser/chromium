@@ -220,7 +220,8 @@ class CC_EXPORT FrameSequenceTracker {
     kReadyForTermination,
   };
 
-  static const char* GetFrameSequenceTrackerTypeName(int type_index);
+  static const char* GetFrameSequenceTrackerTypeName(
+      FrameSequenceTrackerType type);
 
   ~FrameSequenceTracker();
 
@@ -406,8 +407,6 @@ class CC_EXPORT FrameSequenceTracker {
   // Note that |frame_sequence_trace_| is only defined and populated
   // when DCHECK is on.
   std::stringstream frame_sequence_trace_;
-
-  uint64_t last_started_main_sequence_ = 0;
 
   // If ReportBeginImplFrame is never called on a arg, then ReportBeginMainFrame
   // should ignore that arg.

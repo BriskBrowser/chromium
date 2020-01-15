@@ -87,6 +87,10 @@ HTMLFormElement* InputTypeView::FormForSubmission() const {
   return GetElement().Form();
 }
 
+bool InputTypeView::TypeShouldForceLegacyLayout() const {
+  return true;
+}
+
 LayoutObject* InputTypeView::CreateLayoutObject(const ComputedStyle& style,
                                                 LegacyLayout legacy) const {
   return LayoutObject::CreateObject(&GetElement(), style, legacy);
@@ -126,6 +130,10 @@ void InputTypeView::CreateShadowSubtree() {}
 void InputTypeView::DestroyShadowSubtree() {
   if (ShadowRoot* root = GetElement().UserAgentShadowRoot())
     root->RemoveChildren();
+}
+
+HTMLInputElement* InputTypeView::UploadButton() const {
+  return nullptr;
 }
 
 void InputTypeView::AltAttributeChanged() {}

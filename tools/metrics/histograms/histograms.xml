@@ -260,7 +260,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Accessibility.CrosSelectToSpeak" enum="BooleanEnabled"
-    expires_after="2020-05-10">
+    expires_after="2020-07-13">
   <owner>dmazzoni@chromium.org</owner>
   <summary>
     Whether the Chrome OS select-to-speak is on (logged once 45 secs after
@@ -1636,7 +1636,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Android.AppNotificationStatus" enum="NotificationAppStatus"
-    expires_after="2020-04-05">
+    expires_after="2020-07-13">
   <owner>peter@chromium.org</owner>
   <summary>
     Records whether notifications are enabled for Chrome, as the Android app,
@@ -1801,7 +1801,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Android.BackgroundTaskScheduler.TaskLoadedNative.FullBrowser"
-    enum="BackgroundTaskId" expires_after="2020-05-14">
+    enum="BackgroundTaskId" expires_after="2020-07-13">
   <owner>mheikal@chromium.org</owner>
   <owner>hanxi@chromium.org</owner>
   <owner>hnakashima@chromium.org</owner>
@@ -1812,7 +1812,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Android.BackgroundTaskScheduler.TaskLoadedNative.ReducedMode"
-    enum="BackgroundTaskId" expires_after="2020-05-14">
+    enum="BackgroundTaskId" expires_after="2020-07-13">
   <owner>mheikal@chromium.org</owner>
   <owner>hanxi@chromium.org</owner>
   <owner>hnakashima@chromium.org</owner>
@@ -3076,7 +3076,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Android.ManageSpace.UnimportantDiskUsageMB" units="MB"
-    expires_after="2020-05-10">
+    expires_after="2020-07-13">
   <owner>dmurph@chromium.org</owner>
   <summary>
     Recorded when the user opens the 'Manage Space' screen for Chrome, after the
@@ -4476,9 +4476,10 @@ uploading your change for review.
 </histogram>
 
 <histogram name="AndroidSms.EffectivePWAInstallationSuccess"
-    enum="BooleanSuccess" expires_after="2020-05-10">
+    enum="BooleanSuccess" expires_after="2020-12-15">
   <owner>azeemarshad@chromium.org</owner>
   <owner>jonmann@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Records effective final success/failure when trying to install Android
     Messages for Web PWA. This is recorded once when any one of the installation
@@ -4488,8 +4489,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="AndroidSms.FcmMessageDispatchFailure"
-    enum="AndroidSmsFcmMessageType" expires_after="2020-06-07">
+    enum="AndroidSmsFcmMessageType" expires_after="2020-12-15">
   <owner>azeemarshad@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Records message types for which all retry attempts failed when dispatching
     to Android Messages for Web Service-Worker. This is recorded when using FCM
@@ -4498,8 +4500,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="AndroidSms.FcmMessageDispatchRetry"
-    enum="AndroidSmsFcmMessageType" expires_after="2020-04-19">
+    enum="AndroidSmsFcmMessageType" expires_after="2020-12-15">
   <owner>azeemarshad@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Records message types for which a retry was attempted when dispatching to
     Android Messages for Web Service-Worker. This is recorded when using FCM web
@@ -4508,8 +4511,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="AndroidSms.FcmMessageDispatchSuccess"
-    enum="AndroidSmsFcmMessageType" expires_after="2020-05-31">
+    enum="AndroidSmsFcmMessageType" expires_after="2020-12-15">
   <owner>azeemarshad@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Records message types for which dispatching to Android Messages for Web
     Service-Worker succeeded. This is recorded when using FCM web push for
@@ -4518,8 +4522,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="AndroidSms.MultiDeviceFeatureState"
-    enum="MultiDevice_FeatureState" expires_after="2020-06-07">
-  <owner>jlklein@chromium.org</owner>
+    enum="MultiDevice_FeatureState" expires_after="2020-12-15">
+  <owner>azeemarshad@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Indicates the feature state of the Messages feature. This metric is emitted
     to at the creation of the user session (when the user logs in), and when
@@ -4528,9 +4533,10 @@ uploading your change for review.
 </histogram>
 
 <histogram name="AndroidSms.NumAttemptsForSuccessfulInstallation"
-    units="attempts" expires_after="2020-05-10">
+    units="attempts" expires_after="2020-12-15">
   <owner>azeemarshad@chromium.org</owner>
   <owner>jonmann@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Records the number of installations attempted for Android Messages for Web
     PWA before succeeding.
@@ -4538,8 +4544,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="AndroidSms.PWAInstallationResult"
-    enum="WebAppInstallResultCode" expires_after="2020-05-24">
+    enum="WebAppInstallResultCode" expires_after="2020-12-15">
   <owner>azeemarshad@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Records installation result code for every installation attempt for Android
     Messages for Web PWA initiated through Multidevice setup or settings. This
@@ -4548,9 +4555,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="AndroidSms.PWAUninstallationResult" enum="BooleanSuccess"
-    expires_after="M81">
+    expires_after="2020-12-15">
   <owner>azeemarshad@chromium.org</owner>
-  <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Records success/failure for when Android Messages for Web PWA is
     uninstalled. The PWA is uninstalled when the messages URL changes, resulting
@@ -4558,8 +4565,10 @@ uploading your change for review.
   </summary>
 </histogram>
 
-<histogram name="AndroidSms.ServiceWorkerLifetime" units="ms">
+<histogram name="AndroidSms.ServiceWorkerLifetime" units="ms"
+    expires_after="2020-12-15">
   <owner>azeemarshad@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Tracks the duration of time for which the Android Messages for Web Service-
     Worker is handling background connection.
@@ -4567,8 +4576,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="AndroidSms.ServiceWorkerMessageDispatchStatus"
-    enum="BooleanSuccess">
+    enum="BooleanSuccess" expires_after="2020-12-15">
   <owner>azeemarshad@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Tracks dispatch success/failure status of the start streaming message sent
     to the Android Messages for Web Service-Worker.
@@ -4868,6 +4878,9 @@ uploading your change for review.
 
 <histogram name="appcache.Manifest.FallbackPattern" enum="BooleanPresent"
     expires_after="M82">
+  <obsolete>
+    Removed 01/2020. Feature has been removed.
+  </obsolete>
   <owner>pwnall@chromium.org</owner>
   <owner>mek@chromium.org</owner>
   <summary>
@@ -4888,6 +4901,9 @@ uploading your change for review.
 
 <histogram name="appcache.Manifest.NetworkPattern" enum="BooleanPresent"
     expires_after="M82">
+  <obsolete>
+    Removed 01/2020. Feature has been removed.
+  </obsolete>
   <owner>pwnall@chromium.org</owner>
   <owner>mek@chromium.org</owner>
   <summary>
@@ -4898,6 +4914,9 @@ uploading your change for review.
 
 <histogram name="appcache.Manifest.Pattern" enum="BooleanPresent"
     expires_after="M82">
+  <obsolete>
+    Removed 01/2020. Feature has been removed.
+  </obsolete>
   <owner>pwnall@chromium.org</owner>
   <owner>mek@chromium.org</owner>
   <summary>
@@ -5508,7 +5527,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Apps.AppList.ZeroStateResultsList.LaunchedItemPositionV2"
-    units="position" expires_after="2020-05-10">
+    units="position" expires_after="2020-07-13">
   <owner>wrong@chromium.org</owner>
   <owner>tby@chromium.org</owner>
   <owner>jiameng@chromium.org</owner>
@@ -5718,7 +5737,8 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Apps.AppListFolderOpened" enum="AppListFolderOpened"
-    expires_after="M81">
+    expires_after="2020-01-31">
+  <owner>mmourgos@chromium.org</owner>
   <owner>newcomer@chromium.org</owner>
   <summary>
     The number of times folders are opened in the app list. This is logged when
@@ -5828,7 +5848,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Apps.AppListPlayStoreQueryState"
-    enum="AppListPlayStoreQueryState" expires_after="2020-03-29">
+    enum="AppListPlayStoreQueryState" expires_after="2020-07-13">
   <owner>hejq@chromium.org</owner>
   <summary>The state of a Play Store app search request.</summary>
 </histogram>
@@ -6128,10 +6148,11 @@ uploading your change for review.
   </summary>
 </histogram>
 
-<histogram name="Apps.AppsInFolders" units="Apps" expires_after="M81">
+<histogram name="Apps.AppsInFolders" units="Apps" expires_after="2021-01-31">
 <!-- Name completed by histogram_suffixes
      name="AppListFolderExperiment" -->
 
+  <owner>mmourgos@chromium.org</owner>
   <owner>newcomer@chromium.org</owner>
   <summary>
     The total number of apps in folders ignoring OEM folders. This is logged
@@ -6141,11 +6162,12 @@ uploading your change for review.
 </histogram>
 
 <histogram base="true" name="Apps.ContextMenuExecuteCommand"
-    enum="ChromeOSUICommands" expires_after="2020-06-28">
+    enum="ChromeOSUICommands" expires_after="2021-01-31">
 <!-- Name completed by histogram_suffixes
      name="ContextMenuFromApp" -->
 
   <owner>newcomer@chromium.org</owner>
+  <owner>mmourgos@chromium.org</owner>
   <summary>
     The number of times a certain command was executed by a context menu, split
     by whether the context menu came from an app, or another part of the system
@@ -6484,8 +6506,10 @@ uploading your change for review.
   </summary>
 </histogram>
 
-<histogram name="Apps.NumberOfFolders" units="folder(s)" expires_after="M81">
-  <owner>newcomer@google.com</owner>
+<histogram name="Apps.NumberOfFolders" units="folder(s)"
+    expires_after="2021-01-31">
+  <owner>mmourgos@chromium.org</owner>
+  <owner>newcomer@chromium.org</owner>
   <summary>
     The number of folders that users have in their Launcher. Includes the OEM
     folder. This metric is recorded every time the launcher is shown.
@@ -7204,7 +7228,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Arc.OptInCancel" enum="ArcOptInCancel"
-    expires_after="2020-05-10">
+    expires_after="2020-07-13">
   <owner>elijahtaylor@google.com</owner>
   <owner>shihuis@google.com</owner>
   <summary>Arc OptIn cancelation reason.</summary>
@@ -8501,9 +8525,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Ash.Shelf.Menu.NumItemsEnabledUponSelection" units="Count"
-    expires_after="2020-01-26">
-  <owner>bruthig@google.com</owner>
-  <owner>tdanderson@google.com</owner>
+    expires_after="2021-01-26">
+  <owner>anasalazar@google.com</owner>
+  <owner>mmourgos@google.com</owner>
   <summary>
     Tracks the number of menu items that are enabled in a shelf item's secondary
     menu. This metric is only recorded when a menu item is selected.
@@ -8511,9 +8535,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Ash.Shelf.Menu.SelectedMenuItemIndex" units="Index"
-    expires_after="M77">
-  <owner>bruthig@google.com</owner>
-  <owner>tdanderson@google.com</owner>
+    expires_after="2021-01-26">
+  <owner>anasalazar@google.com</owner>
+  <owner>mmourgos@google.com</owner>
   <summary>
     Tracks the index of the selected menu item in a shelf item's secondary menu.
     This metric is only recorded when a menu item is selected.
@@ -8521,9 +8545,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Ash.Shelf.NumberOfItems" units="Icons"
-    expires_after="2020-05-03">
-  <owner>bruthig@google.com</owner>
-  <owner>tdanderson@google.com</owner>
+    expires_after="2020-07-13">
+  <owner>anasalazar@google.com</owner>
+  <owner>mmourgos@google.com</owner>
   <summary>
     The number of icons in the shelf, not including the App Launcher icon. This
     metric is recorded every 30 minutes.
@@ -8532,8 +8556,8 @@ uploading your change for review.
 
 <histogram name="Ash.Shelf.NumberOfPinnedItems" units="Icons"
     expires_after="2020-05-31">
-  <owner>bruthig@google.com</owner>
-  <owner>tdanderson@google.com</owner>
+  <owner>anasalazar@google.com</owner>
+  <owner>mmourgos@google.com</owner>
   <summary>
     The number of pinned icons in the shelf, not including the App Launcher
     icon. This metric is recorded every 30 minutes.
@@ -8541,9 +8565,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Ash.Shelf.NumberOfUnpinnedItems" units="Icons"
-    expires_after="2020-05-10">
-  <owner>bruthig@google.com</owner>
-  <owner>tdanderson@google.com</owner>
+    expires_after="2020-07-13">
+  <owner>anasalazar@google.com</owner>
+  <owner>mmourgos@google.com</owner>
   <summary>
     The number of unpinned icons in the shelf. This metric is recorded every 30
     minutes.
@@ -9171,7 +9195,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Ash.Window.AnimationSmoothness.Hide" units="%"
-    expires_after="2020-03-22">
+    expires_after="2020-07-13">
   <owner>wutao@chromium.org</owner>
   <summary>
     Relative smoothness of hiding window animation. 100% represents ideally
@@ -12874,7 +12898,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Autofill.ProfileSuggestionsMadeWithFormatter"
-    enum="BooleanCreated" expires_after="2020-01-16">
+    enum="BooleanCreated" expires_after="2020-03-30">
   <owner>battre@chromium.org</owner>
   <owner>src/components/autofill/OWNERS</owner>
   <summary>
@@ -14407,7 +14431,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="AutoScreenBrightness.TrainingCompleteDuration.NewCurve"
-    units="ms" expires_after="2020-05-10">
+    units="ms" expires_after="2020-07-13">
   <owner>jiameng@chromium.org</owner>
   <summary>
     The time elapsed to complete training after which a new curve was generated.
@@ -17748,7 +17772,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Blink.Sms.Receive.TimeContinueOnSuccess" units="ms"
-    expires_after="2020-03-08">
+    expires_after="2020-07-13">
   <owner>goto@chromium.org</owner>
   <owner>reillyg@chromium.org</owner>
   <owner>ayui@chromium.org</owner>
@@ -17759,7 +17783,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Blink.Sms.Receive.TimeSmsReceive" units="ms"
-    expires_after="2020-03-08">
+    expires_after="2020-07-13">
   <owner>goto@chromium.org</owner>
   <owner>reillyg@chromium.org</owner>
   <owner>ayui@chromium.org</owner>
@@ -17770,7 +17794,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Blink.Sms.Receive.TimeSuccess" units="ms"
-    expires_after="2020-03-08">
+    expires_after="2020-07-13">
   <owner>goto@chromium.org</owner>
   <owner>reillyg@chromium.org</owner>
   <owner>ayui@chromium.org</owner>
@@ -18259,7 +18283,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Blink.VisibleBeforeLoaded.LazyLoadImages.AboveTheFold"
-    enum="NQEEffectiveConnectionType" expires_after="2020-04-05">
+    enum="NQEEffectiveConnectionType" expires_after="2020-07-13">
   <owner>sclittle@chromium.org</owner>
   <owner>rajendrant@chromium.org</owner>
   <summary>
@@ -18675,6 +18699,15 @@ uploading your change for review.
     Accumulated sum of all durations of individual phases contributing to
     marking (main thread and background helpers) within one Blink garbage
     collection. Reported once per garbage collection at the end.
+  </summary>
+</histogram>
+
+<histogram name="BlinkGC.TimeForMarkingRoots" units="ms" expires_after="M84">
+  <owner>omerkatz@chromium.org</owner>
+  <owner>oilpan-reviews@chromium.org</owner>
+  <summary>
+    Duration of marking roots within one Blink garbage collection. Reported once
+    per garbage collection at the end.
   </summary>
 </histogram>
 
@@ -20939,6 +20972,28 @@ uploading your change for review.
   </summary>
 </histogram>
 
+<histogram name="Canvas.Repaint.Bounds.Percentage" units="%"
+    expires_after="M82">
+  <owner>yiyix@google.com</owner>
+  <owner>fserb@google.com</owner>
+  <summary>
+    measure the percentage of Canvas is dirty before each repaint by using
+    cc::Rect. Note that we record this metrics for all canvas that has an area
+    of more than 65k pixel^2 (256x256).
+  </summary>
+</histogram>
+
+<histogram name="Canvas.Repaint.Region.Percentage" units="%"
+    expires_after="M82">
+  <owner>yiyix@google.com</owner>
+  <owner>fserb@google.com</owner>
+  <summary>
+    measure the percentage of Canvas is dirty before each repaint by using
+    cc::Region. Note that we record this metrics for all canvas that has an area
+    of more than 65k pixel^2 (256x256).
+  </summary>
+</histogram>
+
 <histogram name="Canvas.RequestedImageMimeTypes" enum="RequestedImageMimeType"
     expires_after="2018-11-01">
   <obsolete>
@@ -21017,7 +21072,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CaptivePortal.Notification.Status"
-    enum="CaptivePortalNotificationStatus" expires_after="2020-04-05">
+    enum="CaptivePortalNotificationStatus" expires_after="2020-06-07">
   <owner>rsorokin@chromium.org</owner>
   <owner>cros-oac@google.com</owner>
   <summary>
@@ -21027,7 +21082,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CaptivePortal.Notification.UserAction"
-    enum="CaptivePortalNotificationUserAction" expires_after="2020-04-05">
+    enum="CaptivePortalNotificationUserAction" expires_after="2020-06-07">
   <owner>rsorokin@chromium.org</owner>
   <owner>cros-oac@google.com</owner>
   <summary>
@@ -21047,7 +21102,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CaptivePortal.OOBE.DetectionResult" enum="CaptivePortalStatus"
-    expires_after="2020-02-01">
+    expires_after="2020-06-07">
   <owner>rsorokin@chromium.org</owner>
   <owner>cros-oac@google.com</owner>
   <summary>
@@ -21058,7 +21113,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CaptivePortal.OOBE.DiscrepancyWithShill" units="units"
-    expires_after="2020-02-01">
+    expires_after="2020-06-07">
   <owner>rsorokin@chromium.org</owner>
   <owner>cros-oac@google.com</owner>
   <summary>
@@ -21069,7 +21124,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CaptivePortal.OOBE.PortalToOnlineTransition" units="ms"
-    expires_after="2020-04-05">
+    expires_after="2020-06-07">
   <owner>rsorokin@chromium.org</owner>
   <owner>cros-oac@google.com</owner>
   <summary>
@@ -21079,7 +21134,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CaptivePortal.RedirectTime" units="ms"
-    expires_after="2020-04-05">
+    expires_after="2020-06-07">
   <owner>rsorokin@chromium.org</owner>
   <owner>cros-oac@google.com</owner>
   <summary>
@@ -21089,7 +21144,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CaptivePortal.Session.DetectionDuration" units="ms"
-    expires_after="2020-04-05">
+    expires_after="2020-06-07">
   <owner>rsorokin@chromium.org</owner>
   <owner>cros-oac@google.com</owner>
   <summary>
@@ -21100,7 +21155,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CaptivePortal.Session.DetectionResult"
-    enum="CaptivePortalStatus" expires_after="2020-02-01">
+    enum="CaptivePortalStatus" expires_after="2020-06-07">
   <owner>rsorokin@chromium.org</owner>
   <owner>michaeldo@chromium.org</owner>
   <owner>cros-oac@google.com</owner>
@@ -21113,7 +21168,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CaptivePortal.Session.DiscrepancyWithShill"
-    enum="CaptivePortalStatus" expires_after="2020-02-01">
+    enum="CaptivePortalStatus" expires_after="2020-06-07">
   <owner>rsorokin@chromium.org</owner>
   <owner>cros-oac@google.com</owner>
   <summary>
@@ -21124,7 +21179,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CaptivePortal.Session.PortalToOnlineTransition" units="ms"
-    expires_after="2020-02-01">
+    expires_after="2020-06-07">
   <owner>rsorokin@chromium.org</owner>
   <owner>cros-oac@google.com</owner>
   <summary>
@@ -21498,7 +21553,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="ChildAccountReconcilor.ForcedUserExitOnReconcileError"
-    enum="BooleanHit" expires_after="2020-02-23">
+    enum="BooleanHit" expires_after="2021-02-23">
   <owner>sinhak@chromium.org</owner>
   <owner>escordeiro@chromium.org</owner>
   <summary>
@@ -22297,7 +22352,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="ChromeOS.Apps.IntentPickerDestinationPlatform"
-    enum="ArcIntentHandlerDestinationPlatform" expires_after="2020-05-03">
+    enum="ArcIntentHandlerDestinationPlatform" expires_after="2020-07-13">
   <owner>elijahtaylor@google.com</owner>
   <owner>dominickn@chromium.org</owner>
   <owner>shihuis@google.com</owner>
@@ -22727,7 +22782,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="ChromeOS.SystemTray.FeaturePodCountOnOpen" units="count"
-    expires_after="2020-05-10">
+    expires_after="2020-07-13">
   <owner>tengs@chromium.org</owner>
   <owner>amehfooz@chromium.org</owner>
   <summary>
@@ -23988,6 +24043,29 @@ uploading your change for review.
 </histogram>
 
 <histogram
+    name="Compositing.Display.OverlayProcessorOzone.IsCandidateSharedImage"
+    enum="Boolean" expires_after="2020-09-01">
+  <owner>samans@chromium.org</owner>
+  <owner>rjkroege@chromium.org</owner>
+  <summary>
+    Indicates whether the OverlayCandidate passed to
+    OverlayCandidateValidatorOzone is backed by a SharedImage (as opposed to a
+    legacy mailbox). Recorded for every candidate in every overlay configuration
+    passed to OverlayProcessorOzone.
+  </summary>
+</histogram>
+
+<histogram name="Compositing.Display.OverlayProcessorOzone.SharedImageExists"
+    enum="Boolean" expires_after="2020-09-01">
+  <owner>samans@chromium.org</owner>
+  <owner>rjkroege@chromium.org</owner>
+  <summary>
+    Indicates whether the SharedImage corresponding to the OverlayCandidate was
+    found. Reported for every OverlayCandidate that is backed by a SharedImage.
+  </summary>
+</histogram>
+
+<histogram
     name="Compositing.DisplayListRecordingSource.UpdateInvalidatedAreaPerMs"
     units="pixels/ms" expires_after="M80">
   <obsolete>
@@ -24142,6 +24220,9 @@ uploading your change for review.
 
 <histogram name="Compositing.Renderer.CheckerImagingDecision"
     enum="CheckerImagingDecision" expires_after="M81">
+  <obsolete>
+    Deprecated 01/2020.
+  </obsolete>
   <owner>khushalsagar@chromium.org</owner>
   <summary>
     The outcome for whether an image could be sucessfully deferred for
@@ -25380,6 +25461,10 @@ uploading your change for review.
 
 <histogram name="ContentSettings.MixedScript"
     enum="ContentSettingMixedScriptAction" expires_after="M80">
+  <obsolete>
+    Deprecated 2020-01-06. Histogram had already expired and metrics are no
+    longer required after the mixed content shield removal.
+  </obsolete>
   <owner>estark@chromium.org</owner>
   <summary>
     Tracks whether the mixed content shield was shown, and how the user
@@ -26974,7 +27059,7 @@ uploading your change for review.
   </summary>
 </histogram>
 
-<histogram name="Cookie.Count" units="units" expires_after="2020-05-10">
+<histogram name="Cookie.Count" units="units" expires_after="2020-07-13">
   <owner>battre@chromium.org</owner>
   <summary>
     Number of cookies in the store (recorded every 10 minutes of active browsing
@@ -27067,7 +27152,7 @@ uploading your change for review.
   </summary>
 </histogram>
 
-<histogram name="Cookie.HeaderLength" units="bytes" expires_after="2020-05-10">
+<histogram name="Cookie.HeaderLength" units="bytes" expires_after="2020-07-13">
   <owner>mkwst@chromium.org</owner>
   <summary>
     The size of each outgoing request's 'Cookie' header field's value, in bytes.
@@ -28993,9 +29078,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CryptAuth.ClientAppMetadataInstanceIdTokenFetch.Result"
-    enum="InstanceIDResult" expires_after="2020-05-17">
-  <owner>jlklein@chromium.org</owner>
+    enum="InstanceIDResult" expires_after="2020-12-15">
   <owner>khorimoto@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Indicates the result of fetching an InstanceId token during the construction
     of a ClientAppMetadata proto messages.
@@ -29003,9 +29088,10 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CryptAuth.ClientAppMetadataInstanceIdTokenFetch.Retries"
-    units="retries" expires_after="2020-06-07">
+    units="retries" expires_after="2020-12-15">
   <owner>khorimoto@chromium.org</owner>
   <owner>nohle@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Counts the number of times the InstanceId token fetch got retried because it
     did not match with the expected InstanceId. Logged during the construction
@@ -29014,14 +29100,16 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CryptAuth.DeviceSync.Result" enum="BooleanSuccess"
-    expires_after="2020-06-06">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>Indicates success of performing a DeviceSync.</summary>
 </histogram>
 
 <histogram name="CryptAuth.DeviceSyncSoftwareFeaturesResult"
-    enum="BooleanSuccess" expires_after="M81">
+    enum="BooleanSuccess" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Indicates that there was no issue retrieving supported and enabled software
     features, or that there were enabled features which were not in the
@@ -29032,8 +29120,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CryptAuth.DeviceSyncSoftwareFeaturesResult.Failures"
-    enum="CryptAuthSoftwareFeature">
+    enum="CryptAuthSoftwareFeature" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Breaks down by feature type
     &quot;CryptAuth.DeviceSyncSoftwareFeaturesResult&quot;'s count of enabled
@@ -29043,7 +29132,7 @@ uploading your change for review.
 
 <histogram
     name="CryptAuth.DeviceSyncV2.DeviceSyncer.ExecutionTime.GroupPrivateKeyDecryption"
-    units="ms" expires_after="2020-06-01">
+    units="ms" expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29055,7 +29144,7 @@ uploading your change for review.
 
 <histogram
     name="CryptAuth.DeviceSyncV2.DeviceSyncer.ExecutionTime.ShareGroupPrivateKey"
-    units="ms" expires_after="2020-06-01">
+    units="ms" expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29067,7 +29156,7 @@ uploading your change for review.
 
 <histogram
     name="CryptAuth.DeviceSyncV2.FeatureStatusGetter.ExecutionTime.GetFeatureStatuses"
-    units="ms" expires_after="2020-06-01">
+    units="ms" expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29079,7 +29168,7 @@ uploading your change for review.
 
 <histogram
     name="CryptAuth.DeviceSyncV2.GroupPrivateKeySharer.ExecutionTime.GroupPrivateKeyEncryption"
-    units="ms" expires_after="2020-06-01">
+    units="ms" expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29091,7 +29180,7 @@ uploading your change for review.
 
 <histogram
     name="CryptAuth.DeviceSyncV2.GroupPrivateKeySharer.ExecutionTime.ShareGroupPrivateKey"
-    units="ms" expires_after="2020-06-01">
+    units="ms" expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29103,7 +29192,7 @@ uploading your change for review.
 
 <histogram
     name="CryptAuth.DeviceSyncV2.MetadataSyncer.ExecutionTime.FirstSyncMetadata"
-    units="ms" expires_after="2020-06-01">
+    units="ms" expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29115,7 +29204,7 @@ uploading your change for review.
 
 <histogram
     name="CryptAuth.DeviceSyncV2.MetadataSyncer.ExecutionTime.GroupKeyCreation"
-    units="ms" expires_after="2020-06-01">
+    units="ms" expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29127,7 +29216,7 @@ uploading your change for review.
 
 <histogram
     name="CryptAuth.DeviceSyncV2.MetadataSyncer.ExecutionTime.LocalDeviceMetadataEncryption"
-    units="ms" expires_after="2020-06-01">
+    units="ms" expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29139,7 +29228,7 @@ uploading your change for review.
 
 <histogram
     name="CryptAuth.DeviceSyncV2.MetadataSyncer.ExecutionTime.SecondSyncMetadata"
-    units="ms" expires_after="2020-06-01">
+    units="ms" expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29150,15 +29239,16 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CryptAuth.Enrollment.Result" enum="BooleanSuccess"
-    expires_after="2020-06-21">
-  <owner>jhawkins@chromium.org</owner>
+    expires_after="2020-12-15">
+  <owner>nohle@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     The top-level result of the CryptAuth device enrollment process.
   </summary>
 </histogram>
 
 <histogram name="CryptAuth.EnrollmentV2.ApiCallResult.EnrollKeys"
-    enum="CryptAuthApiCallResult" expires_after="2020-06-01">
+    enum="CryptAuthApiCallResult" expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29169,7 +29259,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CryptAuth.EnrollmentV2.ApiCallResult.SyncKeys"
-    enum="CryptAuthApiCallResult" expires_after="2020-06-01">
+    enum="CryptAuthApiCallResult" expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29180,7 +29270,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CryptAuth.EnrollmentV2.AsyncTaskResult.ClientAppMetadataFetch"
-    enum="CryptAuthAsyncTaskResult" expires_after="2020-06-01">
+    enum="CryptAuthAsyncTaskResult" expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29207,7 +29297,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CryptAuth.EnrollmentV2.AsyncTaskResult.KeyCreation"
-    enum="CryptAuthAsyncTaskResult" expires_after="2020-06-01">
+    enum="CryptAuthAsyncTaskResult" expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29218,7 +29308,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CryptAuth.EnrollmentV2.ExecutionTime.ClientAppMetadataFetch"
-    units="ms" expires_after="2020-06-01">
+    units="ms" expires_after="2020-12-15">
   <obsolete>
     Deprecated 2019-09-12 in favor of
     CryptAuth.EnrollmentV2.ExecutionTime.ClientAppMetadataFetch2 because too
@@ -29234,7 +29324,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CryptAuth.EnrollmentV2.ExecutionTime.ClientAppMetadataFetch2"
-    units="ms" expires_after="2020-06-01">
+    units="ms" expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29245,7 +29335,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CryptAuth.EnrollmentV2.ExecutionTime.EnrollKeys" units="ms"
-    expires_after="2020-06-01">
+    expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29272,7 +29362,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CryptAuth.EnrollmentV2.ExecutionTime.KeyCreation" units="ms"
-    expires_after="2020-06-01">
+    expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29283,7 +29373,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CryptAuth.EnrollmentV2.ExecutionTime.SyncKeys" units="ms"
-    expires_after="2020-06-01">
+    expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29294,7 +29384,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CryptAuth.EnrollmentV2.GcmRegistration.AttemptTime" units="ms"
-    expires_after="2020-06-01">
+    expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29304,7 +29394,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CryptAuth.EnrollmentV2.GcmRegistration.Success"
-    units="boolean" expires_after="2020-06-01">
+    units="boolean" expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29314,7 +29404,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CryptAuth.EnrollmentV2.InvocationReason"
-    enum="CryptAuthV2EnrollmentInvocationReason" expires_after="2020-06-01">
+    enum="CryptAuthV2EnrollmentInvocationReason" expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29324,7 +29414,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CryptAuth.EnrollmentV2.Result.ResultCode"
-    enum="CryptAuthV2EnrollmentResult" expires_after="2020-06-01">
+    enum="CryptAuthV2EnrollmentResult" expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29334,7 +29424,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CryptAuth.EnrollmentV2.Result.Success" enum="BooleanSuccess"
-    expires_after="2020-06-01">
+    expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29344,7 +29434,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CryptAuth.EnrollmentV2.UserKeyPairState"
-    enum="CryptAuthV2EnrollmentUserKeyPairState" expires_after="2020-06-01">
+    enum="CryptAuthV2EnrollmentUserKeyPairState" expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29355,7 +29445,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CryptAuth.Gcm.Registration.AttemptTimeWithRetries" units="ms"
-    expires_after="2020-06-01">
+    expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29371,7 +29461,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CryptAuth.Gcm.Registration.Result" enum="GCMClientResult"
-    expires_after="2020-06-01">
+    expires_after="2020-12-15">
   <owner>nohle@chromium.org</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -29621,7 +29711,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Cryptohome.InstallAttributesUsage"
-    enum="InstallAttributesUsageEvent" expires_after="2020-05-10">
+    enum="InstallAttributesUsageEvent" expires_after="2020-07-13">
   <owner>vsavu@google.com</owner>
   <owner>igorcov@chromium.com</owner>
   <summary>
@@ -29631,7 +29721,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Cryptohome.InstallAttributesValidation"
-    enum="InstallAttributesValidationEvent" expires_after="2020-05-10">
+    enum="InstallAttributesValidationEvent" expires_after="2020-07-13">
   <owner>vsavu@google.com</owner>
   <owner>igorcov@chromium.com</owner>
   <summary>
@@ -29877,6 +29967,20 @@ uploading your change for review.
     in a custom tab. This histogram is used as a means to count the total
     instances of custom tabs created meanwhile binning them across launching
     apps that have identified themselves.
+  </summary>
+</histogram>
+
+<histogram name="CustomTabs.CloseButton.ChildTab.ScopeAlgorithm.ClosesOneTab"
+    enum="BooleanCloseJustCurrentTab" expires_after="2020-08-01">
+  <owner>hartmanng@chromium.org</owner>
+  <owner>peconn@chromium.org</owner>
+  <owner>pkotwicz@chromium.org</owner>
+  <summary>
+    Records whether the CustomTab/TrustedWebActivity &quot;navigate to landing
+    page&quot; algorithm for child tabs - e.g. tabs opened via window.open() -
+    produces the same behaviour (closes the current tab) as the webapp
+    &quot;close current tab&quot; algorithm. Recorded when the user clicks the
+    CustomTab/TrustedWebActivity close button on a child tab.
   </summary>
 </histogram>
 
@@ -30216,7 +30320,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CustomTabs.SpareWebContents.Status2"
-    enum="SpareWebContentsStatus2" expires_after="2020-05-10">
+    enum="SpareWebContentsStatus2" expires_after="2020-07-13">
   <owner>lizeb@chromium.org</owner>
   <owner>mthiesse@chromium.org</owner>
   <summary>
@@ -30237,8 +30341,8 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CustomTabs.SpeculationStatusOnStart"
-    enum="CustomTabsSpeculationStatusOnStart" expires_after="2020-01-26">
-  <owner>mattcary@chromium.org</owner>
+    enum="CustomTabsSpeculationStatusOnStart" expires_after="2020-07-26">
+  <owner>lizeb@chromium.org</owner>
   <summary>
     Recorded only for Android. How a speculation was started or why it was
     disallowed. This is recorded when a speculation of any kind is requested,
@@ -30252,8 +30356,8 @@ uploading your change for review.
 </histogram>
 
 <histogram name="CustomTabs.SpeculationStatusOnSwap"
-    enum="CustomTabsSpeculationStatusOnSwap" expires_after="2020-01-26">
-  <owner>mattcary@chromium.org</owner>
+    enum="CustomTabsSpeculationStatusOnSwap" expires_after="2020-07-26">
+  <owner>lizeb@chromium.org</owner>
   <summary>
     Recorded only for Android. Recorded when a speculation is requesting to swap
     into a visible tab.
@@ -38610,7 +38714,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Download.IOSDownloadInstallDrivePromoShown" enum="Boolean"
-    expires_after="2020-05-10">
+    expires_after="2020-07-13">
   <owner>eugenebut@chromium.org</owner>
   <owner>pkl@chromium.org</owner>
   <summary>
@@ -38620,7 +38724,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Download.IOSDownloadMimeType" enum="DownloadMimeTypeResult"
-    expires_after="2020-05-10">
+    expires_after="2020-07-13">
   <owner>eugenebut@chromium.org</owner>
   <summary>
     MIME type of a download response. Logged when the download UI was offered by
@@ -40236,8 +40340,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="EasyUnlock.AuthEvent.DidUserManuallyUnlockPhone"
-    enum="EasyUnlockDidUserManuallyUnlockPhone" expires_after="M81">
+    enum="EasyUnlockDidUserManuallyUnlockPhone" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Upon a successful Smart Lock unlock or signin, records whether the user's
     phone was locked during any point while the lock screen was up. This can be
@@ -40247,8 +40352,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="EasyUnlock.AuthEvent.SignIn" enum="EasyUnlockAuthEvent"
-    expires_after="2020-05-31">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Measures the use of Smart Lock on the sign-in screen: records whether a
     Smart Lock login succeeded or failed; or if a password fallback was used,
@@ -40258,8 +40364,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="EasyUnlock.AuthEvent.SignIn.Duration" units="ms"
-    expires_after="M81">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Measures the time elapsed between the user focusing their user pod and
     signing in using Smart Lock.
@@ -40267,8 +40374,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="EasyUnlock.AuthEvent.Unlock" enum="EasyUnlockAuthEvent"
-    expires_after="2020-05-31">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Measures the use of Smart Lock on the lock screen: records whether a Smart
     Lock unlock attempt succeeded or failed; or if a password fallback was used,
@@ -40278,8 +40386,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="EasyUnlock.AuthEvent.Unlock.Duration" units="ms"
-    expires_after="2020-03-01">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Measures the time elapsed between the lock screen being shown and the user
     unlocking the device using Smart Lock. The lock screen is typically shown
@@ -40289,8 +40398,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="EasyUnlock.AuthProximity.RemoteDeviceModelHash"
-    enum="EasyUnlockDeviceModelHash" expires_after="M82">
+    enum="EasyUnlockDeviceModelHash" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     The hash of the phone model used to successfully sign in or unlock using
     Smart Lock.
@@ -40302,8 +40412,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="EasyUnlock.AuthProximity.RollingRssi" units="dBm"
-    expires_after="2020-06-28">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Measures the exponentially weighted rolling average of the received signal
     strength indicator (RSSI) of the phone when the user successfully unlocks or
@@ -40387,7 +40498,11 @@ uploading your change for review.
   </details>
 </histogram>
 
-<histogram name="EasyUnlock.ClickedButton" enum="EasyUnlockButton">
+<histogram name="EasyUnlock.ClickedButton" enum="EasyUnlockButton"
+    expires_after="M80">
+  <obsolete>
+    Deprecated as of 01/2020.
+  </obsolete>
   <owner>hansberry@chromium.org</owner>
   <summary>Button clicked in EasyUnlock app during setup process.</summary>
 </histogram>
@@ -40406,8 +40521,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="EasyUnlock.RemoteLockScreenState"
-    enum="EasyUnlockRemoteLockScreenState" expires_after="M81">
+    enum="EasyUnlockRemoteLockScreenState" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Whether a lock screen and a trust agent are enabled on the remote device
     (Android phone) for Easy Unlock. Recorded once per status update message
@@ -40418,7 +40534,11 @@ uploading your change for review.
   </summary>
 </histogram>
 
-<histogram name="EasyUnlock.Setup.Devices.Count.Eligible" units="units">
+<histogram name="EasyUnlock.Setup.Devices.Count.Eligible" units="units"
+    expires_after="M80">
+  <obsolete>
+    Deprecated as of 01/2020.
+  </obsolete>
   <owner>hansberry@chromium.org</owner>
   <summary>
     The number of eligible devices that the CryptAuth server returns during the
@@ -40431,7 +40551,11 @@ uploading your change for review.
   </details>
 </histogram>
 
-<histogram name="EasyUnlock.Setup.Devices.Count.Ineligible" units="units">
+<histogram name="EasyUnlock.Setup.Devices.Count.Ineligible" units="units"
+    expires_after="M80">
+  <obsolete>
+    Deprecated as of 01/2020.
+  </obsolete>
   <owner>hansberry@chromium.org</owner>
   <summary>
     The number of ineligible devices that the CryptAuth server returns during
@@ -40445,7 +40569,10 @@ uploading your change for review.
 </histogram>
 
 <histogram name="EasyUnlock.Setup.Devices.HasSecureScreenLock"
-    enum="EasyUnlockHasSecureScreenLock">
+    enum="EasyUnlockHasSecureScreenLock" expires_after="M80">
+  <obsolete>
+    Deprecated as of 01/2020.
+  </obsolete>
   <owner>hansberry@chromium.org</owner>
   <summary>
     Whether the user's phone has a secure screen lock installed. Recorded during
@@ -40454,7 +40581,10 @@ uploading your change for review.
 </histogram>
 
 <histogram name="EasyUnlock.Setup.Devices.HasTrustAgentEnabled"
-    enum="EasyUnlockHasTrustAgentEnabled">
+    enum="EasyUnlockHasTrustAgentEnabled" expires_after="M80">
+  <obsolete>
+    Deprecated as of 01/2020.
+  </obsolete>
   <owner>hansberry@chromium.org</owner>
   <summary>
     Whether the user's phone has a trust agent -- e.g. Smart Lock for Android --
@@ -40471,7 +40601,10 @@ uploading your change for review.
 </histogram>
 
 <histogram name="EasyUnlock.Setup.Devices.IneligibilityReason"
-    enum="EasyUnlockDeviceIneligibilityReason">
+    enum="EasyUnlockDeviceIneligibilityReason" expires_after="M80">
+  <obsolete>
+    Deprecated as of 01/2020.
+  </obsolete>
   <owner>hansberry@chromium.org</owner>
   <summary>
     Records the most actionable reason why none of a user's devices were
@@ -40490,7 +40623,10 @@ uploading your change for review.
 </histogram>
 
 <histogram name="EasyUnlock.Setup.Progress.SansPromo"
-    enum="EasyUnlockSetupProgress">
+    enum="EasyUnlockSetupProgress" expires_after="M80">
+  <obsolete>
+    Deprecated as of 03/2018.
+  </obsolete>
   <owner>hansberry@chromium.org</owner>
   <owner>jhawkins@chromium.org</owner>
   <summary>
@@ -40500,7 +40636,10 @@ uploading your change for review.
 </histogram>
 
 <histogram name="EasyUnlock.Setup.Progress.ViaPromo"
-    enum="EasyUnlockSetupProgress">
+    enum="EasyUnlockSetupProgress" expires_after="M80">
+  <obsolete>
+    Deprecated as of 03/2018.
+  </obsolete>
   <owner>hansberry@chromium.org</owner>
   <owner>jhawkins@chromium.org</owner>
   <summary>
@@ -40510,7 +40649,10 @@ uploading your change for review.
 </histogram>
 
 <histogram name="EasyUnlock.Setup.PromoNotificationEvent"
-    enum="EasyUnlockPromoNotificationEvent">
+    enum="EasyUnlockPromoNotificationEvent" expires_after="M80">
+  <obsolete>
+    Deprecated as of 01/2020.
+  </obsolete>
   <owner>hansberry@chromium.org</owner>
   <summary>
     Measures user interactions with the Smart Lock promo notification.
@@ -40551,8 +40693,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="EasyUnlock.StartupTimeFromSuspend" units="ms"
-    expires_after="M82">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.com</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     The time it takes after resuming from a suspended state (ie. opening the
     Chromebook lid) to when a remote device is connected and a request is made.
@@ -40563,7 +40706,11 @@ uploading your change for review.
   </summary>
 </histogram>
 
-<histogram name="EasyUnlock.TrialRun.Events" enum="EasyUnlockTrialRunEvents">
+<histogram name="EasyUnlock.TrialRun.Events" enum="EasyUnlockTrialRunEvents"
+    expires_after="M80">
+  <obsolete>
+    Deprecated as of 01/2020.
+  </obsolete>
   <owner>hansberry@chromium.org</owner>
   <summary>
     Records when the Easy Unlock trial run is launched, and when the user
@@ -41298,7 +41445,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Enterprise.FCMInvalidationService.PolicyInvalidations"
-    enum="EnterprisePolicyInvalidations" expires_after="2020-05-10">
+    enum="EnterprisePolicyInvalidations" expires_after="2020-07-13">
   <owner>askaraitzhan@google.com</owner>
   <owner>isandrk@chromium.org</owner>
   <summary>
@@ -41313,7 +41460,7 @@ uploading your change for review.
 
 <histogram
     name="Enterprise.FCMInvalidationService.PolicyInvalidationsRegistrationResult"
-    enum="BooleanSuccess" expires_after="2020-05-10">
+    enum="BooleanSuccess" expires_after="2020-07-13">
   <owner>askaraitzhan@google.com</owner>
   <owner>isandrk@chromium.org</owner>
   <summary>
@@ -41811,7 +41958,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Enterprise.TiclInvalidationService.PolicyInvalidations"
-    enum="EnterprisePolicyInvalidations" expires_after="2020-05-10">
+    enum="EnterprisePolicyInvalidations" expires_after="2020-07-13">
   <owner>askaraitzhan@google.com</owner>
   <owner>isandrk@chromium.org</owner>
   <summary>
@@ -41826,7 +41973,7 @@ uploading your change for review.
 
 <histogram
     name="Enterprise.TiclInvalidationService.PolicyInvalidationsRegistrationResult"
-    enum="BooleanSuccess" expires_after="2020-05-10">
+    enum="BooleanSuccess" expires_after="2020-07-13">
   <owner>askaraitzhan@google.com</owner>
   <owner>isandrk@chromium.org</owner>
   <summary>
@@ -41961,8 +42108,10 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Enterprise.UserPolicyChromeOS.ReregistrationResult"
-    enum="EnterpriseUserPolicyChromeOSReregistrationResult" expires_after="M81">
+    enum="EnterpriseUserPolicyChromeOSReregistrationResult"
+    expires_after="2022-01-31">
   <owner>hendrich@chromium.org</owner>
+  <owner>managed-devices@google.com</owner>
   <summary>Re-registration results after failed policy fetch.</summary>
 </histogram>
 
@@ -44053,7 +44202,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Event.Latency.ScrollBegin.Touch.GpuSwap2" units="microseconds"
-    expires_after="2020-04-05">
+    expires_after="2020-07-13">
   <owner>tdresser@chromium.org</owner>
   <summary>
     Time between gpu starts to swap the first ScrollUpdate gesture event in a
@@ -44257,7 +44406,7 @@ uploading your change for review.
 
 <histogram
     name="Event.Latency.ScrollBegin.Wheel.RendererSwapToBrowserNotified2"
-    units="microseconds" expires_after="2020-04-05">
+    units="microseconds" expires_after="2020-07-13">
   <owner>tdresser@chromium.org</owner>
   <summary>
     Time between the renderer starts to swap a frame induced by the first
@@ -44452,7 +44601,7 @@ uploading your change for review.
 
 <histogram
     name="Event.Latency.ScrollInertial.Touch.TimeToScrollUpdateSwapBegin4"
-    units="microseconds" expires_after="2020-05-10">
+    units="microseconds" expires_after="2020-07-13">
   <owner>nozlghadr@chromium.org</owner>
   <summary>
     Time between initial creation of a ScrollUpdate gesture event generated from
@@ -44993,7 +45142,7 @@ uploading your change for review.
 
 <histogram
     name="Event.Latency.ScrollUpdate.Wheel.RendererSwapToBrowserNotified2"
-    units="microseconds" expires_after="2020-04-26">
+    units="microseconds" expires_after="2020-07-13">
   <owner>tdresser@chromium.org</owner>
   <summary>
     Time between the renderer starts to swap a frame induced by ScrollUpdate
@@ -47478,6 +47627,46 @@ uploading your change for review.
   <summary>
     The amount of time that elapsed during
     ExtensionService::CheckForExternalUpdates.
+  </summary>
+</histogram>
+
+<histogram name="Extensions.Checkup.NtpPromoClicked"
+    enum="ExtensionCheckupMessage" expires_after="M83">
+  <owner>archanasimha@chromium.org</owner>
+  <owner>extensions-core@chromium.org</owner>
+  <summary>
+    Records every time the user clicks on the extensions checkup middle slot
+    promo link. The user is served the promo if they are part of the
+    ExtensionsCheckup experiment and have at least one non default installed
+    extension. The promo should appear every time the user opens the NTP. The
+    enum value represents the focus of the message displayed in the promo, which
+    is determined by the experiment group the user is in. This metric should be
+    compared with Extensions.Checkup.NtpPromoShown.
+  </summary>
+</histogram>
+
+<histogram name="Extensions.Checkup.NtpPromoShown"
+    enum="ExtensionCheckupMessage" expires_after="M83">
+  <owner>archanasimha@chromium.org</owner>
+  <owner>extensions-core@chromium.org</owner>
+  <summary>
+    Records every time the user is served the extensions checkup middle slot
+    promo on the NTP. The user is served the promo if they are part of the
+    ExtensionsCheckup experiment and have at least one non default installed
+    extension. The promo should appear every time the user opens the NTP. The
+    enum value represents the focus of the message displayed in the promo, which
+    is determined by the experiment group the user is in. This metric should be
+    compared with Extensions.Checkup.NtpPromoClicked.
+  </summary>
+</histogram>
+
+<histogram name="Extensions.Checkup.TimeSpent" units="ms" expires_after="M83">
+  <owner>archanasimha@chromium.org</owner>
+  <owner>extensions-core@chromium.org</owner>
+  <summary>
+    The amount of time passed from when the chrome://extensions page has
+    finished loading till it is closed. We record the time elapsed once the
+    WebUI has been destroyed.
   </summary>
 </histogram>
 
@@ -53591,7 +53780,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="FirstRun.NewUserExperience.NtpBackgroundInteraction"
-    enum="NuxNtpBackgroundInteractions" expires_after="2020-05-10">
+    enum="NuxNtpBackgroundInteractions" expires_after="2020-07-13">
   <owner>hcarmona@chromium.org</owner>
   <owner>johntlee@chromium.org</owner>
   <summary>
@@ -53893,6 +54082,16 @@ uploading your change for review.
     Records an enumeration value identifying the active data fetcher when a
     fetcher enumerates a device that is not on the list of known gamepads, but
     is recognized as a gamepad by the fetcher.
+  </summary>
+</histogram>
+
+<histogram name="GCM.AccountMappingMessageReceived" enum="BooleanReceived"
+    expires_after="2020-06-01">
+  <owner>peter@chromium.org</owner>
+  <owner>knollr@chromium.org</owner>
+  <summary>
+    Records that a message has been received from a delivery channel powered by
+    the GCM account mappings.
   </summary>
 </histogram>
 
@@ -55713,7 +55912,7 @@ uploading your change for review.
   </summary>
 </histogram>
 
-<histogram name="GPU.ContextMemory" units="MB" expires_after="2020-04-19">
+<histogram name="GPU.ContextMemory" units="MB" expires_after="2020-07-13">
   <owner>ericrk@chromium.org</owner>
   <summary>The amount of memory used by a GL Context.</summary>
 </histogram>
@@ -56227,7 +56426,7 @@ uploading your change for review.
   </summary>
 </histogram>
 
-<histogram name="GPU.DoLinkProgramTime" units="ms" expires_after="2020-05-10">
+<histogram name="GPU.DoLinkProgramTime" units="ms" expires_after="2020-07-13">
   <owner>jmadill@chromium.org</owner>
   <owner>jonahr@chromium.org</owner>
   <summary>
@@ -56749,7 +56948,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="GPU.PassthroughDoLinkProgramTime" units="ms"
-    expires_after="2020-05-10">
+    expires_after="2020-07-13">
   <owner>jmadill@chromium.org</owner>
   <owner>jonahr@google.com</owner>
   <summary>
@@ -57068,7 +57267,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="GPU.SwapTimeUs" units="microseconds"
-    expires_after="2020-05-10">
+    expires_after="2020-07-13">
   <owner>vasilyt@chromium.org</owner>
   <owner>backer@chromium.org</owner>
   <summary>
@@ -58001,9 +58200,21 @@ uploading your change for review.
   </summary>
 </histogram>
 
+<histogram name="History.ClearBrowsingData.Duration.FilteredDeletion"
+    units="ms" expires_after="never">
+<!-- expires-never: tracked as an important privacy metric. -->
+
+  <owner>dullweber@chromium.org</owner>
+  <owner>msramek@chromium.org</owner>
+  <summary>
+    The time that passed while performing a browsing data deletion with an
+    origin filter. The deletion might be for all time or specific time range.
+  </summary>
+</histogram>
+
 <histogram name="History.ClearBrowsingData.Duration.FullDeletion" units="ms"
     expires_after="never">
-<!-- expires-never: Tracked as important privacy metric. -->
+<!-- expires-never: tracked as an important privacy metric. -->
 
   <owner>dullweber@chromium.org</owner>
   <owner>msramek@chromium.org</owner>
@@ -58012,9 +58223,21 @@ uploading your change for review.
   </summary>
 </histogram>
 
-<histogram name="History.ClearBrowsingData.Duration.PartialDeletion" units="ms"
+<histogram name="History.ClearBrowsingData.Duration.OriginDeletion" units="ms"
     expires_after="never">
-<!-- expires-never: tracked as important privacy metric. -->
+<!-- expires-never: tracked as an important privacy metric. -->
+
+  <owner>dullweber@chromium.org</owner>
+  <owner>msramek@chromium.org</owner>
+  <summary>
+    The time that passed while performing a browsing data deletion for a set of
+    origins.
+  </summary>
+</histogram>
+
+<histogram name="History.ClearBrowsingData.Duration.PartialDeletion" units="ms"
+    expires_after="M83">
+<!-- expires-never: tracked as an important privacy metric. -->
 
   <owner>dullweber@chromium.org</owner>
   <owner>msramek@chromium.org</owner>
@@ -58027,7 +58250,7 @@ uploading your change for review.
 
 <histogram name="History.ClearBrowsingData.Duration.SlowTasks180s"
     enum="BrowsingDataRemoverTasks" expires_after="never">
-<!-- expires-never: tracked as important privacy metric. -->
+<!-- expires-never: tracked as an important privacy metric. -->
 
   <owner>dullweber@chromium.org</owner>
   <owner>msramek@chromium.org</owner>
@@ -58039,13 +58262,26 @@ uploading your change for review.
 
 <histogram name="History.ClearBrowsingData.Duration.SlowTasks180sChrome"
     enum="ChromeBrowsingDataRemoverTasks" expires_after="never">
-<!-- expires-never: tracked as important privacy metric. -->
+<!-- expires-never: tracked as an important privacy metric. -->
 
   <owner>dullweber@chromium.org</owner>
   <owner>msramek@chromium.org</owner>
   <summary>
     Record tasks from ChromeBrowsingDataRemoverDelegate that took more than 180s
     to finish.
+  </summary>
+</histogram>
+
+<histogram name="History.ClearBrowsingData.Duration.TimeRangeDeletion"
+    units="ms" expires_after="never">
+<!-- expires-never: tracked as an important privacy metric. -->
+
+  <owner>dullweber@chromium.org</owner>
+  <owner>msramek@chromium.org</owner>
+  <summary>
+    The time that passed while performing a browsing data deletion for a
+    restricted amount of time (e.g. &quot;Last hour&quot;) without an origin
+    filter.
   </summary>
 </histogram>
 
@@ -58133,7 +58369,7 @@ uploading your change for review.
 
 <histogram name="History.ClearBrowsingData.TaskQueueAtShutdown" units="units"
     expires_after="never">
-<!-- expires-never: tracked as important privacy metric. -->
+<!-- expires-never: tracked as an important privacy metric. -->
 
   <owner>dullweber@chromium.org</owner>
   <owner>msramek@chromium.org</owner>
@@ -58154,7 +58390,7 @@ uploading your change for review.
 
 <histogram name="History.ClearBrowsingData.UserDeletedCookieOrCache"
     enum="CookieOrCacheDeletion" expires_after="never">
-<!-- expires-never: Tracked as important privacy metric. -->
+<!-- expires-never: tracked as an important privacy metric. -->
 
   <owner>msramek@chromium.org</owner>
   <summary>
@@ -58165,7 +58401,7 @@ uploading your change for review.
 
 <histogram name="History.ClearBrowsingData.UserDeletedCookieOrCacheFromDialog"
     enum="CookieOrCacheDeletion" expires_after="never">
-<!-- expires-never: Tracked as important privacy metric. -->
+<!-- expires-never: tracked as an important privacy metric. -->
 
   <owner>msramek@chromium.org</owner>
   <summary>
@@ -61272,8 +61508,9 @@ uploading your change for review.
 
 <histogram name="InstantTethering.BluetoothAdvertisementRegistrationResult"
     enum="InstantTethering_BluetoothAdvertisementResult"
-    expires_after="2020-02-19">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Provides a breakdown of how many times each possible Bluetooth advertisement
     registration result occurs.
@@ -61286,8 +61523,9 @@ uploading your change for review.
 
 <histogram name="InstantTethering.BluetoothAdvertisementUnregistrationResult"
     enum="InstantTethering_BluetoothAdvertisementResult"
-    expires_after="2020-02-19">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Provides a breakdown of how many times each possible Bluetooth advertisement
     unregistration result occurs.
@@ -61299,16 +61537,18 @@ uploading your change for review.
 </histogram>
 
 <histogram name="InstantTethering.BluetoothDiscoverySessionStarted"
-    enum="BooleanSuccess" expires_after="2020-02-19">
+    enum="BooleanSuccess" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Provides the success rate of starting a Bluetooth discovery session.
   </summary>
 </histogram>
 
 <histogram name="InstantTethering.BluetoothDiscoverySessionStopped"
-    enum="BooleanSuccess" expires_after="2020-02-19">
+    enum="BooleanSuccess" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Provides the success rate of stopping a Bluetooth discovery session.
   </summary>
@@ -61316,8 +61556,9 @@ uploading your change for review.
 
 <histogram name="InstantTethering.ConnectionToHostResult.Failure"
     enum="InstantTethering_ConnectionToHostResult_Failure"
-    expires_after="2020-02-19">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Provides a top-level breakdown of the times a connection to a host has
     failed.
@@ -61334,8 +61575,9 @@ uploading your change for review.
 <histogram
     name="InstantTethering.ConnectionToHostResult.Failure.ClientConnection"
     enum="InstantTethering_ConnectionToHostResult_Failure_ClientConnection"
-    expires_after="2020-02-19">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Breaks down the reasons why the client failed to connect to the hotspot, and
     the number of times they occurred.
@@ -61353,8 +61595,9 @@ uploading your change for review.
 <histogram
     name="InstantTethering.ConnectionToHostResult.Failure.TetheringTimeout"
     enum="InstantTethering_ConnectionToHostResult_Failure_TetheringTimeout"
-    expires_after="2020-02-19">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Captures the number of times of whether or not first-time setup was required
     when tethering timed out.
@@ -61384,8 +61627,9 @@ uploading your change for review.
 <histogram
     name="InstantTethering.ConnectionToHostResult.ProvisioningFailureRate"
     enum="InstantTethering_ConnectionToHostResult_ProvisioningFailureRate"
-    expires_after="2020-02-19">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Provides a breakdown of the times a connection to a host was either
     unsuccessful due to provisioning failure (the carrier disallows tethering)
@@ -61423,8 +61667,9 @@ uploading your change for review.
 <histogram
     name="InstantTethering.ConnectionToHostResult.SuccessRate.Background"
     enum="InstantTethering_ConnectionToHostResult_SuccessRate"
-    expires_after="2020-02-19">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Captures the count of successful and failed connection attempts.
 
@@ -61439,8 +61684,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="InstantTethering.FeatureState"
-    enum="InstantTethering_FeatureState" expires_after="2020-02-19">
+    enum="InstantTethering_FeatureState" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Breaks down the state of Instant Tethering during user sessions. All states,
     except for 'Enabled', indicate that the feature was not active. This
@@ -61530,8 +61776,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="InstantTethering.HostScanBatchDuration" units="ms"
-    expires_after="2020-02-19">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     The duration of a batch of host scans. A batch is defined as a series of one
     or host scans separated by no more than one minute.
@@ -61545,8 +61792,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="InstantTethering.HostScanResult"
-    enum="InstantTethering_HostScanResult" expires_after="2020-02-19">
+    enum="InstantTethering_HostScanResult" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Provides a breakdown of the results of each host scan. This metric is
     recorded after each host scan.
@@ -61562,8 +61810,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="InstantTethering.HotspotUsageDuration" units="ms"
-    expires_after="2020-02-19">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     The duration of time between the start and end of a Tether connection.
     Timing starts when the device connects to the Wi-Fi hotspot and ends when
@@ -61582,8 +61831,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="InstantTethering.MultiDeviceFeatureState"
-    enum="MultiDevice_FeatureState" expires_after="2020-02-19">
+    enum="MultiDevice_FeatureState" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Indicates the feature state of the Instant Tethering feature. This metric is
     emitted to at the creation of the user session (when the user logs in), and
@@ -61593,8 +61843,9 @@ uploading your change for review.
 
 <histogram name="InstantTethering.NotificationInteractionType"
     enum="InstantTethering_NotificationInteractionType"
-    expires_after="2020-02-19">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Counts the number of interactions a user has with each of the Instant
     Tethering notifications.
@@ -61653,8 +61904,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="InstantTethering.Performance.ConnectTetheringResponseDuration"
-    units="ms" expires_after="2020-02-19">
+    units="ms" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     The duration of time between when a client authenticates with a host, and
     receives a ConnectTetheringResponse.
@@ -61675,8 +61927,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="InstantTethering.Performance.ConnectToHostDuration.Background"
-    units="ms" expires_after="2020-02-19">
+    units="ms" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     The duration of time it takes for the client to connect to the host, from
     the moment the user taps 'Connect', until the client connects to the host's
@@ -61685,8 +61938,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="InstantTethering.Performance.ConnectToHotspotDuration"
-    units="ms" expires_after="2020-02-19">
+    units="ms" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     The duration of time it takes for the client to connect to the provided
     hotspot after receiving a ConnectTetheringResponse. This does not include
@@ -61696,8 +61950,9 @@ uploading your change for review.
 
 <histogram
     name="InstantTethering.Performance.DisconnectTetheringRequestDuration"
-    units="ms" expires_after="2020-02-19">
+    units="ms" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     The duration of time it takes for the client to send off a
     DisconnectTetheringRequest.
@@ -61705,8 +61960,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="InstantTethering.Performance.KeepAliveTickleResponseDuration"
-    units="ms" expires_after="2020-02-19">
+    units="ms" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     The duration of time between when a client authenticates with a host, and
     receives a KeepAliveTickleResponse.
@@ -61791,8 +62047,9 @@ uploading your change for review.
 
 <histogram
     name="InstantTethering.Performance.TetherAvailabilityResponseDuration"
-    units="ms" expires_after="2020-02-19">
+    units="ms" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     The duration of time between when a client authenticates with a host, and
     receives a TetherAvailabilityResponse.
@@ -61800,8 +62057,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="InstantTethering.SessionCompletionReason"
-    enum="InstantTethering_SessionCompletionReason" expires_after="2020-02-19">
+    enum="InstantTethering_SessionCompletionReason" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Provides a breakdown of how each Tether session ended. A session begins when
     a device is first connected to a host's hotspot, and ends when the device is
@@ -61811,8 +62069,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="InstantTethering.UserPreference.OnStartup"
-    enum="BooleanEnabled" expires_after="2020-02-19">
+    enum="BooleanEnabled" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Provides the count of the number of users who have the Instant Tethering
     toggle enabled vs. disabled on startup. This metric is logged each time a
@@ -61821,8 +62080,9 @@ uploading your change for review.
 </histogram>
 
 <histogram name="InstantTethering.UserPreference.OnToggle"
-    enum="BooleanEnabled" expires_after="2020-02-19">
+    enum="BooleanEnabled" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Provides the count of the number of times users have enabled or disabled the
     user preference for Mobile data. This metric is logged each time the value
@@ -62783,6 +63043,17 @@ uploading your change for review.
   </summary>
 </histogram>
 
+<histogram name="IOS.Web.URLDidChangeToEmptyURL" enum="BooleanHit"
+    expires_after="2020-12-30">
+  <owner>gambard@chromium.org</owner>
+  <owner>justincohen@chromium.org</owner>
+  <summary>
+    A boolean that is used to indicate that the URL property of the WKWebView
+    has changed to a nil or empty URL. Recorded on the KVO of the URL of the
+    WKWebView.
+  </summary>
+</histogram>
+
 <histogram name="IOS.WKWebViewClobberedHistory" enum="Boolean"
     expires_after="2020-05-03">
   <owner>danyao@chromium.org</owner>
@@ -63368,7 +63639,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Kiosk.Launch.CryptohomeFailure" enum="LoginFailureReason"
-    expires_after="2020-04-26">
+    expires_after="2020-07-13">
   <owner>xiyuan@chromium.org</owner>
   <summary>Tracks cryptohome failure during kiosk launch.</summary>
 </histogram>
@@ -75355,7 +75626,7 @@ uploading your change for review.
   </summary>
 </histogram>
 
-<histogram name="Mobile.Legacy.Translate.Toggle.Delay" units="secs"
+<histogram name="Mobile.Legacy.Translate.Toggle.Delay" units="ms"
     expires_after="2020-04-01">
   <owner>sczs@chromium.org</owner>
   <owner>thegreenfrog@chromium.org</owner>
@@ -75365,7 +75636,7 @@ uploading your change for review.
   </summary>
 </histogram>
 
-<histogram name="Mobile.Legacy.Translate.Unused.Duration" units="secs"
+<histogram name="Mobile.Legacy.Translate.Unused.Duration" units="ms"
     expires_after="2020-04-01">
   <owner>sczs@chromium.org</owner>
   <owner>thegreenfrog@chromium.org</owner>
@@ -77080,7 +77351,7 @@ uploading your change for review.
 
 <histogram
     name="MultiDevice.SecureChannel.BLE.Performance.StartScanToConnectionDuration.Background"
-    units="ms" expires_after="2020-05-10">
+    units="ms" expires_after="2020-07-13">
   <owner>vecore@google.com</owner>
   <owner>better-together-dev@google.com</owner>
   <summary>
@@ -102296,7 +102567,10 @@ uploading your change for review.
 </histogram>
 
 <histogram name="OptimizationGuide.HintCache.FetchedHint.TimeToExpiration"
-    units="seconds" expires_after="M85">
+    units="seconds" expires_after="M81">
+  <obsolete>
+    Deprecated as of 01/2020.
+  </obsolete>
   <owner>mcrouse@chromium.org</owner>
   <owner>dougarnett@chromium.org</owner>
   <summary>
@@ -102384,7 +102658,10 @@ uploading your change for review.
 
 <histogram
     name="OptimizationGuide.HintCacheStore.OnLoadHint.FetchedHintExpired"
-    enum="BooleanExpired" expires_after="M85">
+    enum="BooleanExpired" expires_after="M81">
+  <obsolete>
+    Deprecated as of 01/2020.
+  </obsolete>
   <owner>mcrouse@chromium.org</owner>
   <owner>dougarnett@chromium.org</owner>
   <summary>
@@ -102804,6 +103081,16 @@ uploading your change for review.
   </summary>
 </histogram>
 
+<histogram name="OSCrypt.BackendUsage" enum="LinuxPasswordStoreUsage"
+    expires_after="2020-12-01">
+  <owner>cfroussios@chromium.org</owner>
+  <owner>mamir@chromium.org</owner>
+  <summary>
+    The backend selected for this user and whether it was initialised
+    successfully.
+  </summary>
+</histogram>
+
 <histogram name="OSCrypt.EncryptionKeyLookupError" units="units"
     expires_after="M81">
   <owner>cfroussios@chromium.org</owner>
@@ -103218,7 +103505,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Overscroll.Cancelled3" enum="OverscrollNavigationType"
-    expires_after="2020-05-10">
+    expires_after="2020-07-13">
   <owner>nzolghadr@chromium.org</owner>
   <summary>
     Overscroll gestures that were aborted before they were completed.
@@ -105654,6 +105941,9 @@ uploading your change for review.
 
 <histogram name="PageLoad.Experimental.NavigationToInteractive" units="ms"
     expires_after="2020-05-24">
+  <obsolete>
+    Removed 1/2020.
+  </obsolete>
   <owner>dproy@chromium.org</owner>
   <owner>tdresser@chromium.org</owner>
   <summary>
@@ -106034,6 +106324,9 @@ uploading your change for review.
 
 <histogram name="PageLoad.Experimental.TimeToInteractiveStatus"
     enum="TimeToInteractiveStatus" expires_after="2020-05-24">
+  <obsolete>
+    Removed 1/2020.
+  </obsolete>
   <owner>tdresser@chromium.org</owner>
   <owner>dproy@chromium.org</owner>
   <summary>
@@ -106709,6 +107002,9 @@ uploading your change for review.
 
 <histogram name="PageLoad.Internal.InteractiveToInteractiveDetection"
     units="ms" expires_after="M77">
+  <obsolete>
+    Removed 1/2020.
+  </obsolete>
   <owner>dproy@chromium.org</owner>
   <owner>tdresser@chromium.org</owner>
   <summary>
@@ -108140,7 +108436,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="PasswordManager.AccessPasswordInSettings"
-    enum="AccessPasswordInSettingsEvent" expires_after="M81">
+    enum="AccessPasswordInSettingsEvent" expires_after="M87">
   <owner>jdoerrie@chromium.org</owner>
   <owner>vasilii@chromium.org</owner>
   <summary>
@@ -108611,8 +108907,8 @@ uploading your change for review.
   </summary>
 </histogram>
 
-<histogram name="PasswordManager.BlacklistedSitesHiRes" units="units"
-    expires_after="M81">
+<histogram base="true" name="PasswordManager.BlacklistedSitesHiRes"
+    units="sites" expires_after="M87">
   <owner>jdoerrie@chromium.org</owner>
   <owner>vasilii@chromium.org</owner>
   <summary>
@@ -109988,6 +110284,16 @@ uploading your change for review.
 
 <histogram name="PasswordManager.RemoveCompromisedCredentials"
     enum="PasswordStoreChange" expires_after="2020-11-26">
+  <owner>bdea@chromium.org</owner>
+  <owner>chrome-safebrowsing-alerts@google.com</owner>
+  <summary>
+    Collects the cause of the change in the Password Store login which causes a
+    call of a remove SQL statement on the compromised credentials table.
+  </summary>
+</histogram>
+
+<histogram name="PasswordManager.RemoveCompromisedCredentials.RemoveReason"
+    enum="RemoveCompromisedCredentialsReason" expires_after="2020-11-26">
   <owner>bdea@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -112058,6 +112364,22 @@ uploading your change for review.
   <summary>
     Battery percentage when a geolocation permission prompt was dismissed on
     Android.
+  </summary>
+</histogram>
+
+<histogram name="Permissions.CrowdDeny.DidHoldbackQuietUi" enum="Boolean"
+    expires_after="2020-12-01">
+  <owner>andypaicu@chromium.org</owner>
+  <owner>engedy@chromium.org</owner>
+  <owner>hkamila@chromium.org</owner>
+  <summary>
+    Whenever a notification permission prompt is to be displayed, crowd deny
+    might trigger based on site reputation which will result in a quiet
+    permission prompt UI to be used. Whenever this happens, there is a small
+    chance that the normal UI will still be used. This records, when a quiet UI
+    is supposed to be shown, whether it has been randomly selected into the
+    hold-back group. In this case the normal UI will be displayed unless
+    overriden by the user Prefences.
   </summary>
 </histogram>
 
@@ -117087,7 +117409,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Power.FirmwareResumeTimeOnAC" units="ms"
-    expires_after="2020-05-10">
+    expires_after="2020-07-13">
   <owner>tbroch@chromium.org</owner>
   <summary>
     The time that the firmware took to resume the Chrome OS device from
@@ -117096,7 +117418,7 @@ uploading your change for review.
 </histogram>
 
 <histogram name="Power.FirmwareResumeTimeOnBattery" units="ms"
-    expires_after="2020-05-10">
+    expires_after="2020-07-13">
   <owner>tbroch@chromium.org</owner>
   <summary>
     The time that the firmware took to resume the Chrome OS device from
@@ -131110,6 +131432,9 @@ Safe Browsing lookups, which is critical for security. -->
 
 <histogram name="SB2.RemoteCall.LocalAllowlistLookupTime" units="ms"
     expires_after="M81">
+  <obsolete>
+    Removed M81. The latency looks good, not needed anymore.
+  </obsolete>
   <owner>xinghuilu@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -134193,8 +134518,11 @@ should be kept until we remove incident reporting. -->
 </histogram>
 
 <histogram name="ScreenLocker.AuthenticationFailure" enum="UnlockType"
-    expires_after="2020-04-19">
-  <owner>sammiequon@chromium.org</owner>
+    expires_after="2021-01-06">
+  <owner>antrim@chromium.org</owner>
+  <owner>jessejames@chromium.org</owner>
+  <owner>rsorokin@chromium.org</owner>
+  <owner>ultrotter@chromium.org</owner>
   <summary>
     What type of authentication was attempted when the user failed to unlock the
     lock screen.
@@ -134202,14 +134530,20 @@ should be kept until we remove incident reporting. -->
 </histogram>
 
 <histogram name="ScreenLocker.AuthenticationFailureTime" units="ms"
-    expires_after="M77">
-  <owner>sammiequon@chromium.org</owner>
+    expires_after="2021-01-06">
+  <owner>antrim@chromium.org</owner>
+  <owner>jessejames@chromium.org</owner>
+  <owner>rsorokin@chromium.org</owner>
+  <owner>ultrotter@chromium.org</owner>
   <summary>The time spent for authentication in case of a failure.</summary>
 </histogram>
 
 <histogram name="ScreenLocker.AuthenticationSuccess" enum="UnlockType"
-    expires_after="2020-02-16">
-  <owner>sammiequon@chromium.org</owner>
+    expires_after="2021-01-06">
+  <owner>antrim@chromium.org</owner>
+  <owner>jessejames@chromium.org</owner>
+  <owner>rsorokin@chromium.org</owner>
+  <owner>ultrotter@chromium.org</owner>
   <summary>
     What type of authentication was attempted when the user successfully
     unlocked the lock screen.
@@ -134217,13 +134551,20 @@ should be kept until we remove incident reporting. -->
 </histogram>
 
 <histogram name="ScreenLocker.AuthenticationSuccessTime" units="ms"
-    expires_after="M77">
-  <owner>sammiequon@chromium.org</owner>
+    expires_after="2021-01-06">
+  <owner>antrim@chromium.org</owner>
+  <owner>jessejames@chromium.org</owner>
+  <owner>rsorokin@chromium.org</owner>
+  <owner>ultrotter@chromium.org</owner>
   <summary>The time spent for authentication in case of a success.</summary>
 </histogram>
 
-<histogram name="ScreenLocker.ScreenLockTime" units="ms" expires_after="M81">
-  <owner>sammiequon@chromium.org</owner>
+<histogram name="ScreenLocker.ScreenLockTime" units="ms"
+    expires_after="2021-01-06">
+  <owner>antrim@chromium.org</owner>
+  <owner>jessejames@chromium.org</owner>
+  <owner>rsorokin@chromium.org</owner>
+  <owner>ultrotter@chromium.org</owner>
   <summary>The time spent before the screen locker is ready.</summary>
 </histogram>
 
@@ -137791,8 +138132,9 @@ should be kept until we remove incident reporting. -->
 </histogram>
 
 <histogram name="ServiceWorker.InstallEvent.Time" units="ms"
-    expires_after="M81">
+    expires_after="2021-02-01">
   <owner>shimazu@chromium.org</owner>
+  <owner>chrome-worker@google.com</owner>
   <summary>
     The time taken between dispatching an InstallEvent to a Service Worker and
     receiving a message that it finished handling the event. Includes the time
@@ -137813,8 +138155,9 @@ should be kept until we remove incident reporting. -->
 </histogram>
 
 <histogram name="ServiceWorker.InstallEventStatus"
-    enum="ServiceWorkerStatusCode" expires_after="2020-02-16">
+    enum="ServiceWorkerStatusCode" expires_after="2021-02-16">
   <owner>falken@chromium.org</owner>
+  <owner>chrome-worker@google.com</owner>
   <summary>The result of dispatching the install event to the worker.</summary>
 </histogram>
 
@@ -138084,8 +138427,9 @@ should be kept until we remove incident reporting. -->
 </histogram>
 
 <histogram name="ServiceWorker.MainFramePageLoad" enum="ServiceWorkerSite"
-    expires_after="M81">
-  <owner>horo@chromium.org</owner>
+    expires_after="2021-02-16">
+  <owner>falken@chromium.org</owner>
+  <owner>chrome-worker@google.com</owner>
   <summary>
     Counts main frame page loads controlled by a service worker.
   </summary>
@@ -138412,8 +138756,9 @@ should be kept until we remove incident reporting. -->
 </histogram>
 
 <histogram name="ServiceWorker.PageLoad" enum="ServiceWorkerSite"
-    expires_after="2020-02-16">
+    expires_after="2021-02-16">
   <owner>falken@chromium.org</owner>
+  <owner>chrome-worker@google.com</owner>
   <summary>Counts page loads controlled by a service worker.</summary>
 </histogram>
 
@@ -138570,8 +138915,9 @@ should be kept until we remove incident reporting. -->
 </histogram>
 
 <histogram name="ServiceWorker.StartForNavigationHint.Result"
-    enum="ServiceWorkerStartForNavigationHintResult" expires_after="M81">
-  <owner>horo@chromium.org</owner>
+    enum="ServiceWorkerStartForNavigationHintResult" expires_after="2021-02-16">
+  <owner>falken@chromium.org</owner>
+  <owner>chrome-worker@google.com</owner>
   <summary>
     The result of starting a service worker for a navigation hint.
   </summary>
@@ -141689,6 +142035,19 @@ should be kept until we remove incident reporting. -->
   </summary>
 </histogram>
 
+<histogram name="Sharing.DeviceLastUpdatedAgeWithResult" units="hours"
+    expires_after="2020-06-15">
+<!-- Name completed by histogram_suffixes name="SharingSendMessageResult" -->
+
+  <owner>mvanouwerkerk@chromium.org</owner>
+  <owner>knollr@chromium.org</owner>
+  <summary>
+    The number of hours since the target device timestamp was last updated.
+    Logged when a message is sent to the device and the result is known. Not
+    logged for sending ack messages. All platforms.
+  </summary>
+</histogram>
+
 <histogram name="Sharing.DeviceRegistrationResult"
     enum="SharingDeviceRegistrationResult" expires_after="M84">
   <owner>alexchau@chromium.org</owner>
@@ -141722,7 +142081,7 @@ should be kept until we remove incident reporting. -->
 </histogram>
 
 <histogram name="Sharing.MessageAckTime" units="ms" expires_after="M84">
-<!-- Name completed by histogram_suffixes name="SharingDeviceType" and
+<!-- Name completed by histogram_suffixes name="SharingDevicePlatform" and
      name="SharingMessage" -->
 
   <owner>mvanouwerkerk@chromium.org</owner>
@@ -141735,8 +142094,6 @@ should be kept until we remove incident reporting. -->
 
 <histogram name="Sharing.MessageReceivedType" enum="SharingMessageType"
     expires_after="M84">
-<!-- Name completed by histogram_suffixes name="SharingMessage" -->
-
   <owner>mvanouwerkerk@chromium.org</owner>
   <owner>peter@chromium.org</owner>
   <summary>
@@ -141821,7 +142178,7 @@ should be kept until we remove incident reporting. -->
 
 <histogram name="Sharing.SendAckMessageResult" enum="SharingSendMessageResult"
     expires_after="M84">
-<!-- Name completed by histogram_suffixes name="SharingDeviceType" and
+<!-- Name completed by histogram_suffixes name="SharingDevicePlatform" and
      name="SharingMessage" -->
 
   <owner>alexchau@chromium.org</owner>
@@ -141847,7 +142204,7 @@ should be kept until we remove incident reporting. -->
 
 <histogram name="Sharing.SendMessageResult" enum="SharingSendMessageResult"
     expires_after="M84">
-<!-- Name completed by histogram_suffixes name="SharingDeviceType" and
+<!-- Name completed by histogram_suffixes name="SharingDevicePlatform" and
      name="SharingMessage" -->
 
   <owner>alexchau@chromium.org</owner>
@@ -143197,6 +143554,18 @@ OAuth Multilogin call. -->
   <summary>
     Tracks the usage of different flows that switch sync accounts. Logged after
     accounts have been switched.
+  </summary>
+</histogram>
+
+<histogram base="true" name="Signin.SyncErrorInfoBar"
+    enum="SyncErrorInfoBarAction" expires_after="M83">
+<!-- Name completed by histogram_suffixes name="SyncErrorInfoBarType" -->
+
+  <owner>triploblastic@chromium.org</owner>
+  <owner>bsazonov@chromium.org</owner>
+  <summary>
+    Records various UI and user action events related to the sync error infobar.
+    Android only.
   </summary>
 </histogram>
 
@@ -145967,15 +146336,16 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="SmartLock.AuthMethodChoice.SignIn"
-    enum="SmartLockAuthMethodChoice" expires_after="2020-04-19">
+    enum="SmartLockAuthMethodChoice" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>Records the user's sign in method choice.</summary>
 </histogram>
 
 <histogram name="SmartLock.AuthMethodChoice.SignIn.PasswordState"
-    enum="SmartLockAuthEventPasswordState" expires_after="M81">
+    enum="SmartLockAuthEventPasswordState" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
-  <owner>hsuregan@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     The state Smart Lock was in when the user chose to use their password to
     sign into their device.
@@ -145983,15 +146353,16 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="SmartLock.AuthMethodChoice.Unlock"
-    enum="SmartLockAuthMethodChoice" expires_after="2020-04-19">
+    enum="SmartLockAuthMethodChoice" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>Records the user's unlock method choice.</summary>
 </histogram>
 
 <histogram name="SmartLock.AuthMethodChoice.Unlock.PasswordState"
-    enum="SmartLockAuthEventPasswordState" expires_after="M81">
+    enum="SmartLockAuthEventPasswordState" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
-  <owner>hsuregan@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     An enumerated histogram that breaks down what state Smart Lock was in when
     the user chose to use their password to unlock their device.
@@ -145999,9 +146370,9 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="SmartLock.AuthResult.SignIn" enum="BooleanSuccess"
-    expires_after="2020-04-19">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
-  <owner>hsuregan@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Count of successful and failed attempts to sign in the Chromebook, after the
     user selects their profile photo.
@@ -146009,9 +146380,9 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="SmartLock.AuthResult.SignIn.Failure"
-    enum="SmartLockAuthResultFailureReason" expires_after="2020-04-19">
+    enum="SmartLockAuthResultFailureReason" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
-  <owner>hsuregan@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Shows why a sign in attempt failed during the authentication phase. Breaks
     down the failure bucket of SmartLock.AuthResult.SignIn.
@@ -146019,8 +146390,9 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="SmartLock.AuthResult.SignIn.Failure.UserControllerAuth"
-    enum="LoginFailureReason">
+    enum="LoginFailureReason" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     An enumerated histogram that breaks down why the UserController could not
     decrypt the account.
@@ -146028,8 +146400,9 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="SmartLock.AuthResult.Unlock" enum="BooleanSuccess"
-    expires_after="2020-04-19">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Count of successful and failed attempts to unlock the Chromebook, after the
     user selects their profile photo.
@@ -146037,16 +146410,19 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="SmartLock.AuthResult.Unlock.Failure"
-    enum="SmartLockAuthResultFailureReason" expires_after="2020-04-19">
+    enum="SmartLockAuthResultFailureReason" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Shows why an unlock attempt failed during the authentication phase. Breaks
     down the failure bucket of SmartLock.AuthResult.Unlock.
   </summary>
 </histogram>
 
-<histogram name="SmartLock.EligibleDevicesCount" units="devices">
-  <owner>jhawkins@chromium.org</owner>
+<histogram name="SmartLock.EligibleDevicesCount" units="devices"
+    expires_after="2020-12-15">
+  <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     A count of the number of eligible SmartLock devices which can be used to
     unlock the user's Chromebook. Logged each time the list of eligible devices
@@ -146056,8 +146432,9 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="SmartLock.EnabledDevicesCount" units="devices"
-    expires_after="2020-04-19">
-  <owner>jhawkins@chromium.org</owner>
+    expires_after="2020-12-15">
+  <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     A count of the number of SmartLock devices which the user has enabled to
     unlock the user's Chromebook, i.e., the device connected to in the SmartLock
@@ -146066,8 +146443,9 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="SmartLock.EnabledState" enum="SmartLockEnabledState"
-    expires_after="2020-04-19">
-  <owner>jhawkins@chromium.org</owner>
+    expires_after="2020-12-15">
+  <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     The state of the SmartLock feature for the current user, set at login. The
     value is 'enabled' if the user has successfully enabled SmartLock via setup,
@@ -146078,9 +146456,9 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="SmartLock.FindAndConnectToHostResult.SignIn"
-    enum="SmartLockFindAndConnectToHostResult" expires_after="2020-08-07">
+    enum="SmartLockFindAndConnectToHostResult" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
-  <owner>jhawkins@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     The resolution of Smart Lock trying to find the host device during the
     initial scan window at the signin screen.
@@ -146088,9 +146466,9 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="SmartLock.FindAndConnectToHostResult.Unlock"
-    enum="SmartLockFindAndConnectToHostResult" expires_after="2020-08-07">
+    enum="SmartLockFindAndConnectToHostResult" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
-  <owner>jhawkins@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     The resolution of Smart Lock trying to find the host device during the
     initial scan window at the lock screen.
@@ -146098,9 +146476,9 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="SmartLock.GetRemoteStatus.SignIn" enum="BooleanSuccess"
-    expires_after="2020-08-07">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
-  <owner>jhawkins@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Count of successful and failed attempts to get the 'remote status' of the
     host device, i.e., determine if the Chromebook can be signed into.
@@ -146109,9 +146487,9 @@ should be kept until we use this API.  -->
 
 <histogram name="SmartLock.GetRemoteStatus.SignIn.Failure"
     enum="SmartLockGetRemoteStatusResultFailureReason"
-    expires_after="2020-08-07">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
-  <owner>jhawkins@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Shows why a sign in attempt failed during the connection phase. Breaks down
     the failure bucket of SmartLock.ConnectionResult.
@@ -146119,9 +146497,9 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="SmartLock.GetRemoteStatus.Unlock" enum="BooleanSuccess"
-    expires_after="2020-08-07">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
-  <owner>jhawkins@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Count of successful and failed attempts to get the 'remote status' of the
     host device, i.e., determine if the Chromebook can be unlocked.
@@ -146130,9 +146508,9 @@ should be kept until we use this API.  -->
 
 <histogram name="SmartLock.GetRemoteStatus.Unlock.Failure"
     enum="SmartLockGetRemoteStatusResultFailureReason"
-    expires_after="2020-08-07">
+    expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
-  <owner>jhawkins@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Shows why an unlock attempt failed during the connection phase. Breaks down
     the failure bucket of SmartLock.ConnectionResult.
@@ -146140,8 +146518,9 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="SmartLock.MultiDeviceFeatureState"
-    enum="MultiDevice_FeatureState" expires_after="2020-04-19">
+    enum="MultiDevice_FeatureState" expires_after="2020-12-15">
   <owner>hansberry@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     Indicates the feature state of the SmartLock feature. This metric is emitted
     to at the creation of the user session (when the user logs in), and when
@@ -146151,11 +146530,11 @@ should be kept until we use this API.  -->
 
 <histogram
     name="SmartLock.Performance.AuthenticationToReceiveFirstRemoteStatusDuration.Unlock"
-    units="ms" expires_after="2020-07-23">
+    units="ms" expires_after="2020-12-15">
 <!-- Name completed by histogram_suffixes name="SmartLockStatusTypes" -->
 
   <owner>hansberry@chromium.org</owner>
-  <owner>jhawkins@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     The duration of time between when Smart Lock successfully establishes a
     secure channel connection to the host device, and receives the initial
@@ -146189,11 +146568,11 @@ should be kept until we use this API.  -->
 
 <histogram
     name="SmartLock.Performance.ShowLockScreenToShowFirstStatusToUserDuration.Unlock"
-    units="ms" expires_after="2020-07-23">
+    units="ms" expires_after="2020-12-15">
 <!-- Name completed by histogram_suffixes name="SmartLockStatusTypes" -->
 
   <owner>hansberry@chromium.org</owner>
-  <owner>jhawkins@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     The duration of time between when the user locks their screen or wakes their
     device (either opening a clamshell device or waking up a tablet), and when
@@ -146213,11 +146592,11 @@ should be kept until we use this API.  -->
 
 <histogram
     name="SmartLock.Performance.StartScanToReceiveFirstRemoteStatusDuration.Unlock"
-    units="ms" expires_after="2020-07-23">
+    units="ms" expires_after="2020-12-15">
 <!-- Name completed by histogram_suffixes name="SmartLockStatusTypes" -->
 
   <owner>hansberry@chromium.org</owner>
-  <owner>jhawkins@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     The duration of time between when Smart Lock begins to try to find the host
     device, and receives the initial remote status from it -- this informs if
@@ -146263,16 +146642,20 @@ should be kept until we use this API.  -->
   </summary>
 </histogram>
 
-<histogram name="SmartLock.ToggleFeature" enum="BooleanEnabled">
+<histogram name="SmartLock.ToggleFeature" enum="BooleanEnabled"
+    expires_after="2020-12-15">
   <owner>jhawkins@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>
     The number of times the user actively enabled or disabled the SmartLock
     feature via Settings.
   </summary>
 </histogram>
 
-<histogram name="SmartLock.ToggleFeature.Disable.Result" enum="BooleanSuccess">
+<histogram name="SmartLock.ToggleFeature.Disable.Result" enum="BooleanSuccess"
+    expires_after="2020-12-15">
   <owner>jhawkins@chromium.org</owner>
+  <owner>better-together-dev@google.com</owner>
   <summary>The result of the operation to disable SmartLock.</summary>
 </histogram>
 
@@ -148122,7 +148505,7 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="Startup.AfterStartupTaskDelayedUntilTime" units="ms"
-    expires_after="2020-05-10">
+    expires_after="2020-07-13">
   <owner>michaeln@chromium.org</owner>
   <summary>
     Time from the process creation until deferred after-startup tasks began
@@ -151896,7 +152279,7 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="Sync.DirectoryVsPrefsConsistency"
-    enum="SyncDirectoryVsPrefsConsistency" expires_after="2020-01-26">
+    enum="SyncDirectoryVsPrefsConsistency" expires_after="2020-07-26">
   <owner>mastiz@chromium.org</owner>
   <owner>treib@chromium.org</owner>
   <summary>
@@ -152783,6 +153166,16 @@ should be kept until we use this API.  -->
   <summary>
     Records the result of ModelTypeStoreBackend initialization. Used to analyze
     frequency and causes of backend initialization failures.
+  </summary>
+</histogram>
+
+<histogram name="Sync.NigoriConfigurationWithInvalidatedCredentials"
+    enum="Boolean" expires_after="M82">
+  <owner>mmoskvitin@google.com</owner>
+  <owner>mastiz@chromium.org</owner>
+  <summary>
+    Recorded when Nigori-only configuration pending while user credentials were
+    invalidated.
   </summary>
 </histogram>
 
@@ -154043,6 +154436,9 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="Sync.USSLoadModelsTime" units="ms" expires_after="M81">
+  <obsolete>
+    Deprecated in M82.
+  </obsolete>
   <owner>pavely@chromium.org</owner>
   <summary>Time it took sync to load models for USS datatypes.</summary>
 </histogram>
@@ -158275,7 +158671,7 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="Tracing.Background.FinalizationDisallowedReason"
-    enum="TracingFinalizationDisallowedReason" expires_after="2020-04-05">
+    enum="TracingFinalizationDisallowedReason" expires_after="2020-07-13">
   <owner>ssid@chromium.org</owner>
   <summary>
     Reason why background tracing finalization was not allowed. Also see
@@ -158285,7 +158681,7 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="Tracing.Background.FinalizingTraceSizeInKB" units="KB"
-    expires_after="2020-03-29">
+    expires_after="2020-07-13">
   <owner>oysteine@chromium.org</owner>
   <summary>
     The size, in kilobytes, of a finalized trace ready to be uploaded.
@@ -159487,7 +159883,7 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="UKM.UserDemographics.Status" enum="UserDemographicsStatus"
-    expires_after="2020-05-08">
+    expires_after="2020-07-13">
   <owner>vincb@google.com</owner>
   <owner>ukm-team@google.com</owner>
   <summary>
@@ -159591,6 +159987,9 @@ should be kept until we use this API.  -->
 
 <histogram name="UMA.Debug.EnableCrashUpload.DeferredStartUpAsyncTaskDuration"
     units="ms" expires_after="M77">
+  <obsolete>
+    No longer useful or monitored, removed 2020-01-06.
+  </obsolete>
   <owner>wnwen@chromium.org</owner>
   <owner>src/base/metrics/OWNERS</owner>
   <summary>
@@ -159601,6 +160000,9 @@ should be kept until we use this API.  -->
 
 <histogram name="UMA.Debug.EnableCrashUpload.DeferredStartUpCompleteTime"
     units="ms" expires_after="M77">
+  <obsolete>
+    No longer useful or monitored, removed 2020-01-06.
+  </obsolete>
   <owner>wnwen@chromium.org</owner>
   <owner>src/base/metrics/OWNERS</owner>
   <summary>
@@ -159611,6 +160013,9 @@ should be kept until we use this API.  -->
 
 <histogram name="UMA.Debug.EnableCrashUpload.DeferredStartUpDuration"
     units="ms" expires_after="M77">
+  <obsolete>
+    No longer useful or monitored, removed 2020-01-06.
+  </obsolete>
   <owner>wnwen@chromium.org</owner>
   <owner>asvitkine@chromium.org</owner>
   <owner>src/base/metrics/OWNERS</owner>
@@ -159636,6 +160041,9 @@ should be kept until we use this API.  -->
 
 <histogram name="UMA.Debug.EnableCrashUpload.DeferredStartUpMaxTaskDuration"
     units="ms" expires_after="2020-02-16">
+  <obsolete>
+    No longer useful or monitored, removed 2020-01-06.
+  </obsolete>
   <owner>wnwen@chromium.org</owner>
   <owner>src/base/metrics/OWNERS</owner>
   <summary>
@@ -160532,7 +160940,7 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="UMA.TruncatedEvents.UserAction" units="events"
-    expires_after="2020-07-06">
+    expires_after="2020-07-13">
   <owner>rkaplow@chromium.org</owner>
   <owner>src/base/metrics/OWNERS</owner>
   <summary>
@@ -160618,7 +161026,7 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="UMA.UserDemographics.Status" enum="UserDemographicsStatus"
-    expires_after="2020-05-10">
+    expires_after="2020-07-13">
   <owner>vincb@google.com</owner>
   <owner>src/base/metrics/OWNERS</owner>
   <summary>
@@ -160713,10 +161121,10 @@ should be kept until we use this API.  -->
 </histogram>
 
 <histogram name="UnifiedConsent.SyncAndGoogleServicesSettings"
-    enum="UnifiedConsentSyncAndGoogleServicesSettings"
-    expires_after="2019-12-21">
+    enum="UnifiedConsentSyncAndGoogleServicesSettings" expires_after="never">
+<!-- expires-never: Core metric for monitoring user settings for Sync and Google services. -->
+
   <owner>msarda@chromium.org</owner>
-  <owner>tangltom@chromium.org</owner>
   <owner>droger@chromium.org</owner>
   <summary>
     State of the user settings for Sync and Google services, recorded at
@@ -160728,8 +161136,9 @@ should be kept until we use this API.  -->
 <histogram
     name="UnifiedConsent.SyncAndGoogleServicesSettings.AfterAdvancedOptIn.SyncDataTypesOff"
     enum="UnifiedConsentSyncDataTypesOffAfterAdvancedOptIn"
-    expires_after="2020-01-31">
-  <owner>tangltom@chromium.org</owner>
+    expires_after="never">
+<!-- expires-never: Core metric for monitoring sync data types. -->
+
   <owner>droger@chromium.org</owner>
   <owner>msarda@chromium.org</owner>
   <summary>
@@ -165429,6 +165838,18 @@ regressions. -->
   </summary>
 </histogram>
 
+<histogram name="WebApk.Navigation.ChildTab.InScope" enum="BooleanInScope"
+    expires_after="2020-08-01">
+  <owner>hartmanng@chromium.org</owner>
+  <owner>peconn@chromium.org</owner>
+  <owner>pkotwicz@chromium.org</owner>
+  <summary>
+    Recorded each time that a child tab - e.g. a tab opened via window.open() -
+    is navigated. Records whether the navigation is within the scope of the
+    WebAPK's Web Manifest.
+  </summary>
+</histogram>
+
 <histogram name="WebApk.Navigation.InScope" enum="Boolean"
     expires_after="2020-04-01">
   <owner>hartmanng@chromium.org</owner>
@@ -165436,7 +165857,8 @@ regressions. -->
   <owner>yfriedman@chromium.org</owner>
   <summary>
     Recorded each time that a WebAPK is navigated. Records whether the
-    navigation is within the scope of the WebAPK's Web Manifest.
+    navigation is within the scope of the WebAPK's Web Manifest. Not recorded
+    for child tabs - e.g. tabs opened via window.open()
   </summary>
 </histogram>
 
@@ -166379,7 +166801,7 @@ regressions. -->
 </histogram>
 
 <histogram name="WebAuthentication.AttestationPromptResult"
-    enum="WebAuthenticationAttestationPromptResult" expires_after="2020-05-10">
+    enum="WebAuthenticationAttestationPromptResult" expires_after="2020-07-13">
   <owner>agl@chromium.org</owner>
   <summary>
     Tracks events related to prompting users for permission to pass WebAuthn
@@ -166402,7 +166824,7 @@ regressions. -->
 </histogram>
 
 <histogram name="WebAuthentication.CredentialRequestAllowCredentialsCount"
-    units="credentials" expires_after="2020-05-10">
+    units="credentials" expires_after="2020-07-13">
   <owner>kenrb@chromium.org</owner>
   <owner>kpaulhamus@chromium.org</owner>
   <summary>
@@ -166413,7 +166835,7 @@ regressions. -->
 </histogram>
 
 <histogram name="WebAuthentication.GetAssertionRequestTransport"
-    enum="WebAuthenticationFidoTransport" expires_after="2020-05-03">
+    enum="WebAuthenticationFidoTransport" expires_after="2020-07-13">
   <owner>kenrb@chromium.org</owner>
   <owner>kpaulhamus@chromium.org</owner>
   <summary>
@@ -166424,7 +166846,7 @@ regressions. -->
 </histogram>
 
 <histogram name="WebAuthentication.GetAssertionResponseTransport"
-    enum="WebAuthenticationFidoTransport" expires_after="2020-05-10">
+    enum="WebAuthenticationFidoTransport" expires_after="2020-07-13">
   <owner>kenrb@chromium.org</owner>
   <owner>kpaulhamus@chromium.org</owner>
   <summary>
@@ -166444,7 +166866,7 @@ regressions. -->
 </histogram>
 
 <histogram name="WebAuthentication.MakeCredentialRequestTransport"
-    enum="WebAuthenticationFidoTransport" expires_after="2020-05-10">
+    enum="WebAuthenticationFidoTransport" expires_after="2020-07-13">
   <owner>kenrb@chromium.org</owner>
   <owner>kpaulhamus@chromium.org</owner>
   <summary>
@@ -166455,7 +166877,7 @@ regressions. -->
 </histogram>
 
 <histogram name="WebAuthentication.MakeCredentialResponseTransport"
-    enum="WebAuthenticationFidoTransport" expires_after="2020-05-03">
+    enum="WebAuthenticationFidoTransport" expires_after="2020-07-13">
   <owner>kenrb@chromium.org</owner>
   <owner>kpaulhamus@chromium.org</owner>
   <summary>
@@ -166479,7 +166901,7 @@ regressions. -->
 
 <histogram name="WebAuthentication.U2FAttestationPromptResult"
     enum="WebAuthenticationU2FAttestationPromptResult"
-    expires_after="2020-05-10">
+    expires_after="2020-07-13">
   <owner>agl@chromium.org</owner>
   <summary>
     Tracks events related to prompting users for permission to pass U2F
@@ -168961,8 +169383,9 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.ActiveRender" enum="Boolean"
-    expires_after="M81">
+    expires_after="2020-12-01">
   <owner>peah@chromium.org</owner>
+  <owner>saza@chromium.org</owner>
   <summary>
     This histogram logs a value indicating whether the WebRTC echo canceller
     detects that there is active content in the render signal. A new value is
@@ -168970,8 +169393,10 @@ regressions. -->
   </summary>
 </histogram>
 
-<histogram name="WebRTC.Audio.EchoCanceller.BufferDelay" units="Blocks">
+<histogram name="WebRTC.Audio.EchoCanceller.BufferDelay" units="Blocks"
+    expires_after="2020-12-01">
   <owner>peah@chromium.org</owner>
+  <owner>saza@chromium.org</owner>
   <summary>
     This histogram logs the applied render buffer delay used in the WebRTC echo
     canceller. A new value is logged every 10 seconds and the logged value
@@ -168980,8 +169405,9 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.CaptureSaturation" enum="Boolean"
-    expires_after="M84">
+    expires_after="2020-12-01">
   <owner>peah@chromium.org</owner>
+  <owner>saza@chromium.org</owner>
   <summary>
     This histogram logs a value every time the WebRTC echo canceller has
     detected saturation in the capture signal. A new value is logged every 10
@@ -168991,8 +169417,9 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.Clockdrift" enum="ClockdriftLevel"
-    expires_after="2019-11-30">
+    expires_after="2020-12-01">
   <owner>gustaf@chromium.org</owner>
+  <owner>peah@chromium.org</owner>
   <summary>
     This histogram logs whether clockdrift is detected in the WebRTC echo
     canceller. A new value is logged every 10 seconds.
@@ -169001,6 +169428,9 @@ regressions. -->
 
 <histogram name="WebRTC.Audio.EchoCanceller.ComfortNoiseBand0"
     units="dBFS (negated)" expires_after="M81">
+  <obsolete>
+    Deprecated in M81 as the metric is no longer used for analysis.
+  </obsolete>
   <owner>peah@chromium.org</owner>
   <summary>
     This histogram logs the level of the comfort noise in the WebRTC echo
@@ -169010,6 +169440,9 @@ regressions. -->
 
 <histogram name="WebRTC.Audio.EchoCanceller.ComfortNoiseBand1"
     units="dBFS (negated)" expires_after="M81">
+  <obsolete>
+    Deprecated in M81 as the metric is no longer used for analysis.
+  </obsolete>
   <owner>peah@chromium.org</owner>
   <summary>
     This histogram logs the level of the comfort noise in the WebRTC echo
@@ -169018,8 +169451,9 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.DelayChanges"
-    enum="WebRTCEventFrequency" expires_after="2020-05-31">
+    enum="WebRTCEventFrequency" expires_after="2020-12-01">
   <owner>peah@chromium.org</owner>
+  <owner>saza@chromium.org</owner>
   <summary>
     This histogram logs the frequency of echo path delay changes that are
     detected by the delay estimator in the WebRTC echo canceller. A new value is
@@ -169029,8 +169463,9 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.EchoPathDelay" units="Blocks"
-    expires_after="2020-05-31">
+    expires_after="2020-12-01">
   <owner>peah@chromium.org</owner>
+  <owner>saza@chromium.org</owner>
   <summary>
     This histogram logs the estimated echo path delay in 64 sample blocks as
     seen by the delay estimator in the WebRTC echo canceller. A new value is
@@ -169040,8 +169475,9 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.Erl" units="dB (shifted)"
-    expires_after="M81">
+    expires_after="2020-12-01">
   <owner>gustaf@chromium.org</owner>
+  <owner>peah@chromium.org</owner>
   <summary>
     This histogram logs the echo return loss achieved by the WebRTC echo
     canceller as described in ITU G.168. When the echo canceller is being used,
@@ -169050,8 +169486,9 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.ErlBand0" units="dB (shifted)"
-    expires_after="M81">
+    expires_after="2020-12-01">
   <owner>peah@chromium.org</owner>
+  <owner>saza@chromium.org</owner>
   <summary>
     This histogram logs the echo return loss achieved by the WebRTC echo
     canceller in the lower 4 kHz. A new value is logged every 10 seconds.
@@ -169059,8 +169496,9 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.ErlBand1" units="dB (shifted)"
-    expires_after="M81">
+    expires_after="2020-12-01">
   <owner>peah@chromium.org</owner>
+  <owner>saza@chromium.org</owner>
   <summary>
     This histogram logs the echo return loss achieved by the WebRTC echo
     canceller between 4 and 8 kHz. A new value is logged every 10 seconds.
@@ -169068,8 +169506,9 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.Erle" units="dB"
-    expires_after="M81">
+    expires_after="2020-12-01">
   <owner>gustaf@chromium.org</owner>
+  <owner>peah@chromium.org</owner>
   <summary>
     This histogram logs the echo return loss enhancement achieved by the WebRTC
     echo canceller as described in ITU G.168. When the echo canceller is being
@@ -169078,8 +169517,9 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.ErleBand0" units="dB (shifted)"
-    expires_after="M81">
+    expires_after="2020-12-01">
   <owner>peah@chromium.org</owner>
+  <owner>saza@chromium.org</owner>
   <summary>
     This histogram logs the echo return loss enhancement achieved by the WebRTC
     echo canceller in the lower 4 kHz. A new value is logged every 10 seconds.
@@ -169087,8 +169527,9 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.ErleBand1" units="dB (shifted)"
-    expires_after="M81">
+    expires_after="2020-12-01">
   <owner>peah@chromium.org</owner>
+  <owner>saza@chromium.org</owner>
   <summary>
     This histogram logs the echo return loss enhancement achieved by the WebRTC
     echo canceller between 4 and 8 kHz. A new value is logged every 10 seconds.
@@ -169096,8 +169537,9 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.FilterDelay" units="Blocks"
-    expires_after="M84">
+    expires_after="2020-12-01">
   <owner>peah@chromium.org</owner>
+  <owner>saza@chromium.org</owner>
   <summary>
     This histogram logs the estimated echo path delay in 64 sample blocks as
     seen by the linear filter delay in the WebRTC echo canceller. The value 0
@@ -169109,7 +169551,7 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.MaxCaptureJitter"
-    units="frames (10 ms)" expires_after="2020-05-01">
+    units="frames (10 ms)" expires_after="2020-12-01">
   <owner>peah@chromium.org</owner>
   <owner>gustaf@chromium.org</owner>
   <summary>
@@ -169119,7 +169561,7 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.MaxRenderJitter"
-    units="frames (10 ms)" expires_after="2020-05-01">
+    units="frames (10 ms)" expires_after="2020-12-01">
   <owner>peah@chromium.org</owner>
   <owner>gustaf@chromium.org</owner>
   <summary>
@@ -169129,8 +169571,9 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.MaxSkewShiftCount"
-    units="events/minute">
+    units="events/minute" expires_after="2020-12-01">
   <owner>peah@chromium.org</owner>
+  <owner>saza@chromium.org</owner>
   <summary>
     This histogram logs the number of times per minute that the WebRTC echo
     canceller detects a shift in the skew between the total number of render and
@@ -169145,7 +169588,7 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.MinCaptureJitter"
-    units="frames (10 ms)" expires_after="2020-05-01">
+    units="frames (10 ms)" expires_after="2020-12-01">
   <owner>peah@chromium.org</owner>
   <owner>gustaf@chromium.org</owner>
   <summary>
@@ -169155,7 +169598,7 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.MinRenderJitter"
-    units="frames (10 ms)" expires_after="2020-05-01">
+    units="frames (10 ms)" expires_after="2020-12-01">
   <owner>peah@chromium.org</owner>
   <owner>gustaf@chromium.org</owner>
   <summary>
@@ -169165,8 +169608,9 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.ModelBasedAecFeasible"
-    enum="Boolean">
+    enum="Boolean" expires_after="2020-12-01">
   <owner>peah@chromium.org</owner>
+  <owner>saza@chromium.org</owner>
   <summary>
     This histogram logs a value every time the WebRTC echo canceller deems that
     echo path is possible to model using any of the the echo canceller echo path
@@ -169176,8 +169620,9 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.ReliableDelayEstimates"
-    enum="WebRTCAecDelayEstimateReliability" expires_after="M84">
+    enum="WebRTCAecDelayEstimateReliability" expires_after="2020-12-01">
   <owner>peah@chromium.org</owner>
+  <owner>saza@chromium.org</owner>
   <summary>
     This histogram logs the assessed reliability of the delay estimates produced
     by the delay estimator in the WebRTC echo canceller. A new value is logged
@@ -169187,8 +169632,9 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.RenderOverruns"
-    enum="WebRTCEventFrequency" expires_after="2020-05-31">
+    enum="WebRTCEventFrequency" expires_after="2020-12-01">
   <owner>peah@chromium.org</owner>
+  <owner>saza@chromium.org</owner>
   <summary>
     This histogram logs the frequency of overruns in the render buffer of the
     WebRTC echo canceller. A new value is logged every 10 seconds and the logged
@@ -169197,8 +169643,9 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.RenderUnderruns"
-    enum="WebRTCEventFrequency" expires_after="2020-06-07">
+    enum="WebRTCEventFrequency" expires_after="2020-12-01">
   <owner>peah@chromium.org</owner>
+  <owner>saza@chromium.org</owner>
   <summary>
     This histogram logs the frequency of underruns in the render buffer of the
     WebRTC echo canceller. A new value is logged every 10 seconds and the logged
@@ -169207,7 +169654,10 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.SuppressorGainBand0"
-    units="dB (negated)" expires_after="M81">
+    units="dB (negated)" expires_after="2020-12-01">
+  <obsolete>
+    Deprecated in M81 as the metric is no longer used for analysis.
+  </obsolete>
   <owner>peah@chromium.org</owner>
   <summary>
     This histogram logs the echo suppressor gain in the WebRTC echo canceller in
@@ -169216,7 +169666,10 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.SuppressorGainBand1"
-    units="dB (negated)" expires_after="M81">
+    units="dB (negated)" expires_after="2020-12-01">
+  <obsolete>
+    Deprecated in M81 as the metric is no longer used for analysis.
+  </obsolete>
   <owner>peah@chromium.org</owner>
   <summary>
     This histogram logs the echo suppressor gain in the WebRTC echo canceller
@@ -169225,8 +169678,9 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Audio.EchoCanceller.UsableLinearEstimate"
-    enum="Boolean" expires_after="M84">
+    enum="Boolean" expires_after="2020-12-01">
   <owner>peah@chromium.org</owner>
+  <owner>saza@chromium.org</owner>
   <summary>
     This histogram logs a value every time the WebRTC echo canceller deems that
     the linear filter in the echo canceller is sufficiently well adapted to be
@@ -169832,8 +170286,14 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.PeerConnection.CallSetupState.AnswererState"
-    enum="PeerConnectionAnswererState" expires_after="M82">
+    enum="PeerConnectionAnswererState" expires_after="M80">
+  <obsolete>
+    These metrics were useful when Unified Plan was made the default SDP
+    semantics. They will again become useful when Plan B is becoming deprecated.
+    Until then, these are of little value and are temporarily disabled.
+  </obsolete>
   <owner>hbos@chromium.org</owner>
+  <owner>hta@chromium.org</owner>
   <summary>
     Setting up a call involves a number of steps; this enum describes which
     &quot;answerer step&quot; the peer connection reached in its most successful
@@ -169842,8 +170302,14 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.PeerConnection.CallSetupState.CallSetupState"
-    enum="PeerConnectionCallSetupState" expires_after="2020-06-28">
+    enum="PeerConnectionCallSetupState" expires_after="M80">
+  <obsolete>
+    These metrics were useful when Unified Plan was made the default SDP
+    semantics. They will again become useful when Plan B is becoming deprecated.
+    Until then, these are of little value and are temporarily disabled.
+  </obsolete>
   <owner>hbos@chromium.org</owner>
+  <owner>hta@chromium.org</owner>
   <summary>
     Setting up a call involves a number of steps; this enum describes the status
     of the most successful attempt. See blink::CallSetupState for more
@@ -169852,8 +170318,14 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.PeerConnection.CallSetupState.OffererState"
-    enum="PeerConnectionOffererState" expires_after="2020-06-28">
+    enum="PeerConnectionOffererState" expires_after="M80">
+  <obsolete>
+    These metrics were useful when Unified Plan was made the default SDP
+    semantics. They will again become useful when Plan B is becoming deprecated.
+    Until then, these are of little value and are temporarily disabled.
+  </obsolete>
   <owner>hbos@chromium.org</owner>
+  <owner>hta@chromium.org</owner>
   <summary>
     Setting up a call involves a number of steps; this enum describes which
     &quot;answerer step&quot; the peer connection reached in its most successful
@@ -169862,8 +170334,14 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.PeerConnection.CallSetupStateWithGum.AnswererState"
-    enum="PeerConnectionAnswererState" expires_after="M81">
+    enum="PeerConnectionAnswererState" expires_after="M80">
+  <obsolete>
+    These metrics were useful when Unified Plan was made the default SDP
+    semantics. They will again become useful when Plan B is becoming deprecated.
+    Until then, these are of little value and are temporarily disabled.
+  </obsolete>
   <owner>hbos@chromium.org</owner>
+  <owner>hta@chromium.org</owner>
   <summary>
     Setting up a call involves a number of steps; this enum describes which
     &quot;answerer step&quot; the peer connection reached in its most successful
@@ -169875,8 +170353,14 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.PeerConnection.CallSetupStateWithGum.CallSetupState"
-    enum="PeerConnectionCallSetupState" expires_after="M81">
+    enum="PeerConnectionCallSetupState" expires_after="M80">
+  <obsolete>
+    These metrics were useful when Unified Plan was made the default SDP
+    semantics. They will again become useful when Plan B is becoming deprecated.
+    Until then, these are of little value and are temporarily disabled.
+  </obsolete>
   <owner>hbos@chromium.org</owner>
+  <owner>hta@chromium.org</owner>
   <summary>
     Setting up a call involves a number of steps; this enum describes the status
     of the most successful attempt. See blink::CallSetupState for more
@@ -169888,8 +170372,14 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.PeerConnection.CallSetupStateWithGum.OffererState"
-    enum="PeerConnectionOffererState" expires_after="M81">
+    enum="PeerConnectionOffererState" expires_after="M80">
+  <obsolete>
+    These metrics were useful when Unified Plan was made the default SDP
+    semantics. They will again become useful when Plan B is becoming deprecated.
+    Until then, these are of little value and are temporarily disabled.
+  </obsolete>
   <owner>hbos@chromium.org</owner>
+  <owner>hta@chromium.org</owner>
   <summary>
     Setting up a call involves a number of steps; this enum describes which
     &quot;answerer step&quot; the peer connection reached in its most successful
@@ -170820,7 +171310,7 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Video.InterframeDelay95PercentileInMs" units="ms"
-    expires_after="2020-05-10">
+    expires_after="2020-07-13">
   <owner>ilnik@chromium.org</owner>
   <summary>
     The 95th percentile of interframe delay for a received video stream.
@@ -171160,7 +171650,7 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Video.Screenshare.BandwidthLimitedResolutionInPercent"
-    units="%" expires_after="2020-05-10">
+    units="%" expires_after="2020-07-13">
   <owner>sprang@chromium.org</owner>
   <summary>
     Percentage of sent frames that are limited in resolution due to bandwidth
@@ -171714,7 +172204,7 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Video.SentToInputFpsRatioPercent" units="%"
-    expires_after="2020-05-10">
+    expires_after="2020-07-13">
   <owner>ilnik@chromium.org</owner>
   <summary>
     Ratio between SentFramesPerSecond and InputFramesPerSecond in percents.
@@ -171742,7 +172232,7 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRTC.Video.TimeInBlockyVideoPercentage" units="%"
-    expires_after="2020-05-10">
+    expires_after="2020-07-13">
   <owner>ilnik@chromium.org</owner>
   <summary>
     Percentage of time the receive video stream playbacks low quality blocky
@@ -171845,7 +172335,7 @@ regressions. -->
 </histogram>
 
 <histogram name="WebRtcEventLogging.Upload" enum="WebRtcEventLoggingUploadEnum"
-    expires_after="2020-03-01">
+    expires_after="2020-07-13">
   <owner>eladalon@chromium.org</owner>
   <owner>saeedj@google.com</owner>
   <owner>manj@google.com</owner>
@@ -176082,7 +176572,6 @@ regressions. -->
 </histogram_suffixes>
 
 <histogram_suffixes name="CompromisedCredentialsAction" separator=".">
-  <suffix name="Add" label="Saved password is added tp the database"/>
   <suffix name="Remove" label="Saved password is removed from the database"/>
   <suffix name="Update" label="Saved password is updated in the database"/>
   <affected-histogram name="PasswordManager.CompromisedCredentials"/>
@@ -177314,7 +177803,10 @@ regressions. -->
       label="From app list query context menu."/>
   <suffix name="FromAppListRecommendation"
       label="From app list recommendation."/>
+  <suffix name="FromChromeInternal" label="From Chrome Internal."/>
   <suffix name="FromFileManager" label="From FileManager."/>
+  <suffix name="FromLink" label="From Link."/>
+  <suffix name="FromOmnibox" label="From Omnibox."/>
   <suffix name="FromShelf" label="From shelf."/>
   <affected-histogram name="Apps.DefaultAppLaunch"/>
 </histogram_suffixes>
@@ -188308,7 +188800,11 @@ regressions. -->
   <affected-histogram name="Sharing.MessageAckTime.Mac"/>
   <affected-histogram name="Sharing.MessageAckTime.Unknown"/>
   <affected-histogram name="Sharing.MessageAckTime.Windows"/>
-  <affected-histogram name="Sharing.MessageReceivedType"/>
+  <affected-histogram name="Sharing.MessageReceivedType">
+    <obsolete>
+      Removed 2020-01.
+    </obsolete>
+  </affected-histogram>
   <affected-histogram name="Sharing.SendAckMessageResult"/>
   <affected-histogram name="Sharing.SendAckMessageResult.Android"/>
   <affected-histogram name="Sharing.SendAckMessageResult.ChromeOS"/>
@@ -188325,6 +188821,16 @@ regressions. -->
   <affected-histogram name="Sharing.SendMessageResult.Mac"/>
   <affected-histogram name="Sharing.SendMessageResult.Unknown"/>
   <affected-histogram name="Sharing.SendMessageResult.Windows"/>
+</histogram_suffixes>
+
+<histogram_suffixes name="SharingSendMessageResult" separator=".">
+  <suffix name="AckTimeout" label="Timeout waiting for ack"/>
+  <suffix name="DeviceNotFound" label="Device is not found"/>
+  <suffix name="InternalError" label="Other internal error"/>
+  <suffix name="NetworkError" label="Network error"/>
+  <suffix name="PayloadTooLarge" label="Payload is too large"/>
+  <suffix name="Successful" label="Successful"/>
+  <affected-histogram name="Sharing.DeviceLastUpdatedAgeWithResult"/>
 </histogram_suffixes>
 
 <histogram_suffixes name="ShillCumulativeTimeOnline" separator=".">
@@ -189013,6 +189519,13 @@ regressions. -->
   <affected-histogram name="Sync.ConfigureTime_Subsequent"/>
 </histogram_suffixes>
 
+<histogram_suffixes name="SyncErrorInfoBarType" separator=".">
+  <suffix name="AuthError" label="Auth error."/>
+  <suffix name="PassphraseRequired" label="Passphrase required."/>
+  <suffix name="SyncSetupIncomplete" label="Sync setup incomplete."/>
+  <affected-histogram name="Signin.SyncErrorInfoBar"/>
+</histogram_suffixes>
+
 <histogram_suffixes name="SyncFaviconRequestOrigin" separator=".">
   <suffix name="HISTORY" label="Request made by chrome://history."/>
   <suffix name="RECENTLY_CLOSED_TABS"
@@ -189179,6 +189692,9 @@ regressions. -->
 </histogram_suffixes>
 
 <histogram_suffixes name="SyncModelTypeByMacro" separator="" ordering="prefix">
+  <obsolete>
+    Deprecated in M80.
+  </obsolete>
   <suffix name="AppList" label="App list"/>
   <suffix name="AppNotifications" label="App notifications">
     <obsolete>

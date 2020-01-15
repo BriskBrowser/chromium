@@ -97,8 +97,6 @@ jumbo_static_library("test_support") {
     "../public/test/background_sync_test_util.h",
     "../public/test/blink_test_environment.cc",
     "../public/test/blink_test_environment.h",
-    "../public/test/browser_side_navigation_test_utils.cc",
-    "../public/test/browser_side_navigation_test_utils.h",
     "../public/test/browser_task_environment.cc",
     "../public/test/browser_task_environment.h",
     "../public/test/browser_test.h",
@@ -226,6 +224,8 @@ jumbo_static_library("test_support") {
     "../public/test/web_contents_receiver_set_test_binder.h",
     "../public/test/web_contents_tester.cc",
     "../public/test/web_contents_tester.h",
+    "../public/test/web_ui_browsertest_util.cc",
+    "../public/test/web_ui_browsertest_util.h",
     "appcache_test_helper.cc",
     "appcache_test_helper.h",
     "content_browser_sanity_checker.cc",
@@ -359,8 +359,8 @@ jumbo_static_library("test_support") {
     ":content_test_mojo_bindings",
     "//base/third_party/dynamic_annotations",
     "//cc:test_support",
+    "//components/viz/client",
     "//components/viz/host",
-    "//components/viz/service",
     "//content/app:both_for_content_tests",
     "//content/browser:for_content_tests",
     "//content/browser/speech/proto",
@@ -512,7 +512,6 @@ jumbo_static_library("test_support") {
     deps += [
       "//components/viz/common",
       "//components/viz/host",
-      "//components/viz/service",
       "//third_party/libvpx",
       "//ui/compositor",
     ]
@@ -609,7 +608,6 @@ jumbo_static_library("browsertest_support") {
     "//base/test:test_config",
     "//base/test:test_support",
     "//components/network_session_configurator/common:common",
-    "//components/viz/service",
     "//content/app:both_for_content_tests",
     "//content/browser:for_content_tests",
     "//content/shell:content_shell_lib",
@@ -643,15 +641,11 @@ mojom("content_test_mojo_bindings") {
     "frame_host_test_interface.mojom",
     "test_browser_associated_interfaces.mojom",
   ]
-  public_deps = [
-    "//url/mojom:url_mojom_gurl",
-  ]
+  public_deps = [ "//url/mojom:url_mojom_gurl" ]
 }
 
 mojom("web_ui_test_mojo_bindings") {
-  sources = [
-    "data/web_ui_test_mojo_bindings.mojom",
-  ]
+  sources = [ "data/web_ui_test_mojo_bindings.mojom" ]
 }
 
 mojom("mojo_web_test_bindings") {
@@ -669,9 +663,7 @@ mojom("mojo_web_test_bindings") {
 
 mojom("test_interfaces") {
   testonly = true
-  sources = [
-    "echo.mojom",
-  ]
+  sources = [ "echo.mojom" ]
 }
 
 if (is_android) {
@@ -689,13 +681,9 @@ if (is_android) {
       "../public/test/nested_message_pump_android.h",
     ]
 
-    public_deps = [
-      "//base",
-    ]
+    public_deps = [ "//base" ]
 
-    deps = [
-      "//content/public/test/android:test_support_content_jni_headers",
-    ]
+    deps = [ "//content/public/test/android:test_support_content_jni_headers" ]
   }
 }
 
@@ -1041,8 +1029,6 @@ test("content_browsertests") {
     "../browser/webrtc/webrtc_webcam_browsertest.cc",
     "../browser/webrtc/webrtc_webcam_browsertest.h",
     "../browser/webui/web_ui_browsertest.cc",
-    "../browser/webui/web_ui_browsertest_util.cc",
-    "../browser/webui/web_ui_browsertest_util.h",
     "../browser/webui/web_ui_mojo_browsertest.cc",
     "../browser/webui/web_ui_navigation_browsertest.cc",
     "../browser/webui/web_ui_security_browsertest.cc",
@@ -1459,9 +1445,7 @@ test("content_browsertests") {
 
 static_library("run_all_unittests") {
   testonly = true
-  sources = [
-    "run_all_unittests.cc",
-  ]
+  sources = [ "run_all_unittests.cc" ]
   deps = [
     ":test_support",
     "//base/test:test_support",
@@ -2254,9 +2238,7 @@ test("content_unittests") {
 
 if (enable_nocompile_tests) {
   nocompile_test("content_nocompile_tests") {
-    sources = [
-      "../public/browser/browser_task_traits_unittest.nc",
-    ]
+    sources = [ "../public/browser/browser_task_traits_unittest.nc" ]
 
     deps = [
       ":run_all_unittests",
@@ -2274,9 +2256,7 @@ test("content_perftests") {
     check_includes = false
   }
 
-  sources = [
-    "../test/run_all_perftests.cc",
-  ]
+  sources = [ "../test/run_all_perftests.cc" ]
   deps = [
     "//base/test:test_support",
     "//cc",
@@ -2302,9 +2282,7 @@ test("content_perftests") {
 }
 
 group("fuzzers") {
-  deps = [
-    "//content/test/fuzzer",
-  ]
+  deps = [ "//content/test/fuzzer" ]
 }
 
 # This group defines the isolate files needed to run
