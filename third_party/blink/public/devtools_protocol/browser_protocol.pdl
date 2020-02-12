@@ -3455,16 +3455,32 @@ experimental domain PageStream
     properties
       # Backend id for the node associated with the clickable thing.
       optional DOM.BackendNodeId backendNodeId
-      # Unique id of a layer containing the this ClickTarget.
-      LayerId layerId
-      # Layout rectangles
+      # Layout rectangles.  If there are none, this node has been deleted.
       array of DOM.Quad containingQuads
 
-  # Provides all visible clickable things, together with bounding rectangles and associated layers.
-  event getClickTargets
+  type LayerUpdate extends object
+    properties
+      # The id of the layer.
+      LayerId layerId
+      # Clip rectangle.  If set, previous image data's must be kept unless entirely occluded
+      optional DOM.Rect clip
+      # Provides all visible clickable things on this layer
+      # together with bounding rectangles and associated layers.
+      optional array of ClickTarget targets
+      # Image data, data url encoded
+      optional string image
+      # Info about layer, in a silly custom string format, sorry!
+      # TODO:  Refactor API to send specific necessary fields.
+      optional string layerInfo
+      optional integer zIndex
+      # When set to true, this layer has been destroyed and
+      # will never receive updates again.
+      # The LayerId may be reused for a new layer.
+      optional boolean layerDeleted
+
+  event debugInfo
     parameters
-      # A list of click targets 
-      array of ClickTarget targets
+      string debugInfo
 
   # Sets the scroll position of a specific element.
   command setScroll
@@ -3473,19 +3489,20 @@ experimental domain PageStream
       integer x
       integer y
 
+  # Sent whenever something changes in a layer.
+  # May be rate limited/aggregated.
   event streamLayerInfo
     parameters
-      # The id of the painted layer.
-      LayerId layerId
-      # Clip rectangle.
-      DOM.Rect clip
+      LayerUpdate layerUpdate
 
-  event layerTreeDidChange
+  # Emitted when all information for a new frame has been sent.
+  event frameDone
+
+  event streamPropTrees
     parameters
-      # cc property_tree encoded as JSON
+      # cc property_tree encoded as JSON.  Sent whenever anything changes
+      # TODO:  Refactor API to send diffs of only specific things that change.
       optional string propertyTreesJSON
-      # dump of layer data (pointing into property tree)
-      optional string LayerImplsJSON
 
 experimental domain LayerTree
   depends on DOM

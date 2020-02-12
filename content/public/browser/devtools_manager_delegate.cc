@@ -76,7 +76,7 @@ bool DevToolsManagerDelegate::HasBundledFrontendResources() {
 }
 
 bool DevToolsManagerDelegate::IsBrowserTargetDiscoverable() {
-  return false;
+  return true;
 }
 
 DevToolsManagerDelegate::~DevToolsManagerDelegate() {
