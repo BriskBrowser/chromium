@@ -426,7 +426,6 @@ Response InspectorPageStreamAgent::setScroll(int cc_element_id, int x, int y) {
 
   GetFrontend()->debugInfo("gotScroll");
 
-
   return Response::OK();
 }
 
