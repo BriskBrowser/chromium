@@ -71,6 +71,8 @@ class CORE_EXPORT InspectorPageStreamAgent final
   protocol::Response setScroll(int backend_node_id, int x, int y)
       override;
 
+  protocol::Response clickNode(int backend_node_id) override;
+
  private:
   const cc::Layer* RootLayer();
 

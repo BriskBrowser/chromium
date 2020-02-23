@@ -3489,6 +3489,11 @@ experimental domain PageStream
       integer x
       integer y
 
+  # Sets the scroll position of a specific element.
+  command clickNode
+    parameters
+      DOM.BackendNodeId backendNodeId
+
   # Sent whenever something changes in a layer.
   # May be rate limited/aggregated.
   event streamLayerInfo

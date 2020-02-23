@@ -380,6 +380,8 @@ void InspectorPageStreamAgent::updateClickTargets() {
   HitTestResult result(request, location);
   root_frame->ContentLayoutObject()->HitTest(location, result);
   std::map<cc::Layer*, std::map<int, std::unique_ptr<protocol::PageStream::ClickTarget>>> click_targets;
+  HeapLinkedHashSet<Member<Node>> candidates;
+  HeapLinkedHashSet<Member<Node>> excluded;
   Node* previous_node = nullptr;
   for (const auto hit_test_result_node : result.ListBasedTestResult()) {
     Node* node = hit_test_result_node.Get();
@@ -390,14 +392,25 @@ void InspectorPageStreamAgent::updateClickTargets() {
     auto* element = DynamicTo<Element>(node);
     if (!node || node == previous_node || !element)
       continue;
+    previous_node = node;
     if (!node->HasEventListeners(event_type_names::kClick) && !node->IsLink())
       continue;
+    candidates.insert(node);
+    // We exclude all parents of this node, because we don't want to include click handlers inside click handlers
+    // They tend to have handlers which look at the event.target JS property, therefore making *any* child node
+    // a possible target - that makes way to many nodes.
+    while((node = node->ParentOrShadowHostNode()))
+      excluded.insert(node);
+  }
+
+  for (const auto node : candidates) {
+    if (excluded.Contains(node))
+      continue;
     cc::Layer* layer;
-    std::unique_ptr<protocol::PageStream::ClickTarget> target = BuildClickTarget(node, &layer);
-    if (target)
+    std::unique_ptr<protocol::PageStream::ClickTarget> target = BuildClickTarget(node.Get(), &layer);
+    if (target) {
       click_targets[layer].emplace(IdentifiersFactory::IntIdForNode(node), std::move(target));
-    
-    previous_node = node;
+    }
   }
 
   for (auto& click_targets_for_layer : click_targets) {
@@ -425,6 +438,26 @@ Response InspectorPageStreamAgent::setScroll(int cc_element_id, int x, int y) {
   pending_click_target_update_ = true;
 
   GetFrontend()->debugInfo("gotScroll");
+
+  return Response::OK();
+}
+
+Response InspectorPageStreamAgent::clickNode(int backend_node_id) {
+  const auto* root_layer = RootLayer();
+  if (!root_layer)
+    return Response::Error("No root layer");
+
+  Node* node = DOMNodeIds::NodeForId(backend_node_id);
+  if (!node)
+    return Response::Error("ID does not exist");
+
+  node->GetExecutionContext()
+      ->GetTaskRunner(TaskType::kUserInteraction)
+      ->PostTask(
+          FROM_HERE,
+          WTF::Bind(&Node::DispatchSimulatedClick,
+                    WrapWeakPersistent(node), nullptr, kSendNoEvents,
+                    SimulatedClickCreationScope::kFromUserAgent));
 
   return Response::OK();
 }
