@@ -3489,7 +3489,7 @@ experimental domain PageStream
       integer x
       integer y
 
-  # Sets the scroll position of a specific element.
+  # Do a click event on a node.
   command clickNode
     parameters
       DOM.BackendNodeId backendNodeId
