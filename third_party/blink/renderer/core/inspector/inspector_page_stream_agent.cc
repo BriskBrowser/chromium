@@ -147,10 +147,12 @@ String RenderPicture(sk_sp<SkPicture> input, const gfx::Rect& clip_rect,
 
   sk_sp<SkImage> img(surface->makeImageSnapshot(clip));
 
-  CHECK(img) << "No image returned";
+  DCHECK(img) << "No image returned";
+  if (!img) return "";
 
   sk_sp<SkData> webp(img->encodeToData(SkEncodedImageFormat::kWEBP, 10));
-  CHECK(webp) << "No webp data";
+  DCHECK(webp) << "No webp data";
+  if (!webp) return "";
 
   return "data:image/webp;base64," + Base64Encode(base::span<const uint8_t>(webp->bytes(), webp->size()));
 }
