@@ -163,7 +163,7 @@ class InspectorPageStreamAgent::ClientSideLayer : public RefCounted<ClientSideLa
 public:
 
   ClientSideLayer(cc::Layer* l, protocol::PageStream::Metainfo::FrontendClass* fe) : 
-    layer_(l), 
+    layer_(base::WrapRefCounted<cc::Layer>(l)), 
     layer_id_(l->id()),
     layer_as_string_(),
     z_index_(0),
@@ -245,7 +245,7 @@ public:
 
   }
 private:
-  cc::Layer* layer_;
+  scoped_refptr<cc::Layer> layer_;
   int layer_id_;
   std::string layer_as_string_;
   int z_index_;
