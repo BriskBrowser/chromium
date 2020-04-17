@@ -86,7 +86,12 @@ InspectorPageStreamAgent::InspectorPageStreamAgent(
     InspectedFrames* inspected_frames)
     : inspected_frames_(inspected_frames),
     pending_click_target_update_(false), 
-    enabled_(&agent_state_, /*default_value=*/false) {}
+    target_bandwidth_(&agent_state_, /*default_value=*/-1),
+    fps_(&agent_state_, /*default_value=*/-1),
+    send_click_targets_(&agent_state_, /*default_value=*/true),
+    auto_open_click_targets_(&agent_state_, /*default_value=*/false),
+    enabled_(&agent_state_, /*default_value=*/false)
+     { }
 
 InspectorPageStreamAgent::~InspectorPageStreamAgent() = default;
 
@@ -97,12 +102,12 @@ void InspectorPageStreamAgent::Trace(blink::Visitor* visitor) {
 
 void InspectorPageStreamAgent::Restore() {
   if (enabled_.Get()) {
-    enable();
+    enable({}, {}, {}, {});
     GetFrontend()->debugInfo("reset");
   }
 }
 
-Response InspectorPageStreamAgent::enable() {
+Response InspectorPageStreamAgent::enable(Maybe<int> target_bandwidth, Maybe<int> fps, Maybe<bool> send_click_targets, Maybe<bool> auto_open_click_targets) {
   instrumenting_agents_->AddInspectorPageStreamAgent(this);
   Document* document = inspected_frames_->Root()->GetDocument();
   if (!document)
@@ -112,6 +117,11 @@ Response InspectorPageStreamAgent::enable() {
     layer->SetNeedsDisplay();
 
   enabled_.Set(true);
+
+  target_bandwidth_.Set(target_bandwidth.fromMaybe(-1));
+  fps_.Set(fps.fromMaybe(-1));
+  send_click_targets_.Set(send_click_targets.fromMaybe(true));
+  auto_open_click_targets_.Set(auto_open_click_targets.fromMaybe(true));
 
   return Response::OK();
 }
@@ -260,7 +270,7 @@ private:
 
 void InspectorPageStreamAgent::LayerTreePainted() {
   //GetFrontend()->debugInfo(inspected_frames_->Root()->View()->CompositedLayersAsJSON(static_cast<LayerTreeFlags>(-1))->ToPrettyJSONString());
-  LOG(ERROR) << "LayerTreePainted"; // << base::debug::StackTrace();;  // 1st
+  //LOG(ERROR) << "LayerTreePainted"; // << base::debug::StackTrace();;  // 1st
 
      // GetPropertyTreesJSON(),
      // GetLayerImplJSON()
@@ -268,8 +278,13 @@ void InspectorPageStreamAgent::LayerTreePainted() {
 }
 
 void InspectorPageStreamAgent::LayerTreeDidChange() {
-  LOG(ERROR) << "LayerTreeDidChange"; // << base::debug::StackTrace();  // 2nd
-  
+  //LOG(ERROR) << fps_.Get() << "fps_.Get() LayerTreeDidChange" << base::debug::StackTrace(); // 2nd
+  LOG(ERROR) << "frame";
+  if (fps_.Get()>0) {
+  	RootLayer()->layer_tree_host()->StartDeferringCommits(base::TimeDelta::FromSecondsD(10.0/fps_.Get()));
+  	//LOG(ERROR) << "Defferring";
+  }
+
   // Set layer order if necessary
   int i=0;
   HashSet<cc::Layer*> layers_in_layer_tree_host;
@@ -316,6 +331,7 @@ void InspectorPageStreamAgent::LayerTreeDidChange() {
   }
 
   GetFrontend()->frameDone();
+  LOG(ERROR) << "frameDone";
   
 }
 
@@ -366,6 +382,7 @@ static std::unique_ptr<protocol::PageStream::ClickTarget> BuildClickTarget(Node*
 }
 
 void InspectorPageStreamAgent::updateClickTargets() {
+  if (!send_click_targets_.Get()) return;
   HitTestRequest request(HitTestRequest::kReadOnly | HitTestRequest::kActive |
                          HitTestRequest::kListBased |
                          HitTestRequest::kPenetratingList);
@@ -428,7 +445,7 @@ void InspectorPageStreamAgent::updateClickTargets() {
 Response InspectorPageStreamAgent::setScroll(int cc_element_id, int x, int y) {
   const auto* root_layer = RootLayer();
   if (!root_layer)
-    return Response::Error("No root layer");
+    return Response::OK();
 
   root_layer->layer_tree_host()->property_trees()->scroll_tree.NotifyDidScroll(cc::ElementId(cc_element_id), gfx::ScrollOffset(x, y), base::nullopt);
 
@@ -438,8 +455,6 @@ Response InspectorPageStreamAgent::setScroll(int cc_element_id, int x, int y) {
                                  WrapPersistent(this)));
 
   pending_click_target_update_ = true;
-
-  GetFrontend()->debugInfo("gotScroll");
 
   return Response::OK();
 }

@@ -3443,12 +3443,17 @@ experimental domain PageStream
   type LayerId extends integer
 
   # Sends events to the client suitable for reconstructing the layer tree, and streams updates.
+  # Can be enabled multiple times, and options will be updated.
   command enable
-    properties
+    parameters
       # Ideal bandwidth in bytes/sec.  Used for image quality decisions.  Default Inf.
       optional integer targetBandwidth
+      # FPS limit.  Set to -1 for inf.  Zero to halt rendering (but still leave page running).
+      optional integer fps
       # Sends info about ClickTarget objects that could be interacted with
-      optional bool isVisible
+      optional boolean sendClickTargets
+      # Open click targets in new tabs.
+      optional boolean autoOpenClickTargets
 
   # Information about a clickable thing.
   type ClickTarget extends object

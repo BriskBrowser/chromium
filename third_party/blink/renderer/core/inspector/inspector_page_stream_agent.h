@@ -32,6 +32,7 @@
 
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
+#include "ui/compositor/compositor_lock.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/inspector/inspector_base_agent.h"
 #include "third_party/blink/renderer/core/inspector/protocol/PageStream.h"
@@ -64,7 +65,11 @@ class CORE_EXPORT InspectorPageStreamAgent final
   void LayerTreePainted();
 
   // Called from the front-end.
-  protocol::Response enable() override;
+  protocol::Response enable(
+  	protocol::Maybe<int> target_bandwidth,
+  	protocol::Maybe<int> fps,
+  	protocol::Maybe<bool> send_click_targets,
+  	protocol::Maybe<bool> auto_open_click_targets) override;
   
   protocol::Response disable() override;
   
@@ -86,6 +91,12 @@ class CORE_EXPORT InspectorPageStreamAgent final
   LayerMap layers_;
 
   std::string prop_trees_;
+
+  // Config from client
+  InspectorAgentState::Integer target_bandwidth_;
+  InspectorAgentState::Integer fps_;
+  InspectorAgentState::Boolean send_click_targets_;
+  InspectorAgentState::Boolean auto_open_click_targets_;
 
   InspectorAgentState::Boolean enabled_;
 
