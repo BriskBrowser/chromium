@@ -3441,6 +3441,8 @@ experimental domain PageStream
   depends on DOM
 
   type LayerId extends integer
+  type SessionID extends string
+
 
   # Sends events to the client suitable for reconstructing the layer tree, and streams updates.
   # Can be enabled multiple times, and options will be updated.
@@ -3458,22 +3460,33 @@ experimental domain PageStream
   # Information about a clickable thing.
   type ClickTarget extends object
     properties
-      # Backend id for the node associated with the clickable thing.
-      optional DOM.BackendNodeId backendNodeId
+      # Backend id for the node associated with the clickable thing.  Unique identifier.
+      DOM.BackendNodeId backendNodeId
       # Layout rectangles.  If there are none, this node has been deleted.
-      array of DOM.Quad containingQuads
+      optional array of DOM.Quad containingQuads
+      # Session to switch to if this target is clicked
+      optional SessionID sessionId
+      # target has been deleted.
+      optional boolean targetDeleted
+
+  type BufferUpdate extends object
+    properties
+      # Image data, data url encoded
+      optional string image
+      # Clip rectangle.  If set, previous image data's must be kept unless entirely occluded
+      optional DOM.Rect clip
+      
 
   type LayerUpdate extends object
     properties
       # The id of the layer.
       LayerId layerId
-      # Clip rectangle.  If set, previous image data's must be kept unless entirely occluded
-      optional DOM.Rect clip
-      # Provides all visible clickable things on this layer
+      # Provides visible clickable things on this layer which have
+      # changed since the last update.
       # together with bounding rectangles and associated layers.
       optional array of ClickTarget targets
-      # Image data, data url encoded
-      optional string image
+      # Changes to the pixels of the layer
+      optional array of BufferUpdate bufferUpdates
       # Info about layer, in a silly custom string format, sorry!
       # TODO:  Refactor API to send specific necessary fields.
       optional string layerInfo

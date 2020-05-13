@@ -157,11 +157,11 @@ String RenderPicture(sk_sp<SkPicture> input, const gfx::Rect& clip_rect,
 
   sk_sp<SkImage> img(surface->makeImageSnapshot(clip));
 
-  DCHECK(img) << "No image returned";
+  //DCHECK(img) << "No image returned";
   if (!img) return "";
 
   sk_sp<SkData> webp(img->encodeToData(SkEncodedImageFormat::kWEBP, 10));
-  DCHECK(webp) << "No webp data";
+  //DCHECK(webp) << "No webp data";
   if (!webp) return "";
 
   return "data:image/webp;base64," + Base64Encode(base::span<const uint8_t>(webp->bytes(), webp->size()));
@@ -179,7 +179,6 @@ public:
     z_index_(0),
     z_index_changed_(false),
     click_targets_(),
-    click_target_changed_(),
     fe_(fe) {}
 
   void Delete() {
@@ -203,9 +202,30 @@ public:
     if (!layer_->update_rect().IsEmpty()) {
       sk_sp<SkPicture> pic = layer_->GetPicture();
       if (pic) {
-        String imagedata = RenderPicture(pic, layer_->update_rect(), 1.0);
-        msg->setImage(std::move(imagedata));
-        msg->setClip(BuildObjectForRect(layer_->update_rect()));
+        auto bufferUpdates = std::make_unique<protocol::Array<protocol::PageStream::BufferUpdate>>();
+
+#define CELL_SIZE 256
+        auto& update_rect = layer_->update_rect();
+
+        for (int cell_x=update_rect.x()/CELL_SIZE; cell_x<=(update_rect.x()+update_rect.width()-1)/CELL_SIZE; cell_x++) {
+          for (int cell_y=update_rect.y()/CELL_SIZE; cell_y<=(update_rect.y()+update_rect.height()-1)/CELL_SIZE; cell_y++) {
+
+            gfx::Rect clip_rect(update_rect);
+            clip_rect.Intersect(gfx::Rect(cell_x*CELL_SIZE, cell_y*CELL_SIZE, CELL_SIZE, CELL_SIZE)); 
+
+            String imagedata = RenderPicture(pic, clip_rect, 1.0);
+            auto buf_msg = protocol::PageStream::BufferUpdate::create()
+                .setImage(std::move(imagedata))
+                .setClip(BuildObjectForRect(clip_rect))
+                .build();
+
+            bufferUpdates->emplace_back(std::move(buf_msg));
+
+          }
+        }
+
+
+        msg->setBufferUpdates(std::move(bufferUpdates));
       }
     }
 
@@ -214,7 +234,7 @@ public:
       z_index_changed_ = false;
     }
 
-    if (msg->hasZIndex() || msg->hasTargets() || msg->hasClip() || msg->hasLayerInfo())
+    if (msg->hasZIndex() || msg->hasTargets() || msg->hasBufferUpdates() || msg->hasLayerInfo())
       fe_->streamLayerInfo(std::move(msg));
   }
 
@@ -224,32 +244,34 @@ public:
   }
 
   void updateClickTargets(std::map<int, std::unique_ptr<protocol::PageStream::ClickTarget>>& click_targets) {
+    std::unique_ptr<protocol::Array<protocol::PageStream::ClickTarget>> targets = std::make_unique<protocol::Array<protocol::PageStream::ClickTarget>>();
+    // Notify of deleted targets
     for (auto &m : click_targets_) {
       if (!click_targets.count(m.first))
-        click_target_changed_[m.first] = true;
+        targets->emplace_back(
+            protocol::PageStream::ClickTarget::create()
+                .setBackendNodeId(m.first)
+                .setTargetDeleted(true)
+                .build());
     }
+    // New or changed
     for (auto &m : click_targets) {
-      if (!click_targets_.count(m.first)) {
-        click_target_changed_[m.first] = true;
-        continue;
-      }
-      if (*m.second->getContainingQuads() != *click_targets_.at(m.first)->getContainingQuads()) {
-        click_target_changed_[m.first] = true;
+      protocol::Array<protocol::Array<double>> empty = {};
+      if (!click_targets_.count(m.first) ||
+        *m.second->getContainingQuads(&empty)
+         != *click_targets_.at(m.first)->getContainingQuads(&empty)) {
+        targets->emplace_back(m.second->clone());
       }
     }
     
     click_targets_ = std::move(click_targets);
 
-    if (click_target_changed_.size()) {
+    if (targets->size()) {
       auto msg = protocol::PageStream::LayerUpdate::create()
               .setLayerId(layer_id_)
               .build();
-      std::unique_ptr<protocol::Array<protocol::PageStream::ClickTarget>> targets = std::make_unique<protocol::Array<protocol::PageStream::ClickTarget>>();
-      for (const auto &c : click_targets_)
-        targets->emplace_back(c.second->clone());
-
+      
       msg->setTargets(std::move(targets));
-      click_target_changed_.clear();
       fe_->streamLayerInfo(std::move(msg));
     }
 
@@ -261,7 +283,6 @@ private:
   int z_index_;
   bool z_index_changed_;
   std::map<int, std::unique_ptr<protocol::PageStream::ClickTarget>> click_targets_;
-  std::map<int, bool> click_target_changed_;
   protocol::PageStream::Metainfo::FrontendClass* fe_;
 
   DISALLOW_COPY_AND_ASSIGN(ClientSideLayer);
