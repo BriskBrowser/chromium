@@ -38,6 +38,7 @@
 #include "cc/base/region.h"
 #include "cc/layers/picture_layer.h"
 #include "cc/trees/transform_node.h"
+#include "cc/trees/clip_node.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_node_ids.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -58,7 +59,11 @@
 #include "third_party/blink/renderer/platform/graphics/compositor_element_id.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_layer.h"
 #include "third_party/blink/renderer/platform/graphics/picture_snapshot.h"
+#include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
+#include "third_party/blink/renderer/platform/scheduler/public/thread.h"
+#include "third_party/blink/renderer/platform/scheduler/public/worker_pool.h"
 #include "third_party/blink/renderer/platform/transforms/transformation_matrix.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/text/base64.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/skia/include/core/SkPicture.h"
@@ -82,10 +87,33 @@ static std::unique_ptr<protocol::DOM::Rect> BuildObjectForRect(
       .build();
 }
 
+/* Keeps track of which areas of a layer are dirty */
+class DirtyPoly {
+public:
+  DirtyPoly() {}
+
+private:
+  gfx::Rect internal_;
+
+
+public:
+  void  AddRect(gfx::Rect a) {
+    internal_.Union(a);
+  }
+  std::unique_ptr<std::vector<gfx::Rect>> FetchAndResetDirtyRegions() {
+    if (internal_.IsEmpty()) return nullptr;
+    auto ret = std::make_unique<std::vector<gfx::Rect>>();
+    ret->emplace_back(internal_);
+    internal_ = gfx::Rect();
+    return ret;
+  }
+};
+
 InspectorPageStreamAgent::InspectorPageStreamAgent(
     InspectedFrames* inspected_frames)
     : inspected_frames_(inspected_frames),
     pending_click_target_update_(false), 
+    pending_frame_refreshs_(0), 
     target_bandwidth_(&agent_state_, /*default_value=*/-1),
     fps_(&agent_state_, /*default_value=*/-1),
     send_click_targets_(&agent_state_, /*default_value=*/true),
@@ -133,6 +161,25 @@ Response InspectorPageStreamAgent::disable() {
 }
 
 
+gfx::Rect GetVisibleRect(cc::Layer* l, cc::LayerTreeHost* lth) {
+  // Visible region in screen space
+  gfx::RectF visible_region = lth->property_trees()->clip_tree.Node(l->clip_tree_index())->cached_accumulated_rect_in_screen_space;
+
+  // Translate screen to layer coordinates.
+  const cc::EffectNode* root_effect_node =
+      lth->property_trees()->effect_tree.Node(cc::EffectTree::kContentsRootNodeId);
+
+  gfx::Transform target_to_local;
+  lth->property_trees()->GetFromTarget(
+      l->transform_tree_index(), root_effect_node->id, &target_to_local);
+
+  gfx::RectF visible_region_in_layer = cc::MathUtil::ProjectClippedRect(target_to_local, visible_region);
+  visible_region_in_layer.Offset(-l->offset_to_transform_parent());
+
+  return gfx::ToEnclosingRect(visible_region_in_layer);
+
+}
+
 String RenderPicture(sk_sp<SkPicture> input, const gfx::Rect& clip_rect,
                                         double scale) {
 
@@ -146,6 +193,7 @@ String RenderPicture(sk_sp<SkPicture> input, const gfx::Rect& clip_rect,
   int width = ceil(scale * bounds.width());
   int height = ceil(scale * bounds.height());
 
+  // replace with canvas->translate()
   
   sk_sp<SkSurface> surface = SkSurface::MakeRasterN32Premul(width, height);
   SkCanvas* canvas = surface->getCanvas();
@@ -167,9 +215,24 @@ String RenderPicture(sk_sp<SkPicture> input, const gfx::Rect& clip_rect,
   return "data:image/webp;base64," + Base64Encode(base::span<const uint8_t>(webp->bytes(), webp->size()));
 }
 
+void RenderPictureAndPostResult(scoped_refptr<base::SingleThreadTaskRunner> task_runner,
+                                sk_sp<SkPicture> input, std::unique_ptr<gfx::Rect> clip_rect,
+                                double scale,
+                                WTF::CrossThreadOnceFunction<void(std::unique_ptr<protocol::PageStream::BufferUpdate>)> result_callback) {
+  String imagedata = RenderPicture(input, *clip_rect, scale);
+  
+  auto buf_msg = protocol::PageStream::BufferUpdate::create()
+    .setImage(std::move(imagedata))
+    .setClip(BuildObjectForRect(*clip_rect))
+    .build();
+
+  PostCrossThreadTask(*task_runner, FROM_HERE,
+                      CrossThreadBindOnce(std::move(result_callback), std::move(buf_msg)));
+}
+
 
 /* Responsible for syncing state of a cc:Layer to the client */
-class InspectorPageStreamAgent::ClientSideLayer : public RefCounted<ClientSideLayer> {
+class InspectorPageStreamAgent::ClientSideLayer : public ThreadSafeRefCounted<ClientSideLayer> {
 public:
 
   ClientSideLayer(cc::Layer* l, protocol::PageStream::Metainfo::FrontendClass* fe) : 
@@ -178,6 +241,10 @@ public:
     layer_as_string_(),
     z_index_(0),
     z_index_changed_(false),
+    outstanding_images_(0),
+    callback_(),
+    dirty_(),
+    deleted_(false),
     click_targets_(),
     fe_(fe) {}
 
@@ -186,9 +253,17 @@ public:
         .setLayerId(layer_id_)
         .setLayerDeleted(true)
         .build());
+    deleted_ = true;
   }
 
-  void Refresh() {
+  void MakeDirty() {
+    dirty_.AddRect(layer_->update_rect());
+  }
+
+  void Refresh(gfx::Rect visible_region, base::OnceCallback<void()> callback) {
+    DCHECK(callback_.is_null());
+    callback_ = std::move(callback);
+
     auto msg = protocol::PageStream::LayerUpdate::create()
                   .setLayerId(layer_id_)
                   .build();
@@ -199,33 +274,34 @@ public:
       msg->setLayerInfo(layer_as_string_.c_str());
     }
 
-    if (!layer_->update_rect().IsEmpty()) {
+    auto regions = dirty_.FetchAndResetDirtyRegions();
+
+    if (regions) {
+
       sk_sp<SkPicture> pic = layer_->GetPicture();
       if (pic) {
-        auto bufferUpdates = std::make_unique<protocol::Array<protocol::PageStream::BufferUpdate>>();
-
 #define CELL_SIZE 256
-        auto& update_rect = layer_->update_rect();
+        for (auto rect : *regions) {
+          for (int cell_x=rect.x()/CELL_SIZE; cell_x<=(rect.x()+rect.width()-1)/CELL_SIZE; cell_x++) {
+            for (int cell_y=rect.y()/CELL_SIZE; cell_y<=(rect.y()+rect.height()-1)/CELL_SIZE; cell_y++) {
 
-        for (int cell_x=update_rect.x()/CELL_SIZE; cell_x<=(update_rect.x()+update_rect.width()-1)/CELL_SIZE; cell_x++) {
-          for (int cell_y=update_rect.y()/CELL_SIZE; cell_y<=(update_rect.y()+update_rect.height()-1)/CELL_SIZE; cell_y++) {
+              auto clip_rect = std::make_unique<gfx::Rect>(rect);
+              clip_rect->Intersect(gfx::Rect(cell_x*CELL_SIZE, cell_y*CELL_SIZE, CELL_SIZE, CELL_SIZE)); 
 
-            gfx::Rect clip_rect(update_rect);
-            clip_rect.Intersect(gfx::Rect(cell_x*CELL_SIZE, cell_y*CELL_SIZE, CELL_SIZE, CELL_SIZE)); 
+              outstanding_images_++;
 
-            String imagedata = RenderPicture(pic, clip_rect, 1.0);
-            auto buf_msg = protocol::PageStream::BufferUpdate::create()
-                .setImage(std::move(imagedata))
-                .setClip(BuildObjectForRect(clip_rect))
-                .build();
+              float scale = 0.2; //visible_region.Intersects(*clip_rect)?1.0:0.2;
 
-            bufferUpdates->emplace_back(std::move(buf_msg));
-
+              worker_pool::PostTask(
+                  FROM_HERE,
+                  CrossThreadBindOnce(
+                      RenderPictureAndPostResult, Thread::Current()->GetTaskRunner(),
+                      pic, std::move(clip_rect), scale,
+                      CrossThreadBindOnce(&InspectorPageStreamAgent::ClientSideLayer::commitImage,
+                                          WrapRefCounted(this))));
+            }
           }
         }
-
-
-        msg->setBufferUpdates(std::move(bufferUpdates));
       }
     }
 
@@ -236,9 +312,12 @@ public:
 
     if (msg->hasZIndex() || msg->hasTargets() || msg->hasBufferUpdates() || msg->hasLayerInfo())
       fe_->streamLayerInfo(std::move(msg));
+
+    if (!outstanding_images_) std::move(callback_).Run();
   }
 
   void zIndex(int z) {
+    if (z_index_==z) return;
     z_index_changed_ = true;
     z_index_ = z;
   }
@@ -274,14 +353,37 @@ public:
       msg->setTargets(std::move(targets));
       fe_->streamLayerInfo(std::move(msg));
     }
-
   }
+
+  void commitImage(std::unique_ptr<protocol::PageStream::BufferUpdate> bu) {
+    outstanding_images_--;
+    
+    if (deleted_) return;
+    auto buList = std::make_unique<std::vector<std::unique_ptr<protocol::PageStream::BufferUpdate>>>();
+
+    buList->emplace_back(std::move(bu));
+
+    auto msg = protocol::PageStream::LayerUpdate::create()
+                  .setLayerId(layer_id_)
+                  .setBufferUpdates(std::move(buList))
+                  .build();
+
+    fe_->streamLayerInfo(std::move(msg));
+
+    if (!outstanding_images_) std::move(callback_).Run();
+  }
+
 private:
   scoped_refptr<cc::Layer> layer_;
   int layer_id_;
   std::string layer_as_string_;
   int z_index_;
   bool z_index_changed_;
+  int outstanding_images_;
+  base::OnceCallback<void()> callback_;
+  DirtyPoly dirty_;
+
+  bool deleted_;
   std::map<int, std::unique_ptr<protocol::PageStream::ClickTarget>> click_targets_;
   protocol::PageStream::Metainfo::FrontendClass* fe_;
 
@@ -298,26 +400,46 @@ void InspectorPageStreamAgent::LayerTreePainted() {
 
 }
 
-void InspectorPageStreamAgent::LayerTreeDidChange() {
-  //LOG(ERROR) << fps_.Get() << "fps_.Get() LayerTreeDidChange" << base::debug::StackTrace(); // 2nd
-  LOG(ERROR) << "frame";
-  if (fps_.Get()>0) {
-  	RootLayer()->layer_tree_host()->StartDeferringCommits(base::TimeDelta::FromSecondsD(10.0/fps_.Get()));
-  	//LOG(ERROR) << "Defferring";
+void InspectorPageStreamAgent::LayerRefreshComplete() {
+  LOG(ERROR) << pending_frame_refreshs_;
+  if (!--pending_frame_refreshs_) {
+    if (RootLayer() && RootLayer()->layer_tree_host())
+      RootLayer()->layer_tree_host()->StopDeferringCommits(cc::PaintHoldingCommitTrigger::kDisallowed);
+    if (GetFrontend()) GetFrontend()->frameDone();
+    LOG(ERROR) << "send_framedone";
   }
+}
+
+void InspectorPageStreamAgent::LayerTreeDidChange() {
+  // Defer everything till rendering is complete
+  RootLayer()->layer_tree_host()->StartDeferringCommits(base::TimeDelta::Max());
+
+  LOG(ERROR) << "pending=" << pending_frame_refreshs_;
+
 
   // Set layer order if necessary
   int i=0;
   HashSet<cc::Layer*> layers_in_layer_tree_host;
   for (auto* layer : *(RootLayer()->layer_tree_host())) {
     if (!layers_.Contains(layer))
-      layers_.insert(layer, base::MakeRefCounted<ClientSideLayer>(layer, GetFrontend()));
+      layers_.insert(layer, 
+        base::MakeRefCounted<ClientSideLayer>(
+          layer, GetFrontend()));
 
     layers_.find(layer)->value->zIndex(i++);
 
     // keep track of layers that exist.
     layers_in_layer_tree_host.insert(layer);
   }
+
+  // still processing the last layer?  We just record dirty regions and exit.
+  if (pending_frame_refreshs_) {
+    for (const auto& it : layers_ )
+      it.value->MakeDirty();
+    return;
+  }
+
+  pending_frame_refreshs_++;
 
   // mark layers that no longer exist as deleted.
   HashSet<cc::Layer*> layers_to_delete;
@@ -340,7 +462,7 @@ void InspectorPageStreamAgent::LayerTreeDidChange() {
 
   if (!pending_click_target_update_)
     inspected_frames_->Root()->GetTaskRunner(TaskType::kDOMManipulation)->PostTask(FROM_HERE,
-                       WTF::Bind(&InspectorPageStreamAgent::updateClickTargets,
+                       base::BindOnce(&InspectorPageStreamAgent::updateClickTargets,
                                  WrapPersistent(this)));
 
   pending_click_target_update_ = true;
@@ -348,16 +470,27 @@ void InspectorPageStreamAgent::LayerTreeDidChange() {
   // Send layer changes if necessary
   //for (auto* layer : RootLayer()->layer_tree_host()->LayersThatShouldPushProperties()){
   for (auto* layer : *(RootLayer()->layer_tree_host())) {
-    layers_.find(layer)->value->Refresh();
+    pending_frame_refreshs_++;
+    auto l = layers_.find(layer)->value;
+
+    gfx::Rect visible_region = GetVisibleRect(layer, RootLayer()->layer_tree_host());
+
+    l->MakeDirty();
+    l->Refresh(visible_region,
+          base::BindOnce(&InspectorPageStreamAgent::LayerRefreshComplete,
+            WrapPersistent(this)));
   }
 
-  GetFrontend()->frameDone();
-  LOG(ERROR) << "frameDone";
+  LayerRefreshComplete();
+  LOG(ERROR) << "frameStarted";
   
 }
-
+  
 const cc::Layer* InspectorPageStreamAgent::RootLayer() {
-  return inspected_frames_->Root()->View()->RootCcLayer();
+  if (inspected_frames_->Root()->View())
+    return inspected_frames_->Root()->View()->RootCcLayer();
+  else
+    return nullptr;
 }
 
 std::unique_ptr<protocol::Array<double>> BuildArrayForQuad(
@@ -472,7 +605,7 @@ Response InspectorPageStreamAgent::setScroll(int cc_element_id, int x, int y) {
 
   if (!pending_click_target_update_)
     inspected_frames_->Root()->GetTaskRunner(TaskType::kDOMManipulation)->PostTask(FROM_HERE,
-                       WTF::Bind(&InspectorPageStreamAgent::updateClickTargets,
+                       base::BindOnce(&InspectorPageStreamAgent::updateClickTargets,
                                  WrapPersistent(this)));
 
   pending_click_target_update_ = true;
@@ -493,7 +626,7 @@ Response InspectorPageStreamAgent::clickNode(int backend_node_id) {
       ->GetTaskRunner(TaskType::kUserInteraction)
       ->PostTask(
           FROM_HERE,
-          WTF::Bind(&Node::DispatchSimulatedClick,
+          base::BindOnce(&Node::DispatchSimulatedClick,
                     WrapWeakPersistent(node), nullptr, kSendNoEvents,
                     SimulatedClickCreationScope::kFromUserAgent));
 

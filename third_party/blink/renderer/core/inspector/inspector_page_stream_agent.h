@@ -80,12 +80,14 @@ class CORE_EXPORT InspectorPageStreamAgent final
 
  private:
   const cc::Layer* RootLayer();
+  void LayerRefreshComplete();
 
   void updateClickTargets();
 
   Member<InspectedFrames> inspected_frames_;
 
   bool pending_click_target_update_;
+  int pending_frame_refreshs_;
 
   using LayerMap = HashMap<cc::Layer*, scoped_refptr<ClientSideLayer>>;
   LayerMap layers_;
