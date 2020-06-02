@@ -88,9 +88,10 @@ static std::unique_ptr<protocol::DOM::Rect> BuildObjectForRect(
 }
 
 /* Keeps track of which areas of a layer are dirty */
-class DirtyPoly {
+// TODO:  This could be made much much more accurate...
+class RegionStateTracker {
 public:
-  DirtyPoly() {}
+  RegionStateTracker() {}
 
 private:
   gfx::Rect internal_;
@@ -101,7 +102,6 @@ public:
     internal_.Union(a);
   }
   std::unique_ptr<std::vector<gfx::Rect>> FetchAndResetDirtyRegions() {
-    if (internal_.IsEmpty()) return nullptr;
     auto ret = std::make_unique<std::vector<gfx::Rect>>();
     ret->emplace_back(internal_);
     internal_ = gfx::Rect();
@@ -146,17 +146,11 @@ Response InspectorPageStreamAgent::enable(Maybe<int> target_bandwidth, Maybe<int
 
   enabled_.Set(true);
 
-  target_bandwidth_.Set(target_bandwidth.fromMaybe(-1));
-  fps_.Set(fps.fromMaybe(-1));
-  send_click_targets_.Set(send_click_targets.fromMaybe(true));
-  auto_open_click_targets_.Set(auto_open_click_targets.fromMaybe(true));
+  if (target_bandwidth.isJust()) target_bandwidth_.Set(target_bandwidth.fromJust());
+  if (fps.isJust()) fps_.Set(fps.fromJust());
+  if (send_click_targets.isJust()) send_click_targets_.Set(send_click_targets.fromJust());
+  if (auto_open_click_targets.isJust()) auto_open_click_targets_.Set(auto_open_click_targets.fromJust());
 
-  return Response::OK();
-}
-
-Response InspectorPageStreamAgent::disable() {
-  instrumenting_agents_->RemoveInspectorPageStreamAgent(this);
-  layers_.clear();  // Prevents a later UpdateClickTargets callback trying to do anything.
   return Response::OK();
 }
 
@@ -181,34 +175,29 @@ gfx::Rect GetVisibleRect(cc::Layer* l, cc::LayerTreeHost* lth) {
 }
 
 String RenderPicture(sk_sp<SkPicture> input, const gfx::Rect& clip_rect,
-                                        double scale) {
+                                        double scale, int quality) {
 
-  const SkIRect bounds = input->cullRect().roundOut();
-  const SkIRect clip = clip_rect.IsEmpty() ?
-                        bounds : 
-                        SkIRect::MakeXYWH(clip_rect.x(), clip_rect.y(),
+  const SkIRect clip = SkIRect::MakeXYWH(clip_rect.x(), clip_rect.y(),
                                      clip_rect.width(),
                                      clip_rect.height());
   
-  int width = ceil(scale * bounds.width());
-  int height = ceil(scale * bounds.height());
+  int width = ceil(scale * clip.width());
+  int height = ceil(scale * clip.height());
 
-  // replace with canvas->translate()
-  
   sk_sp<SkSurface> surface = SkSurface::MakeRasterN32Premul(width, height);
   SkCanvas* canvas = surface->getCanvas();
 
-  canvas->clipRect(SkRect::Make(clip));
   canvas->scale(scale, scale);
+  canvas->translate(-clip_rect.x(), -clip_rect.y());
   
   input->playback(canvas, nullptr);
 
-  sk_sp<SkImage> img(surface->makeImageSnapshot(clip));
+  sk_sp<SkImage> img(surface->makeImageSnapshot());
 
   //DCHECK(img) << "No image returned";
   if (!img) return "";
 
-  sk_sp<SkData> webp(img->encodeToData(SkEncodedImageFormat::kWEBP, 10));
+  sk_sp<SkData> webp(img->encodeToData(SkEncodedImageFormat::kWEBP, quality));
   //DCHECK(webp) << "No webp data";
   if (!webp) return "";
 
@@ -217,9 +206,9 @@ String RenderPicture(sk_sp<SkPicture> input, const gfx::Rect& clip_rect,
 
 void RenderPictureAndPostResult(scoped_refptr<base::SingleThreadTaskRunner> task_runner,
                                 sk_sp<SkPicture> input, std::unique_ptr<gfx::Rect> clip_rect,
-                                double scale,
+                                double scale, int quality,
                                 WTF::CrossThreadOnceFunction<void(std::unique_ptr<protocol::PageStream::BufferUpdate>)> result_callback) {
-  String imagedata = RenderPicture(input, *clip_rect, scale);
+  String imagedata = RenderPicture(input, *clip_rect, scale, quality);
   
   auto buf_msg = protocol::PageStream::BufferUpdate::create()
     .setImage(std::move(imagedata))
@@ -260,7 +249,7 @@ public:
     dirty_.AddRect(layer_->update_rect());
   }
 
-  void Refresh(gfx::Rect visible_region, base::OnceCallback<void()> callback) {
+  void Refresh(gfx::Rect visible_region, int quality, base::OnceCallback<void()> callback) {
     DCHECK(callback_.is_null());
     callback_ = std::move(callback);
 
@@ -276,31 +265,68 @@ public:
 
     auto regions = dirty_.FetchAndResetDirtyRegions();
 
-    if (regions) {
-
-      sk_sp<SkPicture> pic = layer_->GetPicture();
-      if (pic) {
+    
+    sk_sp<SkPicture> pic;
+    gfx::Rect bounds(layer_->bounds());
+    
 #define CELL_SIZE 256
-        for (auto rect : *regions) {
-          for (int cell_x=rect.x()/CELL_SIZE; cell_x<=(rect.x()+rect.width()-1)/CELL_SIZE; cell_x++) {
-            for (int cell_y=rect.y()/CELL_SIZE; cell_y<=(rect.y()+rect.height()-1)/CELL_SIZE; cell_y++) {
+    for (auto rect : *regions) {
+      for (int cell_x=0; cell_x<=(bounds.width()-1)/CELL_SIZE; cell_x++) {
+        for (int cell_y=0; cell_y<=(bounds.height()-1)/CELL_SIZE; cell_y++) {
 
-              auto clip_rect = std::make_unique<gfx::Rect>(rect);
-              clip_rect->Intersect(gfx::Rect(cell_x*CELL_SIZE, cell_y*CELL_SIZE, CELL_SIZE, CELL_SIZE)); 
+          
+          auto clip_rect = std::make_unique<gfx::Rect>(rect);
+          gfx::Rect tile_rect(cell_x*CELL_SIZE, cell_y*CELL_SIZE, CELL_SIZE, CELL_SIZE);
 
-              outstanding_images_++;
+          clip_rect->Intersect(tile_rect);
 
-              float scale = 0.2; //visible_region.Intersects(*clip_rect)?1.0:0.2;
+          
+          float scale = 0.2;
+          bool highres = visible_region.Intersects(tile_rect);
 
-              worker_pool::PostTask(
-                  FROM_HERE,
-                  CrossThreadBindOnce(
-                      RenderPictureAndPostResult, Thread::Current()->GetTaskRunner(),
-                      pic, std::move(clip_rect), scale,
-                      CrossThreadBindOnce(&InspectorPageStreamAgent::ClientSideLayer::commitImage,
-                                          WrapRefCounted(this))));
-            }
+          auto cell = std::make_pair(cell_x, cell_y);
+
+          if (highres) scale = 1.0;
+
+          if (highres && tile_is_low_res_.count(cell)) {
+            LOG(ERROR) << "tile becoming highres: layer" <<  layer_id_
+                    <<  " x" << cell_x
+                    <<  " y" << cell_y;
+
+            // was low res, now high res
+            clip_rect = std::make_unique<gfx::Rect>(tile_rect);
+            tile_is_low_res_.erase(cell);
+          } else if (!highres && !tile_is_low_res_.count(cell)) {
+            if (clip_rect->IsEmpty()) continue;
+                        LOG(ERROR) << "tile becoming lowres: layer" <<  layer_id_
+                    <<  " x" << cell_x
+                    <<  " y" << cell_y;
+
+                    for (auto const &p: tile_is_low_res_)
+                      LOG(ERROR) << p.first << " " << p.second;
+                    
+            tile_is_low_res_.insert(cell);
           }
+
+          if (clip_rect->IsEmpty()) continue;
+
+          LOG(ERROR) << "render: layer" <<  layer_id_
+                    <<  " x" << cell_x
+                    <<  " y" << cell_y
+                    <<  " scale" << scale;
+
+          if (!pic) pic = layer_->GetPicture();
+          if (!pic) continue;
+
+          outstanding_images_++;
+
+          worker_pool::PostTask(
+              FROM_HERE,
+              CrossThreadBindOnce(
+                  RenderPictureAndPostResult, Thread::Current()->GetTaskRunner(),
+                  pic, std::move(clip_rect), scale, quality,
+                  CrossThreadBindOnce(&InspectorPageStreamAgent::ClientSideLayer::commitImage,
+                                      WrapRefCounted(this))));
         }
       }
     }
@@ -381,15 +407,27 @@ private:
   bool z_index_changed_;
   int outstanding_images_;
   base::OnceCallback<void()> callback_;
-  DirtyPoly dirty_;
+  RegionStateTracker dirty_;
 
   bool deleted_;
   std::map<int, std::unique_ptr<protocol::PageStream::ClickTarget>> click_targets_;
   protocol::PageStream::Metainfo::FrontendClass* fe_;
 
+  std::set<std::pair<int, int>> tile_is_low_res_;
+
   DISALLOW_COPY_AND_ASSIGN(ClientSideLayer);
 
 };
+
+Response InspectorPageStreamAgent::disable() {
+  instrumenting_agents_->RemoveInspectorPageStreamAgent(this);
+  for (auto l:layers_)
+    l.value->Delete();
+  layers_.clear();  // Prevents a later UpdateClickTargets callback trying to do anything.
+
+  return Response::OK();
+}
+
 
 void InspectorPageStreamAgent::LayerTreePainted() {
   //GetFrontend()->debugInfo(inspected_frames_->Root()->View()->CompositedLayersAsJSON(static_cast<LayerTreeFlags>(-1))->ToPrettyJSONString());
@@ -401,7 +439,6 @@ void InspectorPageStreamAgent::LayerTreePainted() {
 }
 
 void InspectorPageStreamAgent::LayerRefreshComplete() {
-  LOG(ERROR) << pending_frame_refreshs_;
   if (!--pending_frame_refreshs_) {
     if (RootLayer() && RootLayer()->layer_tree_host())
       RootLayer()->layer_tree_host()->StopDeferringCommits(cc::PaintHoldingCommitTrigger::kDisallowed);
@@ -414,8 +451,7 @@ void InspectorPageStreamAgent::LayerTreeDidChange() {
   // Defer everything till rendering is complete
   RootLayer()->layer_tree_host()->StartDeferringCommits(base::TimeDelta::Max());
 
-  LOG(ERROR) << "pending=" << pending_frame_refreshs_;
-
+  
 
   // Set layer order if necessary
   int i=0;
@@ -436,8 +472,11 @@ void InspectorPageStreamAgent::LayerTreeDidChange() {
   if (pending_frame_refreshs_) {
     for (const auto& it : layers_ )
       it.value->MakeDirty();
+    LOG(ERROR) << "partial-frame";
     return;
   }
+
+  LOG(ERROR) << "full-frame";
 
   pending_frame_refreshs_++;
 
@@ -476,14 +515,12 @@ void InspectorPageStreamAgent::LayerTreeDidChange() {
     gfx::Rect visible_region = GetVisibleRect(layer, RootLayer()->layer_tree_host());
 
     l->MakeDirty();
-    l->Refresh(visible_region,
+    l->Refresh(visible_region, target_bandwidth_.Get()>0?100:10, 
           base::BindOnce(&InspectorPageStreamAgent::LayerRefreshComplete,
             WrapPersistent(this)));
   }
 
   LayerRefreshComplete();
-  LOG(ERROR) << "frameStarted";
-  
 }
   
 const cc::Layer* InspectorPageStreamAgent::RootLayer() {
