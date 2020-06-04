@@ -3457,6 +3457,10 @@ experimental domain PageStream
       # Open click targets in new tabs.
       optional boolean autoOpenClickTargets
 
+  # Used for tests only.  Returns when everything in the DOM at the time of the call is rendered
+  # to the client.
+  command flush
+
   # Information about a clickable thing.
   type ClickTarget extends object
     properties
@@ -3517,6 +3521,9 @@ experimental domain PageStream
   event streamLayerInfo
     parameters
       LayerUpdate layerUpdate
+
+  # Emitted when a frame is started.
+  event frameStart
 
   # Emitted when all information for a new frame has been sent.
   event frameDone

@@ -33,6 +33,7 @@
 
 #include <memory>
 
+#include "base/debug/stack_trace.h"
 #include "base/stl_util.h"
 #include "base/json/json_writer.h"
 #include "cc/base/region.h"
@@ -76,6 +77,8 @@ namespace blink {
 using protocol::Array;
 using protocol::Maybe;
 using protocol::Response;
+
+typedef blink::protocol::PageStream::Backend::FlushCallback FlushCallback;
 
 static std::unique_ptr<protocol::DOM::Rect> BuildObjectForRect(
     const gfx::Rect& rect) {
@@ -155,8 +158,11 @@ Response InspectorPageStreamAgent::enable(Maybe<int> target_bandwidth, Maybe<int
 }
 
 
-gfx::Rect GetVisibleRect(cc::Layer* l, cc::LayerTreeHost* lth) {
+gfx::Rect GetVisibleRect(cc::Layer* l) {
   // Visible region in screen space
+  cc::LayerTreeHost* lth = l->layer_tree_host();
+  if (!lth) return gfx::Rect();
+
   gfx::RectF visible_region = lth->property_trees()->clip_tree.Node(l->clip_tree_index())->cached_accumulated_rect_in_screen_space;
 
   // Translate screen to layer coordinates.
@@ -224,7 +230,7 @@ void RenderPictureAndPostResult(scoped_refptr<base::SingleThreadTaskRunner> task
 class InspectorPageStreamAgent::ClientSideLayer : public ThreadSafeRefCounted<ClientSideLayer> {
 public:
 
-  ClientSideLayer(cc::Layer* l, protocol::PageStream::Metainfo::FrontendClass* fe) : 
+  ClientSideLayer(cc::Layer* l, InspectorPageStreamAgent* ins) : 
     layer_(base::WrapRefCounted<cc::Layer>(l)), 
     layer_id_(l->id()),
     layer_as_string_(),
@@ -235,21 +241,22 @@ public:
     dirty_(),
     deleted_(false),
     click_targets_(),
-    fe_(fe) {}
+    ins_(ins) {}
 
   void Delete() {
-    fe_->streamLayerInfo(protocol::PageStream::LayerUpdate::create()
+    ins_->GetFrontend()->streamLayerInfo(protocol::PageStream::LayerUpdate::create()
         .setLayerId(layer_id_)
         .setLayerDeleted(true)
         .build());
     deleted_ = true;
+    ins_ = nullptr;
   }
 
   void MakeDirty() {
     dirty_.AddRect(layer_->update_rect());
   }
 
-  void Refresh(gfx::Rect visible_region, int quality, base::OnceCallback<void()> callback) {
+  void Refresh(int quality, base::OnceCallback<void()> callback) {
     DCHECK(callback_.is_null());
     callback_ = std::move(callback);
 
@@ -268,7 +275,9 @@ public:
     
     sk_sp<SkPicture> pic;
     gfx::Rect bounds(layer_->bounds());
-    
+
+    gfx::Rect visible_region = GetVisibleRect(layer_.get());
+
 #define CELL_SIZE 256
     for (auto rect : *regions) {
       for (int cell_x=0; cell_x<=(bounds.width()-1)/CELL_SIZE; cell_x++) {
@@ -289,34 +298,22 @@ public:
           if (highres) scale = 1.0;
 
           if (highres && tile_is_low_res_.count(cell)) {
-            LOG(ERROR) << "tile becoming highres: layer" <<  layer_id_
-                    <<  " x" << cell_x
-                    <<  " y" << cell_y;
-
             // was low res, now high res
             clip_rect = std::make_unique<gfx::Rect>(tile_rect);
             tile_is_low_res_.erase(cell);
           } else if (!highres && !tile_is_low_res_.count(cell)) {
             if (clip_rect->IsEmpty()) continue;
-                        LOG(ERROR) << "tile becoming lowres: layer" <<  layer_id_
-                    <<  " x" << cell_x
-                    <<  " y" << cell_y;
-
-                    for (auto const &p: tile_is_low_res_)
-                      LOG(ERROR) << p.first << " " << p.second;
                     
             tile_is_low_res_.insert(cell);
           }
 
           if (clip_rect->IsEmpty()) continue;
 
-          LOG(ERROR) << "render: layer" <<  layer_id_
-                    <<  " x" << cell_x
-                    <<  " y" << cell_y
-                    <<  " scale" << scale;
-
           if (!pic) pic = layer_->GetPicture();
           if (!pic) continue;
+
+          scale *= ins_->GetDPR();
+
 
           outstanding_images_++;
 
@@ -337,7 +334,7 @@ public:
     }
 
     if (msg->hasZIndex() || msg->hasTargets() || msg->hasBufferUpdates() || msg->hasLayerInfo())
-      fe_->streamLayerInfo(std::move(msg));
+      ins_->GetFrontend()->streamLayerInfo(std::move(msg));
 
     if (!outstanding_images_) std::move(callback_).Run();
   }
@@ -377,7 +374,7 @@ public:
               .build();
       
       msg->setTargets(std::move(targets));
-      fe_->streamLayerInfo(std::move(msg));
+      ins_->GetFrontend()->streamLayerInfo(std::move(msg));
     }
   }
 
@@ -394,7 +391,7 @@ public:
                   .setBufferUpdates(std::move(buList))
                   .build();
 
-    fe_->streamLayerInfo(std::move(msg));
+    ins_->GetFrontend()->streamLayerInfo(std::move(msg));
 
     if (!outstanding_images_) std::move(callback_).Run();
   }
@@ -411,13 +408,17 @@ private:
 
   bool deleted_;
   std::map<int, std::unique_ptr<protocol::PageStream::ClickTarget>> click_targets_;
-  protocol::PageStream::Metainfo::FrontendClass* fe_;
+  WeakPersistent<InspectorPageStreamAgent> ins_;
 
   std::set<std::pair<int, int>> tile_is_low_res_;
 
   DISALLOW_COPY_AND_ASSIGN(ClientSideLayer);
 
 };
+
+float InspectorPageStreamAgent::GetDPR() {
+  return inspected_frames_->Root()->DevicePixelRatio();          
+}
 
 Response InspectorPageStreamAgent::disable() {
   instrumenting_agents_->RemoveInspectorPageStreamAgent(this);
@@ -428,10 +429,14 @@ Response InspectorPageStreamAgent::disable() {
   return Response::OK();
 }
 
+void InspectorPageStreamAgent::flush(std::unique_ptr<FlushCallback> cb) {
+  flush_callbacks_.push_back(std::move(cb));
+  LayerTreeDidChange();
+}
 
 void InspectorPageStreamAgent::LayerTreePainted() {
   //GetFrontend()->debugInfo(inspected_frames_->Root()->View()->CompositedLayersAsJSON(static_cast<LayerTreeFlags>(-1))->ToPrettyJSONString());
-  //LOG(ERROR) << "LayerTreePainted"; // << base::debug::StackTrace();;  // 1st
+  //LOG(ERROR) << "LayerTreePainted" << base::debug::StackTrace();;  // 1st
 
      // GetPropertyTreesJSON(),
      // GetLayerImplJSON()
@@ -443,14 +448,30 @@ void InspectorPageStreamAgent::LayerRefreshComplete() {
     if (RootLayer() && RootLayer()->layer_tree_host())
       RootLayer()->layer_tree_host()->StopDeferringCommits(cc::PaintHoldingCommitTrigger::kDisallowed);
     if (GetFrontend()) GetFrontend()->frameDone();
-    LOG(ERROR) << "send_framedone";
+    if (frame_is_queued_) {
+      frame_is_queued_ = false;
+      LayerTreeDidChange();
+    }
+    if (!pending_frame_refreshs_ && !frame_is_queued_) {
+      for (auto& c : flush_callbacks_) {
+        c->sendSuccess();
+      }
+      flush_callbacks_.clear();
+    }
   }
 }
 
 void InspectorPageStreamAgent::LayerTreeDidChange() {
+
+  if (!RootLayer() || !RootLayer()->layer_tree_host())
+    return;
+
   // Defer everything till rendering is complete
   RootLayer()->layer_tree_host()->StartDeferringCommits(base::TimeDelta::Max());
 
+  //LOG(ERROR) << "LayerTreeDidChange" << base::debug::StackTrace();;  // 2nd ?
+
+  if (!GetFrontend()) return;
   
 
   // Set layer order if necessary
@@ -460,7 +481,7 @@ void InspectorPageStreamAgent::LayerTreeDidChange() {
     if (!layers_.Contains(layer))
       layers_.insert(layer, 
         base::MakeRefCounted<ClientSideLayer>(
-          layer, GetFrontend()));
+          layer, this));
 
     layers_.find(layer)->value->zIndex(i++);
 
@@ -469,14 +490,18 @@ void InspectorPageStreamAgent::LayerTreeDidChange() {
   }
 
   // still processing the last layer?  We just record dirty regions and exit.
+  // This means our 'defer commits' didn't work...  Instead we will set a flag, and come back
+  // to this when we're done with the last frame. 
   if (pending_frame_refreshs_) {
     for (const auto& it : layers_ )
       it.value->MakeDirty();
+    frame_is_queued_ = true;
     LOG(ERROR) << "partial-frame";
     return;
   }
 
-  LOG(ERROR) << "full-frame";
+  GetFrontend()->frameStart();
+
 
   pending_frame_refreshs_++;
 
@@ -512,10 +537,8 @@ void InspectorPageStreamAgent::LayerTreeDidChange() {
     pending_frame_refreshs_++;
     auto l = layers_.find(layer)->value;
 
-    gfx::Rect visible_region = GetVisibleRect(layer, RootLayer()->layer_tree_host());
-
     l->MakeDirty();
-    l->Refresh(visible_region, target_bandwidth_.Get()>0?100:10, 
+    l->Refresh(target_bandwidth_.Get()>0?100:10, 
           base::BindOnce(&InspectorPageStreamAgent::LayerRefreshComplete,
             WrapPersistent(this)));
   }

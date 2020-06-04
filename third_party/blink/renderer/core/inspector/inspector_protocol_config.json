@@ -79,7 +79,8 @@
                 "exclude_events": ["screencastFrame", "screencastVisibilityChanged", "colorPicked", "interstitialShown", "interstitialHidden", "javascriptDialogOpening", "javascriptDialogClosed", "navigationRequested"]
             },
             {
-                "domain": "PageStream"
+                "domain": "PageStream",
+                "async": ["flush"]
             },
             {
                 "domain": "Performance"

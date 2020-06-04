@@ -51,8 +51,8 @@ class PictureSnapshot;
 class CORE_EXPORT InspectorPageStreamAgent final
     : public InspectorBaseAgent<protocol::PageStream::Metainfo> {
  public:
-
   class ClientSideLayer;
+  friend class ClientSideLayer;
 
   InspectorPageStreamAgent(InspectedFrames*);
   ~InspectorPageStreamAgent() override;
@@ -72,11 +72,15 @@ class CORE_EXPORT InspectorPageStreamAgent final
   	protocol::Maybe<bool> auto_open_click_targets) override;
   
   protocol::Response disable() override;
+
+  void flush(std::unique_ptr<FlushCallback>) override;
   
   protocol::Response setScroll(int backend_node_id, int x, int y)
       override;
 
   protocol::Response clickNode(int backend_node_id) override;
+protected:
+  float GetDPR();
 
  private:
   const cc::Layer* RootLayer();
@@ -88,6 +92,8 @@ class CORE_EXPORT InspectorPageStreamAgent final
 
   bool pending_click_target_update_;
   int pending_frame_refreshs_;
+
+  bool frame_is_queued_;
 
   using LayerMap = HashMap<cc::Layer*, scoped_refptr<ClientSideLayer>>;
   LayerMap layers_;
@@ -101,6 +107,8 @@ class CORE_EXPORT InspectorPageStreamAgent final
   InspectorAgentState::Boolean auto_open_click_targets_;
 
   InspectorAgentState::Boolean enabled_;
+
+  std::vector<std::unique_ptr<FlushCallback>> flush_callbacks_;
 
   DISALLOW_COPY_AND_ASSIGN(InspectorPageStreamAgent);
 };
