@@ -90,6 +90,27 @@ static std::unique_ptr<protocol::DOM::Rect> BuildObjectForRect(
       .build();
 }
 
+std::string GetPropertyTreesJSON(cc::PropertyTrees* p) {
+  base::trace_event::TracedValueJSON value;
+  value.BeginDictionary("transform_tree");
+  p->transform_tree.AsValueInto(&value);
+  value.EndDictionary();
+
+  value.BeginDictionary("effect_tree");
+  p->effect_tree.AsValueInto(&value);
+  value.EndDictionary();
+
+  value.BeginDictionary("clip_tree");
+  p->clip_tree.AsValueInto(&value);
+  value.EndDictionary();
+
+  value.BeginDictionary("scroll_tree");
+  p->scroll_tree.AsValueInto(&value);
+  value.EndDictionary();
+
+  return value.ToJSON();
+}
+
 /* Keeps track of which areas of a layer are dirty */
 // TODO:  This could be made much much more accurate...
 class RegionStateTracker {
@@ -518,7 +539,7 @@ void InspectorPageStreamAgent::LayerTreeDidChange() {
   
 
   // Send Prop Trees if necessary
-  std::string prop_trees = RootLayer()->layer_tree_host()->property_trees()->ToString();
+  std::string prop_trees = GetPropertyTreesJSON(RootLayer()->layer_tree_host()->property_trees());
   if (prop_trees_ != prop_trees) {
     prop_trees_ = std::move(prop_trees);
     GetFrontend()->streamPropTrees(Maybe<String>(prop_trees_.c_str()));
