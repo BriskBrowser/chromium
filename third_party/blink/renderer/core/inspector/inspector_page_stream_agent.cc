@@ -236,6 +236,11 @@ void RenderPictureAndPostResult(scoped_refptr<base::SingleThreadTaskRunner> task
                                 double scale, int quality,
                                 WTF::CrossThreadOnceFunction<void(std::unique_ptr<protocol::PageStream::BufferUpdate>)> result_callback) {
   String imagedata = RenderPicture(input, *clip_rect, scale, quality);
+
+  // Not quite sure why this isn't safe to send, but lets make a copy for now
+  // to avoid crashes...
+  if (!imagedata.IsSafeToSendToAnotherThread())
+      imagedata = imagedata.IsolatedCopy();
   
   auto buf_msg = protocol::PageStream::BufferUpdate::create()
     .setImage(std::move(imagedata))
