@@ -237,13 +237,8 @@ void RenderPictureAndPostResult(scoped_refptr<base::SingleThreadTaskRunner> task
                                 WTF::CrossThreadOnceFunction<void(std::unique_ptr<protocol::PageStream::BufferUpdate>)> result_callback) {
   String imagedata = RenderPicture(input, *clip_rect, scale, quality);
 
-  // Not quite sure why this isn't safe to send, but lets make a copy for now
-  // to avoid crashes...
-  if (!imagedata.IsSafeToSendToAnotherThread())
-      imagedata = imagedata.IsolatedCopy();
-  
   auto buf_msg = protocol::PageStream::BufferUpdate::create()
-    .setImage(std::move(imagedata))
+    .setImage(imagedata.IsolatedCopy())
     .setClip(BuildObjectForRect(*clip_rect))
     .build();
 
@@ -316,7 +311,7 @@ public:
           clip_rect->Intersect(tile_rect);
 
           
-          float scale = 0.2;
+          float scale = 0.25;
           bool highres = visible_region.Intersects(tile_rect);
 
           auto cell = std::make_pair(cell_x, cell_y);
@@ -340,6 +335,8 @@ public:
 
           scale *= ins_->GetDPR();
 
+          //scale = scale * 0.125;
+          quality = 10;
 
           outstanding_images_++;
 
@@ -385,11 +382,28 @@ public:
     // New or changed
     for (auto &m : click_targets) {
       protocol::Array<protocol::Array<double>> empty = {};
-      if (!click_targets_.count(m.first) ||
-        *m.second->getContainingQuads(&empty)
-         != *click_targets_.at(m.first)->getContainingQuads(&empty)) {
-        targets->emplace_back(m.second->clone());
+
+      bool needs_sending = false;
+
+      // new target
+      if (!click_targets_.count(m.first)) needs_sending = true;
+
+      if (!needs_sending) {
+
+        auto* new_target = m.second->getContainingQuads(&empty);
+        auto* existing_target = click_targets_.at(m.first)->getContainingQuads(&empty);
+
+        if (new_target->size() != existing_target->size()) needs_sending = true;
+
+        for (unsigned long i=0; i<new_target->size(); i++) {
+          if (!needs_sending && 
+            *(*new_target)[i] != *(*existing_target)[i])
+            needs_sending = true;
+        }
+        
       }
+
+      if (needs_sending) targets->emplace_back(m.second->clone());
     }
     
     click_targets_ = std::move(click_targets);
@@ -550,10 +564,7 @@ void InspectorPageStreamAgent::LayerTreeDidChange() {
     GetFrontend()->streamPropTrees(Maybe<String>(prop_trees_.c_str()));
   }
 
-  if (!pending_click_target_update_)
-    inspected_frames_->Root()->GetTaskRunner(TaskType::kDOMManipulation)->PostTask(FROM_HERE,
-                       base::BindOnce(&InspectorPageStreamAgent::updateClickTargets,
-                                 WrapPersistent(this)));
+  updateClickTargets();
 
   pending_click_target_update_ = true;
 
@@ -689,10 +700,7 @@ Response InspectorPageStreamAgent::setScroll(int cc_element_id, int x, int y) {
 
   root_layer->layer_tree_host()->property_trees()->scroll_tree.NotifyDidScroll(cc::ElementId(cc_element_id), gfx::ScrollOffset(x, y), base::nullopt);
 
-  if (!pending_click_target_update_)
-    inspected_frames_->Root()->GetTaskRunner(TaskType::kDOMManipulation)->PostTask(FROM_HERE,
-                       base::BindOnce(&InspectorPageStreamAgent::updateClickTargets,
-                                 WrapPersistent(this)));
+  updateClickTargets();
 
   pending_click_target_update_ = true;
 
