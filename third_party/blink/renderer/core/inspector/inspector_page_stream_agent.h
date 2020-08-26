@@ -48,6 +48,12 @@ namespace blink {
 class InspectedFrames;
 class PictureSnapshot;
 
+typedef char TileQuality;
+constexpr TileQuality kTileQualityDirty = 0;
+constexpr TileQuality kTileQualityLowRes = 1;
+constexpr TileQuality kTileQualityHighRes = 2;
+
+
 class CORE_EXPORT InspectorPageStreamAgent final
     : public InspectorBaseAgent<protocol::PageStream::Metainfo> {
  public:
@@ -83,8 +89,10 @@ protected:
   float GetDPR();
 
  private:
+  void LayerTreeDidChangeInternal(bool);
+  
   const cc::Layer* RootLayer();
-  void LayerRefreshComplete();
+  void LayerRefreshComplete(bool all_done);
 
   void updateClickTargets();
 
@@ -94,6 +102,8 @@ protected:
   int pending_frame_refreshs_;
 
   bool frame_is_queued_;
+  bool layer_refresh_missed_deadline_;
+  TileQuality layer_refresh_quality_;
 
   using LayerMap = HashMap<cc::Layer*, scoped_refptr<ClientSideLayer>>;
   LayerMap layers_;

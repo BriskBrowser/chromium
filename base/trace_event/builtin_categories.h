@@ -106,6 +106,7 @@
   X("omnibox")                                                           \
   X("oobe")                                                              \
   X("ozone")                                                             \
+  X("pagestream")                                                         \
   X("passwords")                                                         \
   X("p2p")                                                               \
   X("page-serialization")                                                \
