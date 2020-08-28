@@ -3534,6 +3534,10 @@ experimental domain PageStream
       # TODO:  Refactor API to send diffs of only specific things that change.
       optional string propertyTreesJSON
 
+  event setKeyboardState
+    parameters
+      boolean showing
+
 experimental domain LayerTree
   depends on DOM
 

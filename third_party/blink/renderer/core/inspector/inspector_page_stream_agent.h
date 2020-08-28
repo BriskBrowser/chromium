@@ -37,7 +37,9 @@
 #include "third_party/blink/renderer/core/inspector/inspector_base_agent.h"
 #include "third_party/blink/renderer/core/inspector/protocol/PageStream.h"
 #include "third_party/blink/renderer/platform/timer.h"
+#include "third_party/blink/renderer/platform/widget/input/ime_event_guard.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+
 
 namespace cc {
 class Layer;
@@ -109,6 +111,9 @@ protected:
   LayerMap layers_;
 
   std::string prop_trees_;
+
+  std::unique_ptr<ImeEventGuard> keyboard_guard_;
+  bool keyboard_is_showing_;
 
   // Config from client
   InspectorAgentState::Integer target_bandwidth_;

@@ -151,6 +151,7 @@ InspectorPageStreamAgent::InspectorPageStreamAgent(
     pending_click_target_update_(false), 
     pending_frame_refreshs_(0), 
     layer_refresh_missed_deadline_(false),
+    keyboard_is_showing_(false),
     target_bandwidth_(&agent_state_, /*default_value=*/-1),
     fps_(&agent_state_, /*default_value=*/-1),
     send_click_targets_(&agent_state_, /*default_value=*/true),
@@ -643,7 +644,7 @@ void InspectorPageStreamAgent::LayerTreeDidChangeInternal(bool no_dirty) {
   }
   LayerRefreshComplete(true);
 }
-  
+
 const cc::Layer* InspectorPageStreamAgent::RootLayer() {
   if (inspected_frames_->Root()->View())
     return inspected_frames_->Root()->View()->RootCcLayer();
@@ -691,6 +692,19 @@ static std::unique_ptr<protocol::PageStream::ClickTarget> BuildClickTarget(Node*
           .setBackendNodeId(IdentifiersFactory::IntIdForNode(node))
           .setContainingQuads(std::move(layer_quads))
           .build();
+}
+
+void InspectorPageStreamAgent::updateKeyboard() {
+
+  if (inspected_frames_->Root() && !keyboard_guard_) {
+    keyboard_guard_.reset(ImeGuard(inspected_frames_->Root()));
+  }
+
+  if (keyboard_is_showing_ != keyboard_guard_.show_virtual_keyboard()) {
+    keyboard_is_showing_ = keyboard_guard_.show_virtual_keyboard();
+
+    GetFrontend()->setKeyboardState(keyboard_is_showing_);
+  };
 }
 
 void InspectorPageStreamAgent::updateClickTargets() {
